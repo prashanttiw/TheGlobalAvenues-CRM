@@ -6,35 +6,51 @@ import { motion, useScroll, useTransform, AnimatePresence } from 'motion/react';
 const HERO_SLIDES = [
   {
     image: '/hero/university-hall-hero.jpg',
-    headline: 'The Global Avenues.',
-    highlight: 'Your International Education Partner.',
-    sub: 'Education, consulting, and collaborations for students, institutions, and recruitment partners.',
+    headline: 'Your Dream University.',
+    highlight: 'One Platform Away.',
+    sub: 'Navigate admissions, visa, counselling - all in one place. Built for students from South Asia.',
   },
   {
     image: '/hero/library-study-hero.jpg',
-    headline: 'Verified Partner Portfolio.',
-    highlight: 'Across 12+ Countries.',
-    sub: 'Explore applied sciences, business, design, medical, and innovation-led international pathways.',
+    headline: '100+ Partner Universities.',
+    highlight: 'Across 40+ Countries.',
+    sub: 'From exclusive MOU partners to a global network - find your perfect institution.',
   },
   {
-    image: '/universities/fh-kufstein-tirol-hero.webp',
-    headline: 'Institution Representation.',
-    highlight: 'Market Growth Support.',
-    sub: 'ICEF-certified quality with recruitment operations, agent management, and application support.',
+    image: '/universities/elmhurst-university-hero.jpg',
+    headline: '98% Visa Success Rate.',
+    highlight: 'Expert Guidance.',
+    sub: 'ICEF certified counsellors with 12+ years of experience in international education.',
   },
 ];
 
 const STATS = [
-  { icon: GraduationCap, value: '15+', label: 'Partner Institutions', color: '#FD7E14' },
-  { icon: Globe2,        value: '12+', label: 'Countries',             color: '#FFC107' },
-  { icon: CheckCircle2,  value: '86%', label: 'Visa Success',          color: '#4CAF50' },
-  { icon: Users,         value: '4K+', label: 'Students Recruited',    color: '#D32F2F' },
+  { icon: GraduationCap, value: '100+', label: 'Partner Universities', color: '#FD7E14' },
+  { icon: Globe2,        value: '40+',  label: 'Countries',            color: '#FFC107' },
+  { icon: CheckCircle2,  value: '98%',  label: 'Visa Success',         color: '#4CAF50' },
+  { icon: Users,         value: '4K+',  label: 'Students Recruited',   color: '#D32F2F' },
 ];
 
 const FLOATING_BADGES = [
-  { text: 'ICEF Certified', delay: 0, x: '8%', y: '30%' },
-  { text: 'ICN France Portfolio', delay: 1.5, x: '78%', y: '22%' },
-  { text: '600+ Channel Partners', delay: 3, x: '82%', y: '65%' },
+  { text: '🇬🇧 UK Visa Approved', delay: 0, x: '8%', y: '30%' },
+  { text: '🎓 Offer from ICN France', delay: 1.5, x: '78%', y: '22%' },
+  { text: '✅ Scholarship Secured', delay: 3, x: '82%', y: '65%' },
+];
+
+const SPARKLE_POINTS = [
+  { x: '12%', y: '18%', size: 3, delay: 0 },
+  { x: '22%', y: '72%', size: 2, delay: 0.7 },
+  { x: '31%', y: '29%', size: 2, delay: 1.4 },
+  { x: '39%', y: '82%', size: 3, delay: 2.1 },
+  { x: '48%', y: '17%', size: 2, delay: 2.8 },
+  { x: '57%', y: '68%', size: 2, delay: 3.5 },
+  { x: '66%', y: '31%', size: 3, delay: 4.2 },
+  { x: '73%', y: '78%', size: 2, delay: 4.9 },
+  { x: '84%', y: '39%', size: 3, delay: 5.6 },
+  { x: '91%', y: '16%', size: 2, delay: 6.3 },
+  { x: '17%', y: '44%', size: 1.5, delay: 1.1 },
+  { x: '52%', y: '48%', size: 1.5, delay: 2.4 },
+  { x: '88%', y: '61%', size: 1.5, delay: 3.7 },
 ];
 
 export function HeroSection() {
@@ -72,6 +88,57 @@ export function HeroSection() {
       {/* ── Multi-layer gradient overlay ── */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#0D0500]/85 via-[#1A0800]/70 to-[#FD7E14]/15" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#FFFCF5] via-transparent to-transparent opacity-[0.08]" />
+      <div className="absolute inset-0 dot-grid opacity-25 pointer-events-none" />
+      <div className="absolute inset-0 noise pointer-events-none" />
+
+      {/* Subtle sparkle layer for the original hero atmosphere */}
+      <div className="absolute inset-0 pointer-events-none hidden md:block">
+        {SPARKLE_POINTS.map((point, i) => (
+          <motion.span
+            key={i}
+            className="absolute rounded-full bg-white shadow-[0_0_14px_rgba(255,193,7,0.75)]"
+            style={{
+              left: point.x,
+              top: point.y,
+              width: point.size,
+              height: point.size,
+            }}
+            animate={{
+              opacity: [0.12, 0.9, 0.18],
+              scale: [0.7, 1.7, 0.9],
+              y: [0, -8, 0],
+            }}
+            transition={{
+              duration: 4.5,
+              delay: point.delay,
+              repeat: Infinity,
+              ease: 'easeInOut',
+            }}
+          />
+        ))}
+      </div>
+
+      {/* ── Animated mesh gradient orbs ── */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          className="absolute w-[600px] h-[600px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(253,126,20,0.18) 0%, transparent 70%)', top: '-10%', left: '-10%' }}
+          animate={{ scale: [1, 1.2, 1], x: [0, 30, 0], y: [0, 20, 0] }}
+          transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute w-[500px] h-[500px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(211,47,47,0.12) 0%, transparent 70%)', bottom: '5%', right: '-5%' }}
+          animate={{ scale: [1, 1.15, 1], x: [0, -20, 0], y: [0, -15, 0] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+        />
+        <motion.div
+          className="absolute w-[400px] h-[400px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(255,193,7,0.10) 0%, transparent 70%)', top: '40%', left: '40%' }}
+          animate={{ scale: [1, 1.3, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut', delay: 4 }}
+        />
+      </div>
 
       {/* ── Floating notification badges ── */}
       <div className="absolute inset-0 pointer-events-none hidden lg:block">
@@ -81,8 +148,8 @@ export function HeroSection() {
             className="absolute"
             style={{ left: badge.x, top: badge.y }}
             initial={{ opacity: 0, y: 20, scale: 0.8 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.45, delay: badge.delay + 0.4 }}
+            animate={{ opacity: [0, 1, 1, 0], y: [20, 0, 0, -10], scale: [0.8, 1, 1, 0.9] }}
+            transition={{ duration: 4, delay: badge.delay + 2, repeat: Infinity, repeatDelay: 8 }}
           >
             <div className="flex items-center gap-2 px-4 py-2.5 bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] border border-white/50">
               <span className="text-sm font-semibold text-[#1C1C1E] whitespace-nowrap">{badge.text}</span>
