@@ -103,8 +103,8 @@ export function HeroSection() {
             className="absolute"
             style={{ left: badge.x, top: badge.y }}
             initial={{ opacity: 0, y: 20, scale: 0.8 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.45, delay: badge.delay + 0.4 }}
+            animate={{ opacity: [0, 1, 1, 0], y: [20, 0, 0, -10], scale: [0.8, 1, 1, 0.9] }}
+            transition={{ duration: 4, delay: badge.delay + 2, repeat: Infinity, repeatDelay: 8 }}
           >
             <div className="flex items-center gap-2 px-4 py-2.5 bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] border border-white/50">
               <span className="text-sm font-semibold text-[#1C1C1E] whitespace-nowrap">{badge.text}</span>
