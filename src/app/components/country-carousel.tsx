@@ -4,39 +4,39 @@ import { motion } from 'motion/react';
 
 const countries = [
   {
-    name: 'United Kingdom',
-    flag: '🇬🇧',
-    avgFee: '£15,000 - £35,000/year',
-    workVisa: '2 years (3 years for PhD)',
-    topUniversities: 5,
-    image: 'https://images.unsplash.com/photo-1627131715233-480b34985c00?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsb25kb24lMjB1bml2ZXJzaXR5fGVufDF8fHx8MTc2ODEzODU2Nnww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
+    name: 'Austria',
+    flag: 'AT',
+    avgFee: 'EUR 700-EUR 800/year',
+    workVisa: 'Residence route depends on profile',
+    topUniversities: 1,
+    image: '/universities/fh-kufstein-tirol-hero.webp',
     color: 'from-[#D32F2F] to-[#FF5722]',
   },
   {
-    name: 'United States',
-    flag: '🇺🇸',
-    avgFee: '$25,000 - $55,000/year',
-    workVisa: '3 years (STEM OPT)',
-    topUniversities: 8,
-    image: 'https://images.unsplash.com/photo-1663049964372-05a2e9f0998c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWVyaWNhbiUyMHVuaXZlcnNpdHl8ZW58MXx8fHwxNzY4MTM4NTY3fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
+    name: 'Estonia',
+    flag: 'EE',
+    avgFee: 'EUR 6,260-EUR 8,740/year',
+    workVisa: 'Residence route depends on profile',
+    topUniversities: 1,
+    image: '/universities/euas-hero.jpg',
     color: 'from-[#FD7E14] to-[#FF8C42]',
   },
   {
-    name: 'Canada',
-    flag: '🇨🇦',
-    avgFee: 'CAD 20,000 - 40,000/year',
-    workVisa: '3 years PGWP',
-    topUniversities: 6,
-    image: 'https://images.unsplash.com/photo-1618255630366-f402c45736f6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYW5hZGlhbiUyMGNhbXB1c3xlbnwxfHx8fDE3NjgxMzg1NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
+    name: 'France',
+    flag: 'FR',
+    avgFee: 'Program specific',
+    workVisa: 'Campus France process',
+    topUniversities: 3,
+    image: '/universities/icn-business-school-hero.png',
     color: 'from-[#FF5722] to-[#FF7043]',
   },
   {
-    name: 'Germany',
-    flag: '🇩🇪',
-    avgFee: '€0 - €20,000/year',
-    workVisa: '18 months job search',
-    topUniversities: 4,
-    image: 'https://images.unsplash.com/photo-1760131556605-7f2e63d00385?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB1bml2ZXJzaXR5JTIwY2FtcHVzfGVufDF8fHx8MTc2ODEzODU2NHww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral',
+    name: 'Cyprus',
+    flag: 'CY',
+    avgFee: 'Program specific',
+    workVisa: 'Institution-guided file',
+    topUniversities: 2,
+    image: '/universities/mesoyios-college-hero.webp',
     color: 'from-[#C94D1B] to-[#D84315]',
   },
 ];
@@ -59,11 +59,10 @@ export function CountryCarousel() {
             <span className="text-sm text-[#FD7E14] font-semibold">Top Destinations</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold text-[#222222] mb-4">
-            Where Dreams Take Flight
+            The Global Avenues Partner Destinations
           </h2>
           <p className="text-lg text-[#666666] max-w-2xl mx-auto">
-            Explore world-class education opportunities across the globe with comprehensive visa
-            and application support.
+            Explore verified partner countries with application and documentation support from The Global Avenues.
           </p>
         </motion.div>
 

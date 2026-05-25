@@ -2,14 +2,14 @@ import { Award, TrendingUp } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const scholarshipWins = [
-  { name: 'Priya Sharma', amount: '$25,000', university: 'Harvard University', country: 'USA' },
-  { name: 'Rahul Gupta', amount: '$18,000', university: 'Oxford University', country: 'UK' },
-  { name: 'Ananya Singh', amount: '$30,000', university: 'University of Toronto', country: 'Canada' },
-  { name: 'Arjun Patel', amount: '$22,000', university: 'TU Munich', country: 'Germany' },
-  { name: 'Neha Verma', amount: '$20,000', university: 'Stanford University', country: 'USA' },
-  { name: 'Vikram Mehta', amount: '$15,000', university: 'Cambridge University', country: 'UK' },
-  { name: 'Kavya Reddy', amount: '$28,000', university: 'McGill University', country: 'Canada' },
-  { name: 'Aditya Kumar', amount: '$19,000', university: 'MIT', country: 'USA' },
+  { name: 'FH Kufstein Tirol', amount: 'AI, Data Science, Sustainability', university: 'Applied sciences pathways', country: 'Austria' },
+  { name: 'EUAS', amount: 'Business, IT, Design', university: 'Tallinn innovation campus', country: 'Estonia' },
+  { name: 'ICN Business School', amount: 'Business and management', university: 'Multi-campus options', country: 'France/Germany' },
+  { name: 'MJM Graphic Design', amount: 'Design and creative arts', university: 'Paris and London programs', country: 'France' },
+  { name: 'Mesoyios College', amount: 'Hospitality and business', university: 'Practical career pathways', country: 'Cyprus' },
+  { name: 'International American University', amount: 'Business and graduate routes', university: 'Global campus network', country: 'USA/Malta/UAE' },
+  { name: "St. George's University", amount: 'Medicine and veterinary', university: 'Clinical training pathways', country: 'Grenada' },
+  { name: 'EIT InnoEnergy', amount: 'Sustainable energy masters', university: 'European innovation ecosystem', country: 'Europe' },
 ];
 
 export function InnovationBar() {
@@ -23,7 +23,7 @@ export function InnovationBar() {
       <div className="relative flex items-center gap-3 mb-3">
         <div className="flex items-center gap-2 px-4">
           <TrendingUp className="w-5 h-5 text-[#333333]" />
-          <span className="text-sm font-semibold text-[#333333]">Live Scholarship Wins</span>
+          <span className="text-sm font-semibold text-[#333333]">Featured Partner Pathways</span>
         </div>
       </div>
 
@@ -50,9 +50,9 @@ export function InnovationBar() {
               <Award className="w-5 h-5 text-[#FD7E14]" />
               <div className="flex items-center gap-2">
                 <span className="text-[#333333] font-semibold">{win.name}</span>
-                <span className="text-[#666666]">won</span>
+                <span className="text-[#666666]">offers</span>
                 <span className="text-[#D32F2F] font-bold">{win.amount}</span>
-                <span className="text-[#666666]">at</span>
+                <span className="text-[#666666]">through</span>
                 <span className="text-[#333333] font-medium">{win.university}</span>
                 <span className="text-[#999999]">({win.country})</span>
               </div>

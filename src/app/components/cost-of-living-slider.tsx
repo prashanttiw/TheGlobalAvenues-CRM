@@ -4,48 +4,48 @@ import { motion } from 'motion/react';
 
 const cities = [
   {
-    name: 'London',
-    country: 'UK',
-    currency: '£',
+    name: 'Kufstein',
+    country: 'Austria',
+    currency: 'EUR',
     costs: {
-      budget: { rent: 600, groceries: 200, transport: 80, entertainment: 100, total: 980 },
-      comfortable: { rent: 1200, groceries: 350, transport: 150, entertainment: 250, total: 1950 },
-      luxury: { rent: 2500, groceries: 600, transport: 300, entertainment: 500, total: 3900 },
+      budget: { rent: 450, groceries: 220, transport: 60, entertainment: 90, total: 820 },
+      comfortable: { rent: 750, groceries: 320, transport: 90, entertainment: 180, total: 1340 },
+      luxury: { rent: 1200, groceries: 500, transport: 150, entertainment: 320, total: 2170 },
     },
-    image: 'https://images.unsplash.com/photo-1627131715233-480b34985c00?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsb25kb24lMjB1bml2ZXJzaXR5fGVufDF8fHx8MTc2ODEzODU2Nnww&ixlib=rb-4.1.0&q=80&w=1080',
+    image: '/universities/fh-kufstein-tirol-hero.webp',
   },
   {
-    name: 'New York',
-    country: 'USA',
-    currency: '$',
+    name: 'Tallinn',
+    country: 'Estonia',
+    currency: 'EUR',
     costs: {
-      budget: { rent: 1200, groceries: 300, transport: 120, entertainment: 150, total: 1770 },
-      comfortable: { rent: 2500, groceries: 500, transport: 200, entertainment: 350, total: 3550 },
-      luxury: { rent: 5000, groceries: 900, transport: 400, entertainment: 700, total: 7000 },
+      budget: { rent: 380, groceries: 210, transport: 40, entertainment: 80, total: 710 },
+      comfortable: { rent: 650, groceries: 300, transport: 70, entertainment: 160, total: 1180 },
+      luxury: { rent: 1100, groceries: 480, transport: 120, entertainment: 300, total: 2000 },
     },
-    image: 'https://images.unsplash.com/photo-1663049964372-05a2e9f0998c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWVyaWNhbiUyMHVuaXZlcnNpdHl8ZW58MXx8fHwxNzY4MTM4NTY3fDA&ixlib=rb-4.1.0&q=80&w=1080',
+    image: '/universities/euas-hero.jpg',
   },
   {
-    name: 'Toronto',
-    country: 'Canada',
-    currency: 'CAD',
+    name: 'Paris',
+    country: 'France',
+    currency: 'EUR',
     costs: {
-      budget: { rent: 900, groceries: 250, transport: 100, entertainment: 120, total: 1370 },
-      comfortable: { rent: 1800, groceries: 450, transport: 180, entertainment: 300, total: 2730 },
-      luxury: { rent: 3500, groceries: 800, transport: 350, entertainment: 600, total: 5250 },
+      budget: { rent: 700, groceries: 260, transport: 85, entertainment: 120, total: 1165 },
+      comfortable: { rent: 1200, groceries: 420, transport: 95, entertainment: 260, total: 1975 },
+      luxury: { rent: 2200, groceries: 700, transport: 180, entertainment: 500, total: 3580 },
     },
-    image: 'https://images.unsplash.com/photo-1618255630366-f402c45736f6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYW5hZGlhbiUyMGNhbXB1c3xlbnwxfHx8fDE3NjgxMzg1NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    image: '/universities/icn-business-school-hero.png',
   },
   {
-    name: 'Munich',
-    country: 'Germany',
-    currency: '€',
+    name: 'Nicosia',
+    country: 'Cyprus',
+    currency: 'EUR',
     costs: {
-      budget: { rent: 700, groceries: 200, transport: 70, entertainment: 100, total: 1070 },
-      comfortable: { rent: 1300, groceries: 350, transport: 120, entertainment: 250, total: 2020 },
-      luxury: { rent: 2500, groceries: 600, transport: 250, entertainment: 500, total: 3850 },
+      budget: { rent: 350, groceries: 220, transport: 50, entertainment: 90, total: 710 },
+      comfortable: { rent: 650, groceries: 330, transport: 80, entertainment: 180, total: 1240 },
+      luxury: { rent: 1100, groceries: 520, transport: 140, entertainment: 320, total: 2080 },
     },
-    image: 'https://images.unsplash.com/photo-1760131556605-7f2e63d00385?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB1bml2ZXJzaXR5JTIwY2FtcHVzfGVufDF8fHx8MTc2ODEzODU2NHww&ixlib=rb-4.1.0&q=80&w=1080',
+    image: '/universities/mesoyios-college-hero.webp',
   },
 ];
 
@@ -83,7 +83,7 @@ export function CostOfLivingSlider() {
             Estimate Your Living Costs
           </h2>
           <p className="text-lg text-[#6B7280] max-w-2xl mx-auto">
-            Adjust your lifestyle to see real-time monthly expenses in your dream city
+            Estimate planning budgets for key The Global Avenues partner destinations
           </p>
         </div>
 

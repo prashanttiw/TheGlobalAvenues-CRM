@@ -17,7 +17,7 @@ COMPANY = {
   whatsapp: '+911146801133',
   address:  'A 6, Block A, South Extension II, New Delhi, Delhi 110049, India',
   
-  logoUrl:  'https://theglobalavenues.com/logo-footer-white-transparent.png',
+  logoUrl:  '/logo-footer-white-transparent.png',
   
   certifications: ['ICEF Certified', 'AIRC Member'],
   
@@ -59,7 +59,7 @@ COMPANY = {
 
 ## Partner Universities (`src/data/universities.ts`)
 
-**Source:** https://theglobalavenues.com/portfolio (scraped May 2026)
+**Source:** /portfolio (scraped May 2026)
 
 All 12 universities are **real exclusive partners** with signed MOUs.
 
@@ -109,8 +109,8 @@ interface University {
 
 All university images are hosted on `theglobalavenues.com`:
 ```
-Logo:  https://theglobalavenues.com/universities/{slug}-logo.{ext}
-Hero:  https://theglobalavenues.com/universities/{slug}-hero.{ext}
+Logo:  /universities/{slug}-logo.{ext}
+Hero:  /universities/{slug}-hero.{ext}
 ```
 
 **To add a new university:**
@@ -251,7 +251,7 @@ All destination hero images are from Unsplash with `?w=1200&q=80` parameters.
 ### University images (from theglobalavenues.com CDN)
 
 ```
-https://theglobalavenues.com/universities/{filename}
+/universities/{filename}
 ```
 
 These are hosted on the client's own CDN. They are stable and will not change.
@@ -301,8 +301,8 @@ Dropdown items are in: `src/components/layout/Header.tsx` → `DROPDOWN_ITEMS`
   countryCode: 'XX',
   city: 'City Name',
   tier: 'exclusive',  // or 'preferred' or 'open'
-  logo: 'https://theglobalavenues.com/universities/new-university-logo.png',
-  heroImage: 'https://theglobalavenues.com/universities/new-university-hero.jpg',
+  logo: '/universities/new-university-logo.png',
+  heroImage: '/universities/new-university-hero.jpg',
   description: 'Description from portfolio page.',
   intakes: ['September', 'January'],
   email: 'contact@theglobalavenues.com',
@@ -325,7 +325,7 @@ Dropdown items are in: `src/components/layout/Header.tsx` → `DROPDOWN_ITEMS`
   flag: '🇽🇽',
   countryCode: 'XX',
   region: 'europe',
-  heroImage: 'https://images.unsplash.com/photo-XXXXXXXXXX?w=1200&q=80',
+  heroImage: '/universities/fh-kufstein-tirol-hero.webp',
   avgTuition: '€X,000–€Y,000/year',
   avgTuitionINR: '₹X–YL/year',
   ieltsMin: '6.0',

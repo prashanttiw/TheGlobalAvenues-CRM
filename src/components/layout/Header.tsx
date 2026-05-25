@@ -1,40 +1,38 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, ChevronDown, Globe, User, Phone } from 'lucide-react';
+import { Menu, X, ChevronDown, User, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { COMPANY, NAV_LINKS } from '@/data/company';
 
 const DROPDOWN_ITEMS: Record<string, { label: string; href: string; desc: string }[]> = {
   Destinations: [
-    { label: 'All Destinations', href: '/destinations', desc: '40+ countries' },
-    { label: 'United Kingdom', href: '/destinations/united-kingdom', desc: 'Top choice for Indians' },
-    { label: 'United States', href: '/destinations/united-states', desc: 'World #1 education' },
-    { label: 'Canada', href: '/destinations/canada', desc: 'PR-friendly pathway' },
-    { label: 'Australia', href: '/destinations/australia', desc: 'Work & study balance' },
-    { label: 'Germany', href: '/destinations/germany', desc: 'Tuition-free options' },
-    { label: 'France', href: '/destinations/france', desc: 'Art, business & more' },
+    { label: 'All Destinations', href: '/destinations', desc: '12+ active destination markets' },
+    { label: 'Austria', href: '/destinations/austria', desc: 'FH Kufstein Tirol pathways' },
+    { label: 'Estonia', href: '/destinations/estonia', desc: 'EUAS business, IT and design' },
+    { label: 'France', href: '/destinations/france', desc: 'ICN, CEFAM and MJM options' },
+    { label: 'Cyprus', href: '/destinations/cyprus', desc: 'Mesoyios and KES College' },
+    { label: 'USA', href: '/destinations/united-states', desc: 'IAU and US partner pathways' },
   ],
   Universities: [
-    { label: 'All Universities', href: '/universities', desc: '100+ partners' },
-    { label: 'Exclusive Partners', href: '/partners', desc: 'Our MOU universities' },
-    { label: 'By Country', href: '/universities?filter=country', desc: 'Filter by destination' },
-    { label: 'By Subject', href: '/universities?filter=subject', desc: 'Find your field' },
+    { label: 'All Universities', href: '/universities', desc: 'Verified portfolio partners' },
+    { label: 'FH Kufstein Tirol', href: '/universities/fh-kufstein-tirol', desc: 'Austria' },
+    { label: 'EUAS', href: '/universities/estonian-entrepreneurship-university-of-applied-sciences', desc: 'Estonia' },
+    { label: 'ICN Business School', href: '/universities/icn-business-school', desc: 'France and Germany' },
+    { label: 'International American University', href: '/universities/international-american-university', desc: 'USA, Malta and UAE' },
   ],
   Courses: [
-    { label: 'All Courses', href: '/courses', desc: '1,000+ programs' },
-    { label: 'Computer Science & IT', href: '/courses/computer-science', desc: 'Most in-demand' },
-    { label: 'Business & MBA', href: '/courses/business-mba', desc: 'Global management' },
-    { label: 'Medicine & Health', href: '/courses/medicine-health', desc: 'MBBS & more' },
-    { label: 'Engineering', href: '/courses/engineering', desc: 'Build the future' },
-    { label: 'Arts & Design', href: '/courses/arts-design', desc: 'Creative programs' },
+    { label: 'All Courses', href: '/courses', desc: 'English-taught partner programs' },
+    { label: 'Business & Management', href: '/courses/business-mba', desc: 'Bachelor, master and MBA routes' },
+    { label: 'IT & Game Design', href: '/courses/computer-science', desc: 'EUAS and EPITECH-aligned tracks' },
+    { label: 'Medicine & Health', href: '/courses/medicine-health', desc: 'SGU medical pathways' },
+    { label: 'Design & Creative Arts', href: '/courses/arts-design', desc: 'MJM and creative programs' },
   ],
-  Services: [
-    { label: 'All Services', href: '/services', desc: 'End-to-end support' },
-    { label: 'University Counselling', href: '/services/counselling', desc: 'Expert guidance' },
-    { label: 'Visa Assistance', href: '/services/visa', desc: '98% success rate' },
-    { label: 'Document Help', href: '/services/documents', desc: 'SOP, LOR, CV' },
-    { label: 'Scholarships', href: '/services/scholarships', desc: '₹200Cr+ secured' },
-    { label: 'Education Loans', href: '/services/loans', desc: 'Partner banks' },
+  'What We Offer': [
+    { label: 'All Services', href: '/services', desc: 'End-to-end student recruitment support' },
+    { label: 'In-Country Representation', href: '/services/representation', desc: 'Local presence for institutions' },
+    { label: 'Marketing & Promotion', href: '/services/marketing', desc: 'Targeted market outreach' },
+    { label: 'Agent Management', href: '/services/agent-management', desc: 'Channel partner development' },
+    { label: 'Administrative Services', href: '/services/administrative-services', desc: 'Applications, visa and support' },
   ],
 };
 
@@ -91,15 +89,17 @@ export function Header() {
         <div className="flex items-center justify-between gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 flex-shrink-0">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#D32F2F] flex items-center justify-center shadow-[0_4px_12px_rgba(253,126,20,0.35)]">
-              <Globe className="w-5 h-5 text-white" />
-            </div>
+            <img
+              src={scrolled || !isHome ? COMPANY.logoLightUrl : COMPANY.logoFooterUrl}
+              alt={`${COMPANY.name} logo`}
+              className="h-10 w-auto max-w-[220px] object-contain"
+            />
             <div className="flex flex-col leading-none">
-              <span className={`text-base font-bold transition-colors ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
+              <span className={`sr-only text-base font-bold transition-colors ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
                 The Global Avenues
               </span>
               <span className={`text-[10px] font-medium transition-colors ${scrolled || !isHome ? 'text-[#FD7E14]' : 'text-[#FFC107]'}`}>
-                Asia's Trusted Education Partner
+                {COMPANY.tagline}
               </span>
             </div>
           </Link>

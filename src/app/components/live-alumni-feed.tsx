@@ -5,81 +5,81 @@ import { motion } from 'motion/react';
 const alumniPosts = [
   {
     id: 1,
-    name: 'Priya Sharma',
-    university: 'Stanford University',
-    country: 'USA',
-    avatar: '👩‍🎓',
-    thumbnail: 'https://images.unsplash.com/photo-1663049964372-05a2e9f0998c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWVyaWNhbiUyMHVuaXZlcnNpdHl8ZW58MXx8fHwxNzY4MTM4NTY3fDA&ixlib=rb-4.1.0&q=80&w=1080',
-    caption: 'Day in the life at Stanford! The campus is absolutely stunning 🌟',
+    name: 'The Global Avenues Team',
+    university: 'FH Kufstein Tirol',
+    country: 'Austria',
+    avatar: 'AT',
+    thumbnail: '/universities/fh-kufstein-tirol-hero.webp',
+    caption: 'Applied sciences pathways in AI, data science, sustainability, business, and event management.',
     likes: 234,
     comments: 45,
     duration: '0:15',
-    posted: '2 hours ago',
+    posted: 'Portfolio update',
   },
   {
     id: 2,
-    name: 'Rahul Gupta',
-    university: 'Oxford University',
-    country: 'UK',
-    avatar: '👨‍🎓',
-    thumbnail: 'https://images.unsplash.com/photo-1627131715233-480b34985c00?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsb25kb24lMjB1bml2ZXJzaXR5fGVufDF8fHx8MTc2ODEzODU2Nnww&ixlib=rb-4.1.0&q=80&w=1080',
-    caption: 'Finals week at Oxford! The libraries here are magical ✨📚',
+    name: 'The Global Avenues Team',
+    university: 'EUAS',
+    country: 'Estonia',
+    avatar: 'EE',
+    thumbnail: '/universities/euas-hero.jpg',
+    caption: 'Business, IT, design, and entrepreneurship programs inside Tallinn innovation ecosystem.',
     likes: 189,
     comments: 32,
     duration: '0:12',
-    posted: '5 hours ago',
+    posted: 'Portfolio update',
   },
   {
     id: 3,
-    name: 'Ananya Singh',
-    university: 'University of Toronto',
-    country: 'Canada',
-    avatar: '👩‍💼',
-    thumbnail: 'https://images.unsplash.com/photo-1618255630366-f402c45736f6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYW5hZGlhbiUyMGNhbXB1c3xlbnwxfHx8fDE3NjgxMzg1NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    caption: 'First snow at UofT! Can\'t believe this is my campus now ❄️',
+    name: 'The Global Avenues Team',
+    university: 'ICN Business School',
+    country: 'France/Germany',
+    avatar: 'FR',
+    thumbnail: '/universities/icn-business-school-hero.png',
+    caption: 'International business pathways with multi-campus European exposure.',
     likes: 312,
     comments: 58,
     duration: '0:14',
-    posted: '1 day ago',
+    posted: 'Portfolio update',
   },
   {
     id: 4,
-    name: 'Arjun Patel',
-    university: 'TU Munich',
-    country: 'Germany',
-    avatar: '👨‍💻',
-    thumbnail: 'https://images.unsplash.com/photo-1760131556605-7f2e63d00385?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB1bml2ZXJzaXR5JTIwY2FtcHVzfGVufDF8fHx8MTc2ODEzODU2NHww&ixlib=rb-4.1.0&q=80&w=1080',
-    caption: 'Engineering lab tour! The facilities here are world-class 🔬',
+    name: 'The Global Avenues Team',
+    university: "St. George's University",
+    country: 'Grenada',
+    avatar: 'GD',
+    thumbnail: '/universities/st-georges-university-hero.webp',
+    caption: 'Medical and veterinary pathways with global clinical training context.',
     likes: 267,
     comments: 41,
     duration: '0:13',
-    posted: '3 hours ago',
+    posted: 'Portfolio update',
   },
   {
     id: 5,
-    name: 'Kavya Reddy',
-    university: 'University of Melbourne',
-    country: 'Australia',
-    avatar: '👩‍🔬',
-    thumbnail: 'https://images.unsplash.com/photo-1683319598210-d70486f2f996?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx1bml2ZXJzaXR5JTIwc3R1ZGVudHMlMjBzdHVkeWluZ3xlbnwxfHx8fDE3NjgwODU5MDl8MA&ixlib=rb-4.1.0&q=80&w=1080',
-    caption: 'Study group sessions by the beach! Best decision ever 🏖️',
+    name: 'The Global Avenues Team',
+    university: 'MJM Graphic Design',
+    country: 'France',
+    avatar: 'FR',
+    thumbnail: '/universities/mjm-graphic-design-hero.jpg',
+    caption: 'Creative arts and design programs connected to Paris and London learning routes.',
     likes: 423,
     comments: 67,
     duration: '0:16',
-    posted: '6 hours ago',
+    posted: 'Portfolio update',
   },
   {
     id: 6,
-    name: 'Vikram Mehta',
-    university: 'MIT',
+    name: 'The Global Avenues Team',
+    university: 'International American University',
     country: 'USA',
-    avatar: '👨‍🚀',
-    thumbnail: 'https://images.unsplash.com/photo-1623461487986-9400110de28e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncmFkdWF0aW9uJTIwY2VyZW1vbnl8ZW58MXx8fHwxNzY4MDcwMjYxfDA&ixlib=rb-4.1.0&q=80&w=1080',
-    caption: 'Robotics competition prep! Dream come true moment 🤖',
+    avatar: 'US',
+    thumbnail: '/universities/international-american-university-hero.jpg',
+    caption: 'Business-focused programs across a global campus network.',
     likes: 198,
     comments: 29,
     duration: '0:11',
-    posted: '8 hours ago',
+    posted: 'Portfolio update',
   },
 ];
 
@@ -99,13 +99,13 @@ export function LiveAlumniFeed() {
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-orange-500/10 to-red-500/10 mb-4 border border-orange-500/20">
             <Play className="w-4 h-4 text-orange-500" />
-            <span className="text-sm text-orange-600 font-semibold">Live from Campus</span>
+            <span className="text-sm text-orange-600 font-semibold">Partner Portfolio</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold text-[#1A0A00] mb-4">
-            See Life Through Our Students' Eyes
+            Explore Partner Campus Stories
           </h2>
           <p className="text-lg text-[#1A0A00]/70 max-w-2xl mx-auto">
-            Real stories, real experiences from students currently studying abroad
+            Verified institution highlights from The Global Avenues partner portfolio
           </p>
         </div>
 
@@ -208,23 +208,23 @@ export function LiveAlumniFeed() {
         {/* View More Button */}
         <div className="text-center mt-12">
           <button className="px-8 py-4 bg-gradient-to-r from-orange-500 to-red-500 text-white rounded-xl font-semibold hover:shadow-lg transition-all">
-            View All Alumni Stories
+            View All Partner Highlights
           </button>
         </div>
 
         {/* Stats Banner */}
         <div className="mt-16 grid grid-cols-3 gap-6">
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 text-center border border-gray-200">
-            <div className="text-3xl font-bold text-[#FD7E14] mb-2">2.5K+</div>
-            <div className="text-sm text-[#1A0A00]/70">Alumni Videos</div>
+            <div className="text-3xl font-bold text-[#FD7E14] mb-2">15+</div>
+            <div className="text-sm text-[#1A0A00]/70">Partner Institutions</div>
           </div>
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 text-center border border-gray-200">
-            <div className="text-3xl font-bold text-[#FD7E14] mb-2">50+</div>
-            <div className="text-sm text-[#1A0A00]/70">Universities Featured</div>
+            <div className="text-3xl font-bold text-[#FD7E14] mb-2">12+</div>
+            <div className="text-sm text-[#1A0A00]/70">Countries Covered</div>
           </div>
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 text-center border border-gray-200">
-            <div className="text-3xl font-bold text-[#FD7E14] mb-2">100K+</div>
-            <div className="text-sm text-[#1A0A00]/70">Community Members</div>
+            <div className="text-3xl font-bold text-[#FD7E14] mb-2">600+</div>
+            <div className="text-sm text-[#1A0A00]/70">Channel Partners</div>
           </div>
         </div>
       </div>

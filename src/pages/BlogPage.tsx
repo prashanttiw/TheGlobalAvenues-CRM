@@ -5,30 +5,30 @@ import { Link } from 'react-router-dom';
 const BLOG_POSTS = [
   {
     id: 1,
-    title: 'Top 10 Emerging Tech Hubs for International Students in 2026',
-    excerpt: 'Discover which global cities are becoming the ultimate destinations for computer science and IT graduates.',
-    image: 'https://images.unsplash.com/photo-1519389950473-47ba0277781c?auto=format&fit=crop&q=80&w=800',
-    date: 'May 10, 2026',
-    author: 'Neha Sharma',
-    category: 'Destinations',
+    title: 'FH Kufstein Tirol: Applied Sciences Pathways in Austria',
+    excerpt: 'A snapshot of English-taught routes in AI, data science, sustainability, business, and event management.',
+    image: '/universities/fh-kufstein-tirol-hero.webp',
+    date: 'May 2026',
+    author: 'The Global Avenues',
+    category: 'Partner Portfolio',
   },
   {
     id: 2,
-    title: 'Mastering the Statement of Purpose: What Admissions Committees Look For',
-    excerpt: 'An insider look at how to structure, write, and refine your SOP to stand out in competitive applications.',
-    image: 'https://images.unsplash.com/photo-1455390582262-044cdead27d8?auto=format&fit=crop&q=80&w=800',
-    date: 'May 5, 2026',
-    author: 'Rahul Verma',
-    category: 'Application Tips',
+    title: 'EUAS: Business, IT and Design Programs in Tallinn',
+    excerpt: 'Explore Estonia-based applied sciences options inside Tallinn innovation and entrepreneurship ecosystem.',
+    image: '/universities/euas-hero.jpg',
+    date: 'May 2026',
+    author: 'The Global Avenues',
+    category: 'Partner Portfolio',
   },
   {
     id: 3,
-    title: 'UK Post-Study Work Visa Changes: Everything Indian Students Need to Know',
-    excerpt: 'Recent policy updates explained simply. Find out how this affects your post-graduation career plans.',
-    image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?auto=format&fit=crop&q=80&w=800',
-    date: 'April 28, 2026',
-    author: 'Amit Tiwari',
-    category: 'Visas & Policies',
+    title: 'ICN Business School and European Business Routes',
+    excerpt: 'Understand multi-campus business education options available through The Global Avenues portfolio.',
+    image: '/universities/icn-business-school-hero.png',
+    date: 'May 2026',
+    author: 'The Global Avenues',
+    category: 'Business Education',
   },
 ];
 
@@ -47,7 +47,7 @@ export function BlogPage() {
               Insights & <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#FD7E14] to-[#FFC107]">Updates</span>
             </h1>
             <p className="text-xl text-white/70 max-w-2xl mx-auto">
-              Stay informed with the latest trends, scholarship alerts, visa policies, and student success stories.
+              Read verified partner updates, program highlights, and student recruitment insights from The Global Avenues.
             </p>
           </motion.div>
         </div>

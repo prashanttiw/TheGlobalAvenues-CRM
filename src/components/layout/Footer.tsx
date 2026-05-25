@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Globe, Facebook, Instagram, Youtube, Linkedin, Mail, Phone, MapPin, ExternalLink } from 'lucide-react';
+import { Facebook, Instagram, Youtube, Linkedin, Mail, Phone, MapPin, ExternalLink } from 'lucide-react';
 import { COMPANY } from '@/data/company';
 
 export function Footer() {
@@ -11,16 +11,10 @@ export function Footer() {
           {/* Col 1 — Brand */}
           <div className="lg:col-span-2">
             <div className="flex items-center gap-3 mb-5">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#D32F2F] flex items-center justify-center shadow-[0_4px_12px_rgba(253,126,20,0.4)]">
-                <Globe className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-lg font-bold">The Global Avenues</div>
-                <div className="text-xs text-[#FFC107]">Asia's Trusted Education Partner</div>
-              </div>
+              <img src={COMPANY.logoFooterUrl} alt={`${COMPANY.name} logo`} className="h-12 w-auto object-contain" />
             </div>
             <p className="text-white/60 text-sm leading-relaxed mb-6 max-w-xs">
-              A trusted name in international education. We connect ambitious students from South Asia to the world's best universities.
+              {COMPANY.description}
             </p>
             {/* Socials */}
             <div className="flex items-center gap-3 mb-6">
@@ -56,7 +50,7 @@ export function Footer() {
           <div>
             <h4 className="font-bold text-sm uppercase tracking-wider text-[#FFC107] mb-5">Destinations</h4>
             <ul className="space-y-2.5">
-              {['United Kingdom', 'United States', 'Canada', 'Australia', 'Germany', 'France', 'Cyprus', 'Estonia'].map((country) => (
+              {['Austria', 'Estonia', 'France', 'Cyprus', 'USA', 'Grenada', 'Germany', 'Malta'].map((country) => (
                 <li key={country}>
                   <Link
                     to={`/destinations/${country.toLowerCase().replace(/ /g, '-')}`}
@@ -75,13 +69,12 @@ export function Footer() {
             <h4 className="font-bold text-sm uppercase tracking-wider text-[#FFC107] mb-5">Services</h4>
             <ul className="space-y-2.5">
               {[
-                { label: 'University Counselling', href: '/services/counselling' },
-                { label: 'Visa Assistance', href: '/services/visa' },
-                { label: 'Document Help', href: '/services/documents' },
-                { label: 'Scholarships', href: '/services/scholarships' },
-                { label: 'Education Loans', href: '/services/loans' },
-                { label: 'Accommodation', href: '/services/accommodation' },
-                { label: 'Partner Universities', href: '/partners' },
+                { label: 'In-Country Representation', href: '/services/representation' },
+                { label: 'Marketing & Promotion', href: '/services/marketing' },
+                { label: 'Agent Management', href: '/services/agent-management' },
+                { label: 'Market Research & Analysis', href: '/services/market-research' },
+                { label: 'Administrative Services', href: '/services/administrative-services' },
+                { label: 'Collaboration & Partnerships', href: '/partners' },
               ].map((item) => (
                 <li key={item.label}>
                   <Link to={item.href} className="text-sm text-white/60 hover:text-white transition-colors flex items-center gap-2 group">
@@ -153,7 +146,7 @@ export function Footer() {
       <div className="border-t border-white/8">
         <div className="max-w-7xl mx-auto px-6 py-5 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs text-white/40">
-            © {new Date().getFullYear()} The Global Avenues. All rights reserved.
+            Copyright � {new Date().getFullYear()} The Global Avenues. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
             {['Privacy Policy', 'Terms of Service', 'Cookie Policy', 'Sitemap'].map((item) => (
