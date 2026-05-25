@@ -73,6 +73,28 @@ export function HeroSection() {
       <div className="absolute inset-0 bg-gradient-to-br from-[#0D0500]/85 via-[#1A0800]/70 to-[#FD7E14]/15" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#FFFCF5] via-transparent to-transparent opacity-[0.08]" />
 
+      {/* ── Animated mesh gradient orbs ── */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          className="absolute w-[600px] h-[600px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(253,126,20,0.18) 0%, transparent 70%)', top: '-10%', left: '-10%' }}
+          animate={{ scale: [1, 1.2, 1], x: [0, 30, 0], y: [0, 20, 0] }}
+          transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
+        />
+        <motion.div
+          className="absolute w-[500px] h-[500px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(211,47,47,0.12) 0%, transparent 70%)', bottom: '5%', right: '-5%' }}
+          animate={{ scale: [1, 1.15, 1], x: [0, -20, 0], y: [0, -15, 0] }}
+          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+        />
+        <motion.div
+          className="absolute w-[400px] h-[400px] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(255,193,7,0.10) 0%, transparent 70%)', top: '40%', left: '40%' }}
+          animate={{ scale: [1, 1.3, 1] }}
+          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut', delay: 4 }}
+        />
+      </div>
+
       {/* ── Floating notification badges ── */}
       <div className="absolute inset-0 pointer-events-none hidden lg:block">
         {FLOATING_BADGES.map((badge, i) => (
