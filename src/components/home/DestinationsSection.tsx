@@ -5,7 +5,7 @@ import { FEATURED_DESTINATIONS } from '@/data/destinations';
 
 export function DestinationsSection() {
   return (
-    <section className="py-24 bg-white">
+    <section className="py-24 bg-gradient-to-b from-[#F8FAFC] to-[#EFF6FF]">
       <div className="max-w-7xl mx-auto px-6">
         <motion.div
           className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-12"
@@ -15,9 +15,9 @@ export function DestinationsSection() {
           transition={{ duration: 0.6 }}
         >
           <div>
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#FD7E14]/10 border border-[#FD7E14]/20 mb-4">
-              <MapPin className="w-4 h-4 text-[#FD7E14]" />
-              <span className="text-sm text-[#FD7E14] font-semibold">Popular Study Destinations</span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0074D9]/10 border border-[#0074D9]/20 mb-4">
+              <MapPin className="w-4 h-4 text-[#0074D9]" />
+              <span className="text-sm text-[#0074D9] font-semibold">Popular Study Destinations</span>
             </div>
             <h2 className="text-4xl md:text-5xl font-bold text-[#222]">
               Where Will Your Journey Take You?
@@ -28,7 +28,7 @@ export function DestinationsSection() {
           </div>
           <Link
             to="/destinations"
-            className="flex items-center gap-2 text-[#FD7E14] font-semibold hover:gap-3 transition-all flex-shrink-0"
+            className="flex items-center gap-2 text-[#0074D9] font-semibold hover:gap-3 transition-all flex-shrink-0"
           >
             See All Countries <ArrowRight className="w-4 h-4" />
           </Link>

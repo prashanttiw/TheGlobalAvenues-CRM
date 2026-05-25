@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Globe2 } from 'lucide-react';
 import { motion } from 'motion/react';
-import GlobeGL from 'globe.gl';
 import { DESTINATIONS } from '@/data/destinations';
 interface GlobePoint {
   lat: number;
@@ -27,7 +26,7 @@ const INDIA = { lat: 20.5937, lng: 78.9629 };
 const ARCS = GLOBE_POINTS.map(p => ({
   startLat: INDIA.lat, startLng: INDIA.lng,
   endLat: p.lat, endLng: p.lng,
-  color: ['rgba(253,126,20,0.9)', 'rgba(255,193,7,0.6)'],
+  color: ['rgba(0,116,217,0.95)', 'rgba(253,126,20,0.72)'],
 }));
 
 export function GlobeSection() {
@@ -47,6 +46,9 @@ export function GlobeSection() {
         const width  = globeRef.current.clientWidth  || 600;
         const height = globeRef.current.clientHeight || 600;
 
+        const { default: GlobeGL } = await import('globe.gl');
+        if (cancelled || !globeRef.current) return;
+
         const globe = GlobeGL()(globeRef.current)
           .width(width)
           .height(height)
@@ -57,10 +59,10 @@ export function GlobeSection() {
           .pointsData(GLOBE_POINTS)
           .pointLat('lat')
           .pointLng('lng')
-          .pointColor(() => '#FD7E14')
+          .pointColor(() => '#2EA8FF')
           .pointAltitude(0.02)
           .pointRadius(0.5)
-          .pointLabel((d: any) => `<div style="background:rgba(26,26,26,0.95);color:white;padding:8px 12px;border-radius:10px;font-size:13px;font-weight:600;border:1px solid rgba(253,126,20,0.4)">${d.flag} ${d.label}<br/><span style="color:#FD7E14;font-size:11px">${d.unis} universities</span></div>`)
+          .pointLabel((d: any) => `<div style="background:rgba(0,31,63,0.95);color:white;padding:8px 12px;border-radius:10px;font-size:13px;font-weight:600;border:1px solid rgba(46,168,255,0.45)">${d.flag} ${d.label}<br/><span style="color:#2EA8FF;font-size:11px">${d.unis} universities</span></div>`)
           .onPointClick((point: any) => setActivePoint(point as GlobePoint))
           // Arcs
           .arcsData(ARCS)
@@ -108,13 +110,13 @@ export function GlobeSection() {
   }, []);
 
   return (
-    <section className="py-0 bg-[#0A0A0A] relative overflow-hidden min-h-[90vh] flex items-center">
+    <section className="py-0 bg-[#001F3F] relative overflow-hidden min-h-[90vh] flex items-center">
       {/* Background */}
       <div className="absolute inset-0 line-grid opacity-30" />
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0A0A0A] via-transparent to-[#0A0A0A]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#001F3F] via-[#003B73]/70 to-[#001F3F]" />
 
       {/* Glow orbs */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-[#FD7E14]/5 blur-3xl pointer-events-none" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] rounded-full bg-[#0074D9]/15 blur-3xl pointer-events-none" />
 
       <div className="max-w-7xl mx-auto px-6 w-full relative z-10">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center py-20">
@@ -126,15 +128,15 @@ export function GlobeSection() {
             viewport={{ once: true }}
             transition={{ duration: 0.8 }}
           >
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#FD7E14]/15 border border-[#FD7E14]/30 mb-6">
-              <Globe2 className="w-4 h-4 text-[#FD7E14]" />
-              <span className="text-sm text-[#FD7E14] font-semibold">We're Everywhere Your Future Is</span>
+            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0074D9]/20 border border-[#2EA8FF]/30 mb-6">
+              <Globe2 className="w-4 h-4 text-[#2EA8FF]" />
+              <span className="text-sm text-[#2EA8FF] font-semibold">We're Everywhere Your Future Is</span>
             </div>
 
             <h2 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
               From New Delhi to London.
               <br />
-              <span className="text-gradient-orange">From Mumbai to Toronto.</span>
+              <span className="text-[#7CCBFF]">From Mumbai to Toronto.</span>
             </h2>
 
             <p className="text-lg text-white/60 mb-8 leading-relaxed">
@@ -149,7 +151,7 @@ export function GlobeSection() {
                 { value: '100+', label: 'Universities' },
               ].map(item => (
                 <div key={item.label} className="text-center">
-                  <div className="text-3xl font-black text-[#FD7E14]">{item.value}</div>
+                  <div className="text-3xl font-black text-[#2EA8FF]">{item.value}</div>
                   <div className="text-xs text-white/50 mt-0.5">{item.label}</div>
                 </div>
               ))}
@@ -157,7 +159,7 @@ export function GlobeSection() {
 
             <Link
               to="/destinations"
-              className="inline-flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white rounded-xl font-bold shadow-[0_8px_32px_rgba(253,126,20,0.4)] hover:shadow-[0_12px_48px_rgba(253,126,20,0.6)] hover:scale-105 transition-all"
+              className="inline-flex items-center gap-2 px-6 py-3.5 bg-gradient-to-r from-[#0074D9] to-[#001F3F] text-white rounded-xl font-bold shadow-[0_8px_32px_rgba(0,116,217,0.4)] hover:shadow-[0_12px_48px_rgba(0,116,217,0.55)] hover:scale-105 transition-all"
             >
               Explore All Destinations <ArrowRight className="w-5 h-5" />
             </Link>
@@ -167,17 +169,17 @@ export function GlobeSection() {
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="mt-6 p-4 bg-white/8 rounded-2xl border border-[#FD7E14]/20 backdrop-blur-md"
+                className="mt-6 p-4 bg-white/8 rounded-2xl border border-[#2EA8FF]/25 backdrop-blur-md"
               >
                 <div className="flex items-center gap-3">
                   <span className="text-3xl">{activePoint.flag}</span>
                   <div>
                     <div className="font-bold text-white">{activePoint.country}</div>
-                    <div className="text-sm text-[#FD7E14]">{activePoint.unis} partner universities</div>
+                    <div className="text-sm text-[#2EA8FF]">{activePoint.unis} partner universities</div>
                   </div>
                   <Link
                     to={`/destinations/${activePoint.country.toLowerCase().replace(/ /g, '-')}`}
-                    className="ml-auto flex items-center gap-1 text-xs text-[#FD7E14] font-semibold hover:underline"
+                    className="ml-auto flex items-center gap-1 text-xs text-[#2EA8FF] font-semibold hover:underline"
                   >
                     Explore <ArrowRight className="w-3 h-3" />
                   </Link>
@@ -196,7 +198,7 @@ export function GlobeSection() {
           >
             {/* Glow ring behind globe */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-              <div className="w-[500px] h-[500px] rounded-full bg-[#FD7E14]/8 blur-3xl animate-pulse" />
+              <div className="w-[500px] h-[500px] rounded-full bg-[#0074D9]/18 blur-3xl animate-pulse" />
             </div>
 
             <div
@@ -208,8 +210,8 @@ export function GlobeSection() {
             {/* Fallback if globe doesn't load */}
             {!globeLoaded && (
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-64 h-64 rounded-full border-2 border-[#FD7E14]/30 flex items-center justify-center animate-spin-slow">
-                  <Globe2 className="w-24 h-24 text-[#FD7E14]/40" />
+                <div className="w-64 h-64 rounded-full border-2 border-[#2EA8FF]/35 flex items-center justify-center animate-spin-slow">
+                  <Globe2 className="w-24 h-24 text-[#2EA8FF]/50" />
                 </div>
               </div>
             )}

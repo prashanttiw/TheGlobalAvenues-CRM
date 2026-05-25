@@ -1,80 +1,78 @@
-import { HeroSection }           from '@/components/home/HeroSection';
-import { PartnerTicker }          from '@/components/home/PartnerTicker';
-import { HowItWorks }             from '@/components/home/HowItWorks';
-import { DestinationsSection }    from '@/components/home/DestinationsSection';
-import { GlobeSection }           from '@/components/home/GlobeSection';
-import { CourseCategorySection }  from '@/components/home/CourseCategorySection';
-import { ExclusivePartnersSection } from '@/components/home/ExclusivePartnersSection';
-import { StatsSection }           from '@/components/home/StatsSection';
-import { TestimonialsSection }    from '@/components/home/TestimonialsSection';
-import { ServicesSection }        from '@/components/home/ServicesSection';
-import { CTABanner }              from '@/components/home/CTABanner';
+import { lazy, Suspense } from 'react';
+import { HeroSection } from '@/components/home/HeroSection';
+import { PartnerTicker } from '@/components/home/PartnerTicker';
+import { HowItWorks } from '@/components/home/HowItWorks';
+import { DestinationsSection } from '@/components/home/DestinationsSection';
+import { InnovationBar } from '@/app/components/innovation-bar';
 
-// Preserved interactive Figma widgets (re-themed)
-import { InnovationBar }          from '@/app/components/innovation-bar';
-import { AIMatcherWidget }        from '@/app/components/ai-matcher-widget';
-import { CostOfLivingSlider }     from '@/app/components/cost-of-living-slider';
-import { ComparisonLab }          from '@/app/components/comparison-lab';
-import { DailyDrillWidget }       from '@/app/components/daily-drill-widget';
-import { DocumentButler }         from '@/app/components/document-butler';
-import { StudentDashboardPreview } from '@/app/components/student-dashboard-preview';
+const CourseCategorySection = lazy(() =>
+  import('@/components/home/CourseCategorySection').then((module) => ({ default: module.CourseCategorySection }))
+);
+const GlobeSection = lazy(() =>
+  import('@/components/home/GlobeSection').then((module) => ({ default: module.GlobeSection }))
+);
+const AIMatcherWidget = lazy(() =>
+  import('@/app/components/ai-matcher-widget').then((module) => ({ default: module.AIMatcherWidget }))
+);
+const ExclusivePartnersSection = lazy(() =>
+  import('@/components/home/ExclusivePartnersSection').then((module) => ({ default: module.ExclusivePartnersSection }))
+);
+const StatsSection = lazy(() =>
+  import('@/components/home/StatsSection').then((module) => ({ default: module.StatsSection }))
+);
+const TestimonialsSection = lazy(() =>
+  import('@/components/home/TestimonialsSection').then((module) => ({ default: module.TestimonialsSection }))
+);
+const CostOfLivingSlider = lazy(() =>
+  import('@/app/components/cost-of-living-slider').then((module) => ({ default: module.CostOfLivingSlider }))
+);
+const ComparisonLab = lazy(() =>
+  import('@/app/components/comparison-lab').then((module) => ({ default: module.ComparisonLab }))
+);
+const DailyDrillWidget = lazy(() =>
+  import('@/app/components/daily-drill-widget').then((module) => ({ default: module.DailyDrillWidget }))
+);
+const DocumentButler = lazy(() =>
+  import('@/app/components/document-butler').then((module) => ({ default: module.DocumentButler }))
+);
+const StudentDashboardPreview = lazy(() =>
+  import('@/app/components/student-dashboard-preview').then((module) => ({ default: module.StudentDashboardPreview }))
+);
+const ServicesSection = lazy(() =>
+  import('@/components/home/ServicesSection').then((module) => ({ default: module.ServicesSection }))
+);
+const CTABanner = lazy(() =>
+  import('@/components/home/CTABanner').then((module) => ({ default: module.CTABanner }))
+);
+
+function SectionFallback() {
+  return <div className="h-24 bg-[#FFFCF5]" aria-hidden="true" />;
+}
 
 export function HomePage() {
   return (
     <>
-      {/* 1. Cinematic hero with parallax + slide transitions */}
       <HeroSection />
-
-      {/* 2. Live scholarship ticker */}
       <InnovationBar />
-
-      {/* 3. Partner logo ticker */}
       <PartnerTicker />
-
-      {/* 4. How it works — 3D cards */}
       <HowItWorks />
-
-      {/* 5. Destination country cards */}
       <DestinationsSection />
 
-      {/* 6. Interactive 3D Globe */}
-      <GlobeSection />
-
-      {/* 7. Course category explorer */}
-      <CourseCategorySection />
-
-      {/* 8. AI Matcher widget */}
-      <AIMatcherWidget />
-
-      {/* 9. Exclusive partners — dark premium section */}
-      <ExclusivePartnersSection />
-
-      {/* 10. Animated stats counters */}
-      <StatsSection />
-
-      {/* 11. Student testimonials carousel */}
-      <TestimonialsSection />
-
-      {/* 12. Cost of living calculator */}
-      <CostOfLivingSlider />
-
-      {/* 13. University comparison lab */}
-      <ComparisonLab />
-
-      {/* 14. Daily quiz widget */}
-      <DailyDrillWidget />
-
-      {/* 15. Document butler */}
-      <DocumentButler />
-
-      {/* 16. Application tracker preview */}
-      <StudentDashboardPreview />
-
-      {/* 17. Services overview */}
-      <ServicesSection />
-
-      {/* 18. Final CTA banner */}
-      <CTABanner />
+      <Suspense fallback={<SectionFallback />}>
+        <CourseCategorySection />
+        <GlobeSection />
+        <AIMatcherWidget />
+        <ExclusivePartnersSection />
+        <StatsSection />
+        <TestimonialsSection />
+        <CostOfLivingSlider />
+        <ComparisonLab />
+        <DailyDrillWidget />
+        <DocumentButler />
+        <StudentDashboardPreview />
+        <ServicesSection />
+        <CTABanner />
+      </Suspense>
     </>
   );
 }

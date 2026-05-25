@@ -14,11 +14,11 @@ export function ExclusivePartnersSection() {
   const featured = EXCLUSIVE_UNIVERSITIES.slice(0, 6);
 
   return (
-    <section className="py-24 bg-[#1A1A1A] relative overflow-hidden">
+    <section className="py-24 bg-[#001F3F] relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-0 right-0 w-96 h-96 rounded-full bg-[#FD7E14]/5 blur-3xl" />
-        <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#D32F2F]/5 blur-3xl" />
+        <div className="absolute top-0 right-0 w-96 h-96 rounded-full bg-[#0074D9]/12 blur-3xl" />
+        <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#FD7E14]/8 blur-3xl" />
         {/* Grid pattern */}
         <div className="absolute inset-0 opacity-[0.03]" style={{
           backgroundImage: 'linear-gradient(#FD7E14 1px, transparent 1px), linear-gradient(90deg, #FD7E14 1px, transparent 1px)',
@@ -91,7 +91,7 @@ export function ExclusivePartnersSection() {
                     alt={uni.name}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#1A1A1A] via-[#1A1A1A]/40 to-transparent" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#001F3F] via-[#001F3F]/40 to-transparent" />
                   {/* Exclusive badge */}
                   <div className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1 bg-[#FD7E14] rounded-lg">
                     <Lock className="w-3 h-3 text-white" />

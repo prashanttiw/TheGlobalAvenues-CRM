@@ -55,7 +55,7 @@ const SERVICES = [
 
 export function ServicesSection() {
   return (
-    <section className="py-24 bg-white">
+    <section className="py-24 bg-gradient-to-b from-white to-[#EEF7FF]">
       <div className="max-w-7xl mx-auto px-6">
         <motion.div
           className="text-center mb-14"
@@ -64,8 +64,8 @@ export function ServicesSection() {
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#FD7E14]/10 border border-[#FD7E14]/20 mb-4">
-            <span className="text-sm text-[#FD7E14] font-semibold">End-to-End Support</span>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0074D9]/10 border border-[#0074D9]/20 mb-4">
+            <span className="text-sm text-[#0074D9] font-semibold">End-to-End Support</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold text-[#222] mb-4">
             Everything You Need, Under One Roof
@@ -89,7 +89,7 @@ export function ServicesSection() {
                 className="group"
               >
                 <Link to={service.href}>
-                  <div className="bg-[#FFFCF5] rounded-2xl p-7 border border-[#FD7E14]/10 hover:border-[#FD7E14]/30 shadow-[0_2px_12px_rgba(253,126,20,0.06)] hover:shadow-[0_16px_40px_rgba(253,126,20,0.14)] transition-all duration-300 h-full">
+                  <div className="bg-white rounded-2xl p-7 border border-[#0074D9]/10 hover:border-[#0074D9]/30 shadow-[0_2px_12px_rgba(0,116,217,0.06)] hover:shadow-[0_16px_40px_rgba(0,116,217,0.14)] transition-all duration-300 h-full">
                     <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${service.color} flex items-center justify-center mb-5 shadow-[0_6px_20px_rgba(253,126,20,0.25)] group-hover:scale-110 transition-transform`}>
                       <Icon className="w-7 h-7 text-white" />
                     </div>
@@ -115,7 +115,7 @@ export function ServicesSection() {
         >
           <Link
             to="/services"
-            className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl border-2 border-[#FD7E14] text-[#FD7E14] font-bold hover:bg-[#FD7E14] hover:text-white transition-all"
+            className="inline-flex items-center gap-2 px-8 py-4 rounded-2xl border-2 border-[#0074D9] text-[#0074D9] font-bold hover:bg-[#0074D9] hover:text-white transition-all"
           >
             View All Services <ArrowRight className="w-5 h-5" />
           </Link>

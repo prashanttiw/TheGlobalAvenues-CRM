@@ -50,11 +50,12 @@ export const COMPANY = {
 };
 
 export const NAV_LINKS = [
-  { label: 'Home', href: '/' },
-  { label: 'Who We Are', href: '/about' },
-  { label: 'Universities', href: '/universities' },
-  { label: 'What We Offer', href: '/services' },
   { label: 'Destinations', href: '/destinations' },
+  { label: 'Universities', href: '/universities' },
   { label: 'Courses', href: '/courses' },
+  { label: 'Partners', href: '/partners' },
+  { label: 'Services', href: '/services' },
+  { label: 'About', href: '/about' },
+  { label: 'Blog', href: '/blog' },
   { label: 'Contact', href: '/contact' },
 ];

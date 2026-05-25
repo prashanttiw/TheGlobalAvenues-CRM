@@ -5,19 +5,19 @@ import { motion, useScroll, useTransform, AnimatePresence } from 'motion/react';
 
 const HERO_SLIDES = [
   {
-    image: '/universities/fh-kufstein-tirol-hero.webp',
+    image: '/hero/university-hall-hero.jpg',
     headline: 'The Global Avenues.',
     highlight: 'Your International Education Partner.',
     sub: 'Education, consulting, and collaborations for students, institutions, and recruitment partners.',
   },
   {
-    image: '/universities/euas-hero.jpg',
+    image: '/hero/library-study-hero.jpg',
     headline: 'Verified Partner Portfolio.',
     highlight: 'Across 12+ Countries.',
     sub: 'Explore applied sciences, business, design, medical, and innovation-led international pathways.',
   },
   {
-    image: '/universities/icn-business-school-hero.png',
+    image: '/universities/fh-kufstein-tirol-hero.webp',
     headline: 'Institution Representation.',
     highlight: 'Market Growth Support.',
     sub: 'ICEF-certified quality with recruitment operations, agent management, and application support.',
@@ -73,28 +73,6 @@ export function HeroSection() {
       <div className="absolute inset-0 bg-gradient-to-br from-[#0D0500]/85 via-[#1A0800]/70 to-[#FD7E14]/15" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#FFFCF5] via-transparent to-transparent opacity-[0.08]" />
 
-      {/* ── Animated mesh gradient orbs ── */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div
-          className="absolute w-[600px] h-[600px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(253,126,20,0.18) 0%, transparent 70%)', top: '-10%', left: '-10%' }}
-          animate={{ scale: [1, 1.2, 1], x: [0, 30, 0], y: [0, 20, 0] }}
-          transition={{ duration: 12, repeat: Infinity, ease: 'easeInOut' }}
-        />
-        <motion.div
-          className="absolute w-[500px] h-[500px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(211,47,47,0.12) 0%, transparent 70%)', bottom: '5%', right: '-5%' }}
-          animate={{ scale: [1, 1.15, 1], x: [0, -20, 0], y: [0, -15, 0] }}
-          transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
-        />
-        <motion.div
-          className="absolute w-[400px] h-[400px] rounded-full"
-          style={{ background: 'radial-gradient(circle, rgba(255,193,7,0.10) 0%, transparent 70%)', top: '40%', left: '40%' }}
-          animate={{ scale: [1, 1.3, 1] }}
-          transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut', delay: 4 }}
-        />
-      </div>
-
       {/* ── Floating notification badges ── */}
       <div className="absolute inset-0 pointer-events-none hidden lg:block">
         {FLOATING_BADGES.map((badge, i) => (
@@ -103,8 +81,8 @@ export function HeroSection() {
             className="absolute"
             style={{ left: badge.x, top: badge.y }}
             initial={{ opacity: 0, y: 20, scale: 0.8 }}
-            animate={{ opacity: [0, 1, 1, 0], y: [20, 0, 0, -10], scale: [0.8, 1, 1, 0.9] }}
-            transition={{ duration: 4, delay: badge.delay + 2, repeat: Infinity, repeatDelay: 8 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.45, delay: badge.delay + 0.4 }}
           >
             <div className="flex items-center gap-2 px-4 py-2.5 bg-white/95 backdrop-blur-xl rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] border border-white/50">
               <span className="text-sm font-semibold text-[#1C1C1E] whitespace-nowrap">{badge.text}</span>

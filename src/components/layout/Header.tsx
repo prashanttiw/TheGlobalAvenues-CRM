@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, ChevronDown, User, Phone } from 'lucide-react';
+import { Menu, X, ChevronDown, Globe, User, Phone } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { COMPANY, NAV_LINKS } from '@/data/company';
 
 const DROPDOWN_ITEMS: Record<string, { label: string; href: string; desc: string }[]> = {
   Destinations: [
-    { label: 'All Destinations', href: '/destinations', desc: '12+ active destination markets' },
+    { label: 'All Destinations', href: '/destinations', desc: 'Verified study destinations' },
     { label: 'Austria', href: '/destinations/austria', desc: 'FH Kufstein Tirol pathways' },
     { label: 'Estonia', href: '/destinations/estonia', desc: 'EUAS business, IT and design' },
     { label: 'France', href: '/destinations/france', desc: 'ICN, CEFAM and MJM options' },
     { label: 'Cyprus', href: '/destinations/cyprus', desc: 'Mesoyios and KES College' },
-    { label: 'USA', href: '/destinations/united-states', desc: 'IAU and US partner pathways' },
+    { label: 'United States', href: '/destinations/united-states', desc: 'IAU and US partner pathways' },
   ],
   Universities: [
     { label: 'All Universities', href: '/universities', desc: 'Verified portfolio partners' },
@@ -27,7 +27,7 @@ const DROPDOWN_ITEMS: Record<string, { label: string; href: string; desc: string
     { label: 'Medicine & Health', href: '/courses/medicine-health', desc: 'SGU medical pathways' },
     { label: 'Design & Creative Arts', href: '/courses/arts-design', desc: 'MJM and creative programs' },
   ],
-  'What We Offer': [
+  Services: [
     { label: 'All Services', href: '/services', desc: 'End-to-end student recruitment support' },
     { label: 'In-Country Representation', href: '/services/representation', desc: 'Local presence for institutions' },
     { label: 'Marketing & Promotion', href: '/services/marketing', desc: 'Targeted market outreach' },
@@ -89,17 +89,15 @@ export function Header() {
         <div className="flex items-center justify-between gap-8">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-3 flex-shrink-0">
-            <img
-              src={scrolled || !isHome ? COMPANY.logoLightUrl : COMPANY.logoFooterUrl}
-              alt={`${COMPANY.name} logo`}
-              className="h-10 w-auto max-w-[220px] object-contain"
-            />
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#D32F2F] flex items-center justify-center shadow-[0_4px_12px_rgba(253,126,20,0.35)]">
+              <Globe className="w-5 h-5 text-white" />
+            </div>
             <div className="flex flex-col leading-none">
-              <span className={`sr-only text-base font-bold transition-colors ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
+              <span className={`text-base font-bold transition-colors ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
                 The Global Avenues
               </span>
               <span className={`text-[10px] font-medium transition-colors ${scrolled || !isHome ? 'text-[#FD7E14]' : 'text-[#FFC107]'}`}>
-                {COMPANY.tagline}
+                Asia's Trusted Education Partner
               </span>
             </div>
           </Link>
