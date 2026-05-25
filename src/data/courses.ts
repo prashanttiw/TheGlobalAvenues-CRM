@@ -1,0 +1,161 @@
+// ============================================================
+// COURSE CATEGORIES DATA
+// ============================================================
+
+export interface CourseCategory {
+  id: string;
+  slug: string;
+  name: string;
+  icon: string;
+  description: string;
+  coursesCount: number;
+  subCategories: string[];
+  topCountries: string[];
+  avgFeeRange: string;
+  popularIntake: string;
+  color: string;
+  bgGradient: string;
+}
+
+export const COURSE_CATEGORIES: CourseCategory[] = [
+  {
+    id: 'computer-science',
+    slug: 'computer-science',
+    name: 'Computer Science & IT',
+    icon: '💻',
+    description: 'From AI/ML to cybersecurity — the most in-demand field globally.',
+    coursesCount: 420,
+    subCategories: ['AI & Machine Learning', 'Cybersecurity', 'Software Engineering', 'Data Science', 'Cloud Computing', 'Web Development'],
+    topCountries: ['USA', 'UK', 'Canada', 'Germany', 'Australia'],
+    avgFeeRange: '₹8–35L/year',
+    popularIntake: 'September / January',
+    color: '#FD7E14',
+    bgGradient: 'from-orange-500/10 to-orange-600/5',
+  },
+  {
+    id: 'business-mba',
+    slug: 'business-mba',
+    name: 'Business & MBA',
+    icon: '📊',
+    description: 'Global business education from top-ranked schools.',
+    coursesCount: 380,
+    subCategories: ['MBA', 'International Business', 'Finance', 'Marketing', 'Entrepreneurship', 'Supply Chain'],
+    topCountries: ['USA', 'UK', 'France', 'Canada', 'Australia'],
+    avgFeeRange: '₹10–45L/year',
+    popularIntake: 'September / January',
+    color: '#D32F2F',
+    bgGradient: 'from-red-500/10 to-red-600/5',
+  },
+  {
+    id: 'medicine-health',
+    slug: 'medicine-health',
+    name: 'Medicine & Health Sciences',
+    icon: '⚕️',
+    description: 'Medical degrees and healthcare programs from accredited institutions.',
+    coursesCount: 180,
+    subCategories: ['MBBS / MD', 'Nursing', 'Public Health', 'Pharmacy', 'Dentistry', 'Physiotherapy'],
+    topCountries: ['Grenada', 'USA', 'UK', 'Australia', 'Ireland'],
+    avgFeeRange: '₹15–50L/year',
+    popularIntake: 'January / August',
+    color: '#E91E63',
+    bgGradient: 'from-pink-500/10 to-pink-600/5',
+  },
+  {
+    id: 'engineering',
+    slug: 'engineering',
+    name: 'Engineering & Architecture',
+    icon: '🏗️',
+    description: 'Build the future with world-class engineering programs.',
+    coursesCount: 290,
+    subCategories: ['Civil Engineering', 'Mechanical Engineering', 'Electrical Engineering', 'Architecture', 'Chemical Engineering', 'Aerospace'],
+    topCountries: ['Germany', 'USA', 'UK', 'Australia', 'Canada'],
+    avgFeeRange: '₹5–30L/year',
+    popularIntake: 'September / October',
+    color: '#FF9800',
+    bgGradient: 'from-amber-500/10 to-amber-600/5',
+  },
+  {
+    id: 'arts-design',
+    slug: 'arts-design',
+    name: 'Arts, Design & Media',
+    icon: '🎨',
+    description: 'Creative programs from world-renowned design schools.',
+    coursesCount: 160,
+    subCategories: ['Graphic Design', 'Interior Design', 'Fashion Design', 'Film & Media', 'Fine Arts', 'Animation'],
+    topCountries: ['France', 'UK', 'USA', 'Italy', 'Australia'],
+    avgFeeRange: '₹6–20L/year',
+    popularIntake: 'September / February',
+    color: '#9C27B0',
+    bgGradient: 'from-purple-500/10 to-purple-600/5',
+  },
+  {
+    id: 'finance-accounting',
+    slug: 'finance-accounting',
+    name: 'Finance & Accounting',
+    icon: '💰',
+    description: 'CFA, ACCA, and finance degrees from top institutions.',
+    coursesCount: 210,
+    subCategories: ['Accounting', 'Investment Banking', 'Financial Analysis', 'Risk Management', 'Actuarial Science', 'FinTech'],
+    topCountries: ['UK', 'USA', 'Singapore', 'Australia', 'Canada'],
+    avgFeeRange: '₹8–30L/year',
+    popularIntake: 'September / January',
+    color: '#4CAF50',
+    bgGradient: 'from-green-500/10 to-green-600/5',
+  },
+  {
+    id: 'law',
+    slug: 'law',
+    name: 'Law & Political Science',
+    icon: '⚖️',
+    description: 'LLB, LLM, and political science from prestigious law schools.',
+    coursesCount: 120,
+    subCategories: ['LLB', 'LLM', 'International Law', 'Corporate Law', 'Human Rights', 'Political Science'],
+    topCountries: ['UK', 'USA', 'Australia', 'Canada', 'Ireland'],
+    avgFeeRange: '₹10–40L/year',
+    popularIntake: 'September',
+    color: '#795548',
+    bgGradient: 'from-brown-500/10 to-brown-600/5',
+  },
+  {
+    id: 'science-research',
+    slug: 'science-research',
+    name: 'Science & Research',
+    icon: '🔬',
+    description: 'Pure sciences, research programs, and PhD opportunities.',
+    coursesCount: 200,
+    subCategories: ['Physics', 'Chemistry', 'Biology', 'Environmental Science', 'Biotechnology', 'PhD Programs'],
+    topCountries: ['Germany', 'USA', 'UK', 'Australia', 'Estonia'],
+    avgFeeRange: '₹0–25L/year',
+    popularIntake: 'September / October',
+    color: '#00BCD4',
+    bgGradient: 'from-cyan-500/10 to-cyan-600/5',
+  },
+  {
+    id: 'hospitality-tourism',
+    slug: 'hospitality-tourism',
+    name: 'Hospitality & Tourism',
+    icon: '🏨',
+    description: 'Hotel management and tourism from industry-leading schools.',
+    coursesCount: 90,
+    subCategories: ['Hotel Management', 'Tourism Management', 'Culinary Arts', 'Event Management', 'Travel & Tourism'],
+    topCountries: ['Cyprus', 'France', 'UK', 'Australia', 'Switzerland'],
+    avgFeeRange: '₹4–15L/year',
+    popularIntake: 'September / February',
+    color: '#FF5722',
+    bgGradient: 'from-deep-orange-500/10 to-deep-orange-600/5',
+  },
+  {
+    id: 'energy-sustainability',
+    slug: 'energy-sustainability',
+    name: 'Energy & Sustainability',
+    icon: '🌿',
+    description: 'Future-focused programs in renewable energy and sustainability.',
+    coursesCount: 80,
+    subCategories: ['Renewable Energy', 'Sustainable Business', 'Environmental Management', 'Energy Storage', 'Smart Cities'],
+    topCountries: ['Germany', 'Austria', 'Netherlands', 'Denmark', 'Estonia'],
+    avgFeeRange: '₹5–18L/year',
+    popularIntake: 'September',
+    color: '#8BC34A',
+    bgGradient: 'from-light-green-500/10 to-light-green-600/5',
+  },
+];
