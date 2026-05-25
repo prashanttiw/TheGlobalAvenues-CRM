@@ -12,6 +12,7 @@ export interface Destination {
   heroImage: string;
   avgTuition: string;
   avgTuitionINR: string;
+  avgLivingCostINR: string;
   ieltsMin: string;
   workRights: string;
   prPathway: string;
@@ -37,6 +38,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/fh-kufstein-tirol-hero.webp',
     avgTuition: 'Approx. EUR 700-EUR 800/year',
     avgTuitionINR: 'Approx. INR 65K-75K/year',
+    avgLivingCostINR: 'Approx. INR 72K-1.26L/month',
     ieltsMin: 'Profile based',
     workRights: 'Student work rights as per Austrian regulations',
     prPathway: 'Post-study route depends on employment profile',
@@ -60,6 +62,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/euas-hero.jpg',
     avgTuition: 'EUR 6,260-EUR 8,740/year',
     avgTuitionINR: 'Approx. INR 5.7L-8L/year',
+    avgLivingCostINR: 'Approx. INR 63K-1.08L/month',
     ieltsMin: 'Profile based',
     workRights: 'Student work rights as per Estonian regulations',
     prPathway: 'Residence route depends on employment profile',
@@ -83,6 +86,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/icn-business-school-hero.png',
     avgTuition: 'Program specific',
     avgTuitionINR: 'Profile and program based',
+    avgLivingCostINR: 'Approx. INR 81K-1.62L/month',
     ieltsMin: 'Profile based',
     workRights: 'Student work rights as per French regulations',
     prPathway: 'Post-study route depends on qualification and employment',
@@ -106,6 +110,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/mesoyios-college-hero.webp',
     avgTuition: 'Program specific',
     avgTuitionINR: 'Profile and program based',
+    avgLivingCostINR: 'Approx. INR 63K-1.17L/month',
     ieltsMin: 'Profile based',
     workRights: 'Student work rights as per Cyprus regulations',
     prPathway: 'Post-study route depends on employment profile',
@@ -129,6 +134,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/international-american-university-hero.jpg',
     avgTuition: 'Program specific',
     avgTuitionINR: 'Profile and program based',
+    avgLivingCostINR: 'Approx. INR 83K-2.08L/month',
     ieltsMin: 'Profile based',
     workRights: 'F-1 student rules apply',
     prPathway: 'OPT/CPT and employment pathways depend on program',
@@ -152,6 +158,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/st-georges-university-hero.webp',
     avgTuition: 'Program specific',
     avgTuitionINR: 'Profile and program based',
+    avgLivingCostINR: 'Program and housing dependent',
     ieltsMin: 'Profile based',
     workRights: 'Medical pathway rules apply',
     prPathway: 'Clinical/residency pathway depends on track',
@@ -175,6 +182,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/icn-campuses/berlin-320.png',
     avgTuition: 'Program specific',
     avgTuitionINR: 'Profile and program based',
+    avgLivingCostINR: 'Approx. INR 81K-1.35L/month',
     ieltsMin: 'Profile based',
     workRights: 'Student work rights as per German regulations',
     prPathway: 'Post-study route depends on qualification and employment',
@@ -198,6 +206,7 @@ export const DESTINATIONS: Destination[] = [
     heroImage: '/universities/international-american-university-hero.jpg',
     avgTuition: 'Program specific',
     avgTuitionINR: 'Profile and program based',
+    avgLivingCostINR: 'Approx. INR 72K-1.35L/month',
     ieltsMin: 'Profile based',
     workRights: 'Student work rights as per Malta regulations',
     prPathway: 'Employment route depends on program and profile',
@@ -212,3 +221,13 @@ export const DESTINATIONS: Destination[] = [
     color: 'from-[#EF4444] to-[#F97316]',
   },
 ];
+
+export const FEATURED_DESTINATIONS = DESTINATIONS.filter((destination) => destination.featured);
+
+export const REGIONS = [
+  { id: 'europe', label: 'Europe', emoji: 'EU' },
+  { id: 'americas', label: 'Americas', emoji: 'US' },
+  { id: 'asia-pacific', label: 'Asia Pacific', emoji: 'AP' },
+  { id: 'middle-east', label: 'Middle East', emoji: 'ME' },
+  { id: 'caribbean', label: 'Caribbean', emoji: 'CB' },
+] as const;
