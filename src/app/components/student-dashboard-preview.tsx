@@ -61,7 +61,7 @@ export function StudentDashboardPreview() {
             
             <p className="text-lg text-white/80 mb-8">
               Never wonder where your application stands. Our Application Pulse dashboard gives you
-              complete visibility into your study abroad process—from document submission to visa
+              complete visibility into your study abroad process-from document submission to visa
               approval.
             </p>
 
@@ -90,7 +90,7 @@ export function StudentDashboardPreview() {
               <div className="flex items-center justify-between mb-8">
                 <div>
                   <h3 className="text-2xl font-bold text-[#1A0A00] mb-1">Application Pulse</h3>
-                  <p className="text-sm text-[#1A0A00]/60">Sarah Johnson • Stanford University</p>
+                  <p className="text-sm text-[#1A0A00]/60">Aarav Mehta - FH Kufstein Tirol</p>
                 </div>
                 <div className="px-4 py-2 bg-green-100 text-green-700 rounded-full text-sm font-semibold">
                   On Track

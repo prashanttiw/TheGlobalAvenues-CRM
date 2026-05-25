@@ -5,36 +5,36 @@ import { motion, useScroll, useTransform, AnimatePresence } from 'motion/react';
 
 const HERO_SLIDES = [
   {
-    image: 'https://images.unsplash.com/photo-1523050854058-8df90110c9f1?w=1920&q=85',
-    headline: 'Your Dream University.',
-    highlight: 'One Platform Away.',
-    sub: 'Navigate admissions, visa, counselling — all in one place. Built for students from South Asia.',
+    image: '/universities/fh-kufstein-tirol-hero.webp',
+    headline: 'The Global Avenues.',
+    highlight: 'Your International Education Partner.',
+    sub: 'Education, consulting, and collaborations for students, institutions, and recruitment partners.',
   },
   {
-    image: 'https://images.unsplash.com/photo-1541339907198-e08756dedf3f?w=1920&q=85',
-    headline: '100+ Partner Universities.',
-    highlight: 'Across 40+ Countries.',
-    sub: 'From exclusive MOU partners to a global network — find your perfect institution.',
+    image: '/universities/euas-hero.jpg',
+    headline: 'Verified Partner Portfolio.',
+    highlight: 'Across 12+ Countries.',
+    sub: 'Explore applied sciences, business, design, medical, and innovation-led international pathways.',
   },
   {
-    image: 'https://images.unsplash.com/photo-1498243691581-b145c3f54a5a?w=1920&q=85',
-    headline: '98% Visa Success Rate.',
-    highlight: 'Expert Guidance.',
-    sub: 'ICEF certified counsellors with 12+ years of experience in international education.',
+    image: '/universities/icn-business-school-hero.png',
+    headline: 'Institution Representation.',
+    highlight: 'Market Growth Support.',
+    sub: 'ICEF-certified quality with recruitment operations, agent management, and application support.',
   },
 ];
 
 const STATS = [
-  { icon: GraduationCap, value: '100+', label: 'Partner Universities', color: '#FD7E14' },
-  { icon: Globe2,        value: '40+',  label: 'Countries',            color: '#FFC107' },
-  { icon: CheckCircle2,  value: '98%',  label: 'Visa Success',         color: '#4CAF50' },
-  { icon: Users,         value: '4K+',  label: 'Students Recruited',   color: '#D32F2F' },
+  { icon: GraduationCap, value: '15+', label: 'Partner Institutions', color: '#FD7E14' },
+  { icon: Globe2,        value: '12+', label: 'Countries',             color: '#FFC107' },
+  { icon: CheckCircle2,  value: '86%', label: 'Visa Success',          color: '#4CAF50' },
+  { icon: Users,         value: '4K+', label: 'Students Recruited',    color: '#D32F2F' },
 ];
 
 const FLOATING_BADGES = [
-  { text: '🇬🇧 UK Visa Approved', delay: 0,   x: '8%',  y: '30%' },
-  { text: '🎓 Offer from ICN France', delay: 1.5, x: '78%', y: '22%' },
-  { text: '✅ Scholarship Secured', delay: 3,   x: '82%', y: '65%' },
+  { text: 'ICEF Certified', delay: 0, x: '8%', y: '30%' },
+  { text: 'ICN France Portfolio', delay: 1.5, x: '78%', y: '22%' },
+  { text: '600+ Channel Partners', delay: 3, x: '82%', y: '65%' },
 ];
 
 export function HeroSection() {

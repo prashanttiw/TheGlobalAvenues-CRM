@@ -13,7 +13,7 @@ export function StudentDashboardPage() {
             S
           </div>
           <div>
-            <div className="font-bold text-[#333]">Sarah Johnson</div>
+            <div className="font-bold text-[#333]">Aarav Mehta</div>
             <div className="text-xs text-[#999]">Student ID: TGA-4921</div>
           </div>
         </div>
@@ -47,7 +47,7 @@ export function StudentDashboardPage() {
       <main className="flex-1 pt-24 pb-12 px-6 lg:px-12 max-w-7xl mx-auto">
         <header className="flex justify-between items-end mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-[#333] mb-2">Welcome back, Sarah! 👋</h1>
+            <h1 className="text-3xl font-bold text-[#333] mb-2">Welcome back, Aarav!</h1>
             <p className="text-[#666]">Here's what's happening with your applications today.</p>
           </div>
           <button className="w-10 h-10 rounded-full bg-white border border-[#eee] flex items-center justify-center text-[#666] hover:text-[#FD7E14] hover:border-[#FD7E14]/30 transition-all relative shadow-sm">

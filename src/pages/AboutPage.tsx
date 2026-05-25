@@ -78,7 +78,7 @@ export function AboutPage() {
             <motion.div initial={{ opacity: 0, x: 30 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }}>
               <div className="relative">
                 <img
-                  src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?w=800&q=80"
+                  src="/team/neetu-verma-gupta.webp"
                   alt="Team meeting"
                   className="w-full rounded-3xl shadow-[0_20px_60px_rgba(253,126,20,0.2)]"
                 />

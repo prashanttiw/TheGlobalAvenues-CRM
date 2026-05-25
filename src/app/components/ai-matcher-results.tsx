@@ -5,55 +5,55 @@ import { motion } from 'motion/react';
 const universities = [
   {
     id: 1,
-    name: 'Stanford University',
-    country: 'USA',
-    ranking: '#2 World',
-    successProbability: 78,
-    expectedROI: '$180K',
-    avgSalary: '$125,000/year',
-    topEmployers: ['Google', 'Meta', 'Apple'],
-    tuition: '$58,000/year',
-    scholarships: '$25K Available',
-    image: 'https://images.unsplash.com/photo-1663049964372-05a2e9f0998c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhbWVyaWNhbiUyMHVuaXZlcnNpdHl8ZW58MXx8fHwxNzY4MTM4NTY3fDA&ixlib=rb-4.1.0&q=80&w=1080',
+    name: 'FH Kufstein Tirol',
+    country: 'Austria',
+    ranking: 'Applied Sciences',
+    successProbability: 86,
+    expectedROI: 'Strong EU pathway',
+    avgSalary: 'Career-service guided',
+    topEmployers: ['Tourism', 'Data', 'Sustainability'],
+    tuition: 'EUR 700-EUR 800/year',
+    scholarships: 'Profile based',
+    image: '/universities/fh-kufstein-tirol-hero.webp',
   },
   {
     id: 2,
-    name: 'Oxford University',
-    country: 'UK',
-    ranking: '#1 UK',
-    successProbability: 65,
-    expectedROI: '£145K',
-    avgSalary: '£75,000/year',
-    topEmployers: ['Deloitte', 'McKinsey', 'Goldman Sachs'],
-    tuition: '£26,000/year',
-    scholarships: '£18K Available',
-    image: 'https://images.unsplash.com/photo-1627131715233-480b34985c00?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsb25kb24lMjB1bml2ZXJzaXR5fGVufDF8fHx8MTc2ODEzODU2Nnww&ixlib=rb-4.1.0&q=80&w=1080',
+    name: 'EUAS',
+    country: 'Estonia',
+    ranking: 'Largest private UAS',
+    successProbability: 84,
+    expectedROI: 'Tallinn tech ecosystem',
+    avgSalary: 'Program based',
+    topEmployers: ['IT', 'Business', 'Design'],
+    tuition: 'EUR 6,260-EUR 8,740/year',
+    scholarships: 'Available',
+    image: '/universities/euas-hero.jpg',
   },
   {
     id: 3,
-    name: 'University of Toronto',
-    country: 'Canada',
-    ranking: '#1 Canada',
-    successProbability: 82,
-    expectedROI: 'CAD 165K',
-    avgSalary: 'CAD 85,000/year',
-    topEmployers: ['Amazon', 'IBM', 'TD Bank'],
-    tuition: 'CAD 45,000/year',
-    scholarships: 'CAD 20K Available',
-    image: 'https://images.unsplash.com/photo-1618255630366-f402c45736f6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYW5hZGlhbiUyMGNhbXB1c3xlbnwxfHx8fDE3NjgxMzg1NjZ8MA&ixlib=rb-4.1.0&q=80&w=1080',
+    name: 'ICN Business School',
+    country: 'France/Germany',
+    ranking: 'Business School',
+    successProbability: 80,
+    expectedROI: 'Multi-campus exposure',
+    avgSalary: 'Career-service guided',
+    topEmployers: ['Consulting', 'Finance', 'Luxury'],
+    tuition: 'Program specific',
+    scholarships: 'Available',
+    image: '/universities/icn-business-school-hero.png',
   },
   {
     id: 4,
-    name: 'TU Munich',
-    country: 'Germany',
-    ranking: '#1 Germany',
-    successProbability: 88,
-    expectedROI: '€120K',
-    avgSalary: '€65,000/year',
-    topEmployers: ['BMW', 'Siemens', 'SAP'],
-    tuition: '€0 (Public)',
-    scholarships: '€12K Available',
-    image: 'https://images.unsplash.com/photo-1760131556605-7f2e63d00385?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjB1bml2ZXJzaXR5JTIwY2FtcHVzfGVufDF8fHx8MTc2ODEzODU2NHww&ixlib=rb-4.1.0&q=80&w=1080',
+    name: "St. George's University",
+    country: 'Grenada',
+    ranking: 'Medical University',
+    successProbability: 78,
+    expectedROI: 'Clinical pathway',
+    avgSalary: 'Residency-track outcome',
+    topEmployers: ['Hospitals', 'Clinics', 'Research'],
+    tuition: 'Program specific',
+    scholarships: 'Available',
+    image: '/universities/st-georges-university-hero.webp',
   },
 ];
 
@@ -96,7 +96,7 @@ export function AIMatcherResults() {
                 Your Perfect Matches
               </h2>
               <p className="text-[#666666]">
-                AI-analyzed based on your profile, budget, and career goals
+                Matched from The Global Avenues partner portfolio based on profile, budget, and destination preference
               </p>
             </div>
             
@@ -120,7 +120,7 @@ export function AIMatcherResults() {
                     : 'text-[#666666] hover:text-[#222222]'
                 }`}
               >
-                Starting Salary
+                Career Outcome
               </button>
               <button
                 onClick={() => setFilterBy('roi')}
@@ -138,16 +138,16 @@ export function AIMatcherResults() {
           {/* Stats Bar */}
           <div className="grid grid-cols-4 gap-4">
             <div className="bg-white backdrop-blur-xl rounded-2xl p-4 border border-[#FD7E14]/20 shadow-[0_2px_8px_rgba(253,126,20,0.1)]">
-              <div className="text-2xl font-bold text-[#FD7E14] mb-1">127</div>
-              <div className="text-sm text-[#666666]">Universities Found</div>
+              <div className="text-2xl font-bold text-[#FD7E14] mb-1">12</div>
+              <div className="text-sm text-[#666666]">Partner Options</div>
             </div>
             <div className="bg-white backdrop-blur-xl rounded-2xl p-4 border border-[#FD7E14]/20 shadow-[0_2px_8px_rgba(253,126,20,0.1)]">
               <div className="text-2xl font-bold text-[#FD7E14] mb-1">78%</div>
               <div className="text-sm text-[#666666]">Avg Success Rate</div>
             </div>
             <div className="bg-white backdrop-blur-xl rounded-2xl p-4 border border-[#FD7E14]/20 shadow-[0_2px_8px_rgba(253,126,20,0.1)]">
-              <div className="text-2xl font-bold text-[#FD7E14] mb-1">$2.4M</div>
-              <div className="text-sm text-[#666666]">Scholarships Available</div>
+              <div className="text-2xl font-bold text-[#FD7E14] mb-1">Profile</div>
+              <div className="text-sm text-[#666666]">Scholarship Review</div>
             </div>
             <div className="bg-white backdrop-blur-xl rounded-2xl p-4 border border-[#FD7E14]/20 shadow-[0_2px_8px_rgba(253,126,20,0.1)]">
               <div className="text-2xl font-bold text-[#FD7E14] mb-1">15</div>

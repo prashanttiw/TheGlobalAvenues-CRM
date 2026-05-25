@@ -1,19 +1,25 @@
 // ============================================================
-// REAL COMPANY DATA — sourced from theglobalavenues.com
+// Company data sourced from the main The Global Avenues website
+// and verified against the public site.
 // ============================================================
 
 export const COMPANY = {
   name: 'The Global Avenues',
-  tagline: "Asia's Trusted Global Education Partner",
+  shortName: 'TGA',
+  tagline: 'Education . Consulting . Collaborations',
   description:
-    'A trusted name in the international education industry. We specialize in partnering with institutions seeking to establish and grow their presence in the Indian subcontinent.',
+    'The Global Avenues is a trusted name in international education, helping institutions build their presence in India through transparent, innovative, and impact-led student recruitment solutions.',
   email: 'connect@theglobalavenues.com',
+  admissionsEmail: 'admissions@theglobalavenues.com',
+  partnershipsEmail: 'connect@theglobalavenues.com',
   phone: '+91 11 4680 1133',
-  whatsapp: '+911146801133',
-  address: 'A 6, Block A, South Extension II, New Delhi, Delhi 110049, India',
-  logoUrl: 'https://theglobalavenues.com/logo-footer-white-transparent.png',
-  logoLightUrl: 'https://theglobalavenues.com/logo-footer-white-transparent.png',
-  certifications: ['ICEF Certified', 'AIRC Member'],
+  phones: ['+91 11 4680 1133', '+91 93198 31133', '+91 97178 01133', '+91 99718 01133'],
+  whatsapp: '+919319831133',
+  address: 'The Global Avenues, A 6, Block A, South Extension II, New Delhi 110049, India',
+  logoUrl: '/logo-light.png',
+  logoLightUrl: '/logo-light.png',
+  logoFooterUrl: '/logo-footer-white-transparent.png',
+  certifications: ['ICEF Certified', 'AIRC Member', 'NET24 Member', 'EAIE Member'],
   socials: {
     facebook: 'https://www.facebook.com/TheGlobalAvenues/',
     instagram: 'https://www.instagram.com/theglobalavenues/',
@@ -22,18 +28,18 @@ export const COMPANY = {
   },
   stats: {
     yearsExperience: 12,
-    partnerUniversities: 100,
+    partnerUniversities: 15,
     channelPartners: 600,
     studentsRecruited: 4000,
-    exclusiveUniversities: 14,
-    countries: 40,
-    visaSuccessRate: 98,
+    exclusiveUniversities: 15,
+    countries: 12,
+    visaSuccessRate: 86,
   },
   offices: [
     {
       city: 'New Delhi',
-      label: 'HQ — New Delhi',
-      address: 'A 6, Block A, South Extension II, New Delhi, Delhi 110049',
+      label: 'HQ - New Delhi',
+      address: 'A 6, Block A, South Extension II, New Delhi 110049',
       phone: '+91 11 4680 1133',
       email: 'connect@theglobalavenues.com',
       lat: 28.5672,
@@ -44,12 +50,11 @@ export const COMPANY = {
 };
 
 export const NAV_LINKS = [
-  { label: 'Destinations', href: '/destinations' },
+  { label: 'Home', href: '/' },
+  { label: 'Who We Are', href: '/about' },
   { label: 'Universities', href: '/universities' },
+  { label: 'What We Offer', href: '/services' },
+  { label: 'Destinations', href: '/destinations' },
   { label: 'Courses', href: '/courses' },
-  { label: 'Partners', href: '/partners' },
-  { label: 'Services', href: '/services' },
-  { label: 'About', href: '/about' },
-  { label: 'Blog', href: '/blog' },
   { label: 'Contact', href: '/contact' },
 ];

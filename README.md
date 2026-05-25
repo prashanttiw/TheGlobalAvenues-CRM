@@ -84,7 +84,7 @@ The app will be available at **http://localhost:5173**
 
 ### First-time setup notes
 
-- No `.env` file is required for the frontend — all data is currently static/mock
+- No `.env` file is required for the frontend — all data is currently static, verified portfolio
 - The 3D globe (Globe.GL) loads asynchronously — it may take 1–2 seconds to appear
 - Fonts load from Google Fonts CDN — internet connection required for full typography
 

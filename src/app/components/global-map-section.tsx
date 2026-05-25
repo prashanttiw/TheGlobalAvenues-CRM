@@ -4,69 +4,63 @@ import { motion, AnimatePresence } from 'motion/react';
 
 const countries = [
   {
+    id: 'austria',
+    name: 'Austria',
+    position: { x: '52%', y: '34%' },
+    universities: [
+      { name: 'FH Kufstein Tirol', ranking: 'University of Applied Sciences', tuition: 'EUR 700-EUR 800/year' },
+    ],
+    visaInfo: 'Student residence permit | Intake-led processing',
+  },
+  {
+    id: 'estonia',
+    name: 'Estonia',
+    position: { x: '56%', y: '27%' },
+    universities: [
+      { name: 'EUAS', ranking: 'Largest private university of applied sciences', tuition: 'EUR 6,260-EUR 8,740/year' },
+    ],
+    visaInfo: 'Long-stay student visa/residence permit | Profile dependent',
+  },
+  {
+    id: 'france',
+    name: 'France',
+    position: { x: '49%', y: '38%' },
+    universities: [
+      { name: 'ICN Business School', ranking: 'Business School', tuition: 'Program specific' },
+      { name: 'MJM Graphic Design', ranking: 'Design School', tuition: 'Program specific' },
+      { name: 'CEFAM International School', ranking: 'International business pathway', tuition: 'Program specific' },
+    ],
+    visaInfo: 'Long-stay student visa | Campus France process',
+  },
+  {
+    id: 'cyprus',
+    name: 'Cyprus',
+    position: { x: '57%', y: '45%' },
+    universities: [
+      { name: 'Mesoyios College', ranking: 'Private college', tuition: 'Program specific' },
+      { name: 'KES College Nicosia', ranking: 'College pathway', tuition: 'Program specific' },
+    ],
+    visaInfo: 'Student visa | Institution-guided file',
+  },
+  {
     id: 'usa',
     name: 'United States',
-    position: { x: '25%', y: '35%' },
+    position: { x: '23%', y: '36%' },
     universities: [
-      { name: 'Harvard University', ranking: '#1', tuition: '$54,000/year' },
-      { name: 'Stanford University', ranking: '#3', tuition: '$58,000/year' },
-      { name: 'MIT', ranking: '#2', tuition: '$55,000/year' },
-      { name: 'Yale University', ranking: '#5', tuition: '$62,000/year' },
-      { name: 'Princeton University', ranking: '#4', tuition: '$57,000/year' },
+      { name: 'International American University', ranking: 'Business-focused university', tuition: 'Program specific' },
+      { name: 'Benedictine University', ranking: 'Private university', tuition: '$32,000-$38,000/year' },
+      { name: 'Elmhurst University', ranking: 'Private liberal arts university', tuition: 'Program specific' },
     ],
-    visaInfo: 'F-1 Student Visa | 3-5 weeks processing',
+    visaInfo: 'F-1 Student Visa | Profile and institution dependent',
   },
   {
-    id: 'uk',
-    name: 'United Kingdom',
-    position: { x: '50%', y: '30%' },
+    id: 'grenada',
+    name: 'Grenada',
+    position: { x: '34%', y: '52%' },
     universities: [
-      { name: 'Oxford University', ranking: '#1', tuition: '£26,000/year' },
-      { name: 'Cambridge University', ranking: '#2', tuition: '£24,000/year' },
-      { name: 'Imperial College', ranking: '#6', tuition: '£32,000/year' },
-      { name: 'LSE', ranking: '#8', tuition: '£23,000/year' },
-      { name: 'UCL', ranking: '#7', tuition: '£28,000/year' },
+      { name: "St. George's University", ranking: 'Medical University', tuition: 'Program specific' },
     ],
-    visaInfo: 'Tier 4 Student Visa | 3 weeks processing',
-  },
-  {
-    id: 'canada',
-    name: 'Canada',
-    position: { x: '20%', y: '25%' },
-    universities: [
-      { name: 'University of Toronto', ranking: '#1', tuition: 'CAD 45,000/year' },
-      { name: 'McGill University', ranking: '#2', tuition: 'CAD 42,000/year' },
-      { name: 'UBC', ranking: '#3', tuition: 'CAD 40,000/year' },
-      { name: 'University of Waterloo', ranking: '#5', tuition: 'CAD 38,000/year' },
-      { name: 'McMaster University', ranking: '#6', tuition: 'CAD 36,000/year' },
-    ],
-    visaInfo: 'Study Permit | 4-8 weeks processing',
-  },
-  {
-    id: 'germany',
-    name: 'Germany',
-    position: { x: '52%', y: '33%' },
-    universities: [
-      { name: 'TU Munich', ranking: '#1', tuition: '€0 (Public)' },
-      { name: 'LMU Munich', ranking: '#2', tuition: '€0 (Public)' },
-      { name: 'Heidelberg University', ranking: '#3', tuition: '€0 (Public)' },
-      { name: 'Humboldt University', ranking: '#4', tuition: '€0 (Public)' },
-      { name: 'TU Berlin', ranking: '#5', tuition: '€0 (Public)' },
-    ],
-    visaInfo: 'Student Visa | 6-12 weeks processing',
-  },
-  {
-    id: 'australia',
-    name: 'Australia',
-    position: { x: '80%', y: '70%' },
-    universities: [
-      { name: 'University of Melbourne', ranking: '#1', tuition: 'AUD 45,000/year' },
-      { name: 'ANU', ranking: '#2', tuition: 'AUD 43,000/year' },
-      { name: 'University of Sydney', ranking: '#3', tuition: 'AUD 46,000/year' },
-      { name: 'UNSW', ranking: '#4', tuition: 'AUD 44,000/year' },
-      { name: 'University of Queensland', ranking: '#5', tuition: 'AUD 42,000/year' },
-    ],
-    visaInfo: 'Subclass 500 | 4-6 weeks processing',
+    visaInfo: 'Medical pathway documentation | Intake dependent',
   },
 ];
 
@@ -187,7 +181,7 @@ export function GlobalMapSection() {
               <div className="p-6">
                 <div className="flex items-center gap-2 mb-4">
                   <GraduationCap className="w-5 h-5 text-[#0074D9]" />
-                  <h4 className="font-bold text-lg text-[#001F3F]">Top 5 Universities</h4>
+                  <h4 className="font-bold text-lg text-[#001F3F]">Partner Institutions</h4>
                 </div>
                 
                 <div className="space-y-3">

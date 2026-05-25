@@ -5,62 +5,62 @@ import { motion, AnimatePresence } from 'motion/react';
 const availableUniversities = [
   {
     id: 1,
-    name: 'Stanford University',
-    country: 'USA',
-    ranking: '#2',
-    tuition: '$58,000',
-    successRate: '78%',
-    avgSalary: '$125,000',
-    duration: '2 years',
-    scholarships: '$25K',
-    acceptanceRate: '4.3%',
+    name: 'FH Kufstein Tirol',
+    country: 'Austria',
+    ranking: 'Applied Sciences',
+    tuition: 'EUR 700-EUR 800/year',
+    successRate: '95%',
+    avgSalary: 'Profile based',
+    duration: '2-3 years',
+    scholarships: 'Available',
+    acceptanceRate: 'Profile review',
   },
   {
     id: 2,
-    name: 'Oxford University',
-    country: 'UK',
-    ranking: '#1',
-    tuition: '£26,000',
-    successRate: '65%',
-    avgSalary: '£75,000',
-    duration: '1 year',
-    scholarships: '£18K',
-    acceptanceRate: '17.5%',
+    name: 'EUAS',
+    country: 'Estonia',
+    ranking: 'Largest private UAS',
+    tuition: 'EUR 6,260-EUR 8,740/year',
+    successRate: '94%',
+    avgSalary: 'Program based',
+    duration: '2-3 years',
+    scholarships: 'Available',
+    acceptanceRate: 'Profile review',
   },
   {
     id: 3,
-    name: 'University of Toronto',
-    country: 'Canada',
-    ranking: '#1',
-    tuition: 'CAD 45,000',
-    successRate: '82%',
-    avgSalary: 'CAD 85,000',
-    duration: '2 years',
-    scholarships: 'CAD 20K',
-    acceptanceRate: '43%',
+    name: 'ICN Business School',
+    country: 'France/Germany',
+    ranking: 'Business School',
+    tuition: 'Program specific',
+    successRate: 'Profile based',
+    avgSalary: 'Career-service guided',
+    duration: '1-3 years',
+    scholarships: 'Available',
+    acceptanceRate: 'Profile review',
   },
   {
     id: 4,
-    name: 'TU Munich',
-    country: 'Germany',
-    ranking: '#1',
-    tuition: '€0',
-    successRate: '88%',
-    avgSalary: '€65,000',
-    duration: '2 years',
-    scholarships: '€12K',
-    acceptanceRate: '8%',
+    name: "St. George's University",
+    country: 'Grenada',
+    ranking: 'Medical University',
+    tuition: 'Program specific',
+    successRate: '95%',
+    avgSalary: 'Residency-track outcome',
+    duration: '4+ years',
+    scholarships: 'Available',
+    acceptanceRate: 'Track based',
   },
 ];
 
 const comparisonCategories = [
-  { key: 'ranking', label: 'World Ranking', icon: Award },
+  { key: 'ranking', label: 'Institution Type', icon: Award },
   { key: 'tuition', label: 'Tuition Fee', icon: DollarSign },
-  { key: 'successRate', label: 'Success Probability', icon: TrendingUp },
-  { key: 'avgSalary', label: 'Avg. Starting Salary', icon: DollarSign },
+  { key: 'successRate', label: 'Profile Fit', icon: TrendingUp },
+  { key: 'avgSalary', label: 'Career Outcome', icon: DollarSign },
   { key: 'duration', label: 'Program Duration', icon: Users },
   { key: 'scholarships', label: 'Scholarships Available', icon: Award },
-  { key: 'acceptanceRate', label: 'Acceptance Rate', icon: Users },
+  { key: 'acceptanceRate', label: 'Admission Review', icon: Users },
   { key: 'country', label: 'Location', icon: MapPin },
 ];
 
@@ -86,7 +86,10 @@ export function ComparisonLab() {
 
   const getBestValue = (key: string) => {
     if (key === 'successRate' || key === 'avgSalary' || key === 'acceptanceRate') {
-      const values = selectedUniversities.map(u => parseFloat(u[key as keyof typeof u] as string));
+      const values = selectedUniversities
+        .map(u => parseFloat(u[key as keyof typeof u] as string))
+        .filter(Number.isFinite);
+      if (values.length === 0) return null;
       return Math.max(...values);
     }
     return null;
@@ -111,7 +114,7 @@ export function ComparisonLab() {
             Compare Universities Side-by-Side
           </h2>
           <p className="text-lg text-[#001F3F]/70 max-w-2xl mx-auto">
-            Make informed decisions with our e-commerce-style comparison tool
+            Compare verified The Global Avenues partner options by location, duration, tuition, and admissions fit
           </p>
         </div>
 

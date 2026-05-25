@@ -12,7 +12,7 @@ export function AgentDashboardPage() {
             E
           </div>
           <div>
-            <div className="font-bold">EduConnect Partners</div>
+            <div className="font-bold">The Global Avenues</div>
             <div className="text-xs text-[#999]">Agent ID: AGN-8820</div>
           </div>
         </div>
@@ -108,27 +108,27 @@ export function AgentDashboardPage() {
               </thead>
               <tbody className="text-sm text-[#333] divide-y divide-[#eee]">
                 <tr className="hover:bg-[#F8FAFC] transition-colors">
-                  <td className="p-4 font-semibold">Ananya Patel</td>
-                  <td className="p-4">Stanford University</td>
-                  <td className="p-4 text-[#666]">MS Computer Science</td>
+                  <td className="p-4 font-semibold">Ananya Sharma</td>
+                  <td className="p-4">FH Kufstein Tirol</td>
+                  <td className="p-4 text-[#666]">MSc Data Science and Intelligence Analytics</td>
                   <td className="p-4">
                     <span className="px-3 py-1 bg-yellow-100 text-yellow-700 rounded-full text-xs font-bold">Awaiting Decision</span>
                   </td>
                   <td className="p-4"><button className="text-[#FD7E14] hover:underline">View</button></td>
                 </tr>
                 <tr className="hover:bg-[#F8FAFC] transition-colors">
-                  <td className="p-4 font-semibold">Rohit Singh</td>
-                  <td className="p-4">University of Toronto</td>
-                  <td className="p-4 text-[#666]">MBA</td>
+                  <td className="p-4 font-semibold">Rohit Verma</td>
+                  <td className="p-4">EUAS</td>
+                  <td className="p-4 text-[#666]">International Business Administration</td>
                   <td className="p-4">
                     <span className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-xs font-bold">Offer Received</span>
                   </td>
                   <td className="p-4"><button className="text-[#FD7E14] hover:underline">View</button></td>
                 </tr>
                 <tr className="hover:bg-[#F8FAFC] transition-colors">
-                  <td className="p-4 font-semibold">Meera Kumar</td>
-                  <td className="p-4">TU Munich</td>
-                  <td className="p-4 text-[#666]">Data Engineering</td>
+                  <td className="p-4 font-semibold">Meera Kapoor</td>
+                  <td className="p-4">ICN Business School</td>
+                  <td className="p-4 text-[#666]">International Business Studies</td>
                   <td className="p-4">
                     <span className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-xs font-bold">Docs Verification</span>
                   </td>
