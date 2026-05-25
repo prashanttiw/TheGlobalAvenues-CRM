@@ -37,11 +37,11 @@ export function HomePage() {
       {/* 5. Destination country cards */}
       <DestinationsSection />
 
-      {/* 6. Interactive 3D Globe */}
-      <GlobeSection />
-
-      {/* 7. Course category explorer */}
+      {/* 6. Course category explorer */}
       <CourseCategorySection />
+
+      {/* 7. Interactive 3D Globe */}
+      <GlobeSection />
 
       {/* 8. AI Matcher widget */}
       <AIMatcherWidget />

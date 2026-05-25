@@ -5,19 +5,19 @@ import { motion, useScroll, useTransform, AnimatePresence } from 'motion/react';
 
 const HERO_SLIDES = [
   {
-    image: '/universities/fh-kufstein-tirol-hero.webp',
+    image: '/hero/university-hall-hero.jpg',
     headline: 'The Global Avenues.',
     highlight: 'Your International Education Partner.',
     sub: 'Education, consulting, and collaborations for students, institutions, and recruitment partners.',
   },
   {
-    image: '/universities/euas-hero.jpg',
+    image: '/hero/library-study-hero.jpg',
     headline: 'Verified Partner Portfolio.',
     highlight: 'Across 12+ Countries.',
     sub: 'Explore applied sciences, business, design, medical, and innovation-led international pathways.',
   },
   {
-    image: '/universities/icn-business-school-hero.png',
+    image: '/universities/fh-kufstein-tirol-hero.webp',
     headline: 'Institution Representation.',
     highlight: 'Market Growth Support.',
     sub: 'ICEF-certified quality with recruitment operations, agent management, and application support.',

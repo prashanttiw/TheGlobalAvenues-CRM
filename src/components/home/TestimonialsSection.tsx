@@ -90,11 +90,11 @@ export function TestimonialsSection() {
   const t = TESTIMONIALS[current];
 
   return (
-    <section className="py-24 bg-[#FFFCF5] relative overflow-hidden">
+    <section className="py-24 bg-gradient-to-b from-[#F8FAFC] to-[#EAF5FF] relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 dot-grid opacity-40 pointer-events-none" />
-      <div className="absolute top-0 right-0 w-96 h-96 rounded-full bg-[#FD7E14]/5 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#D32F2F]/5 blur-3xl pointer-events-none" />
+      <div className="absolute top-0 right-0 w-96 h-96 rounded-full bg-[#0074D9]/8 blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#FD7E14]/6 blur-3xl pointer-events-none" />
 
       <div className="max-w-6xl mx-auto px-6 relative z-10">
         <motion.div
@@ -103,9 +103,9 @@ export function TestimonialsSection() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#FD7E14]/10 border border-[#FD7E14]/20 mb-4">
-            <Star className="w-4 h-4 text-[#FD7E14] fill-[#FD7E14]" />
-            <span className="text-sm text-[#FD7E14] font-semibold">Student Success Stories</span>
+          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0074D9]/10 border border-[#0074D9]/20 mb-4">
+            <Star className="w-4 h-4 text-[#0074D9] fill-[#0074D9]" />
+            <span className="text-sm text-[#0074D9] font-semibold">Student Success Stories</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold text-[#1C1C1E] mb-4">
             Real Students. Real Results.
@@ -125,11 +125,11 @@ export function TestimonialsSection() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: direction * -60 }}
               transition={{ duration: 0.5, ease: 'easeInOut' }}
-              className="bg-white rounded-3xl p-10 shadow-[0_20px_60px_rgba(253,126,20,0.12)] border border-[#FD7E14]/10 relative overflow-hidden"
+              className="bg-white rounded-3xl p-10 shadow-[0_20px_60px_rgba(0,116,217,0.12)] border border-[#0074D9]/10 relative overflow-hidden"
             >
               {/* Quote icon */}
               <div className="absolute top-8 right-8 opacity-8">
-                <Quote className="w-20 h-20 text-[#FD7E14]" />
+                <Quote className="w-20 h-20 text-[#0074D9]" />
               </div>
 
               {/* Stars */}
@@ -173,9 +173,9 @@ export function TestimonialsSection() {
           <div className="flex items-center justify-between mt-8">
             <button
               onClick={() => go(-1)}
-              className="w-12 h-12 rounded-2xl bg-white border border-[#FD7E14]/20 flex items-center justify-center hover:bg-[#FD7E14] hover:text-white hover:border-[#FD7E14] transition-all shadow-[0_2px_12px_rgba(253,126,20,0.1)] group"
+              className="w-12 h-12 rounded-2xl bg-white border border-[#0074D9]/20 flex items-center justify-center hover:bg-[#0074D9] hover:text-white hover:border-[#0074D9] transition-all shadow-[0_2px_12px_rgba(0,116,217,0.1)] group"
             >
-              <ChevronLeft className="w-5 h-5 text-[#FD7E14] group-hover:text-white" />
+              <ChevronLeft className="w-5 h-5 text-[#0074D9] group-hover:text-white" />
             </button>
 
             {/* Dots */}
@@ -184,16 +184,16 @@ export function TestimonialsSection() {
                 <button
                   key={i}
                   onClick={() => { setDirection(i > current ? 1 : -1); setCurrent(i); }}
-                  className={`transition-all duration-300 rounded-full ${i === current ? 'w-8 h-2.5 bg-[#FD7E14]' : 'w-2.5 h-2.5 bg-[#FD7E14]/25 hover:bg-[#FD7E14]/50'}`}
+                  className={`transition-all duration-300 rounded-full ${i === current ? 'w-8 h-2.5 bg-[#0074D9]' : 'w-2.5 h-2.5 bg-[#0074D9]/25 hover:bg-[#0074D9]/50'}`}
                 />
               ))}
             </div>
 
             <button
               onClick={() => go(1)}
-              className="w-12 h-12 rounded-2xl bg-white border border-[#FD7E14]/20 flex items-center justify-center hover:bg-[#FD7E14] hover:text-white hover:border-[#FD7E14] transition-all shadow-[0_2px_12px_rgba(253,126,20,0.1)] group"
+              className="w-12 h-12 rounded-2xl bg-white border border-[#0074D9]/20 flex items-center justify-center hover:bg-[#0074D9] hover:text-white hover:border-[#0074D9] transition-all shadow-[0_2px_12px_rgba(0,116,217,0.1)] group"
             >
-              <ChevronRight className="w-5 h-5 text-[#FD7E14] group-hover:text-white" />
+              <ChevronRight className="w-5 h-5 text-[#0074D9] group-hover:text-white" />
             </button>
           </div>
         </div>
@@ -205,7 +205,7 @@ export function TestimonialsSection() {
               key={t.id}
               onClick={() => { setDirection(i > current ? 1 : -1); setCurrent(i); }}
               whileHover={{ scale: 1.15 }}
-              className={`w-10 h-10 rounded-xl bg-gradient-to-br ${t.avatarColor} flex items-center justify-center text-white text-xs font-bold transition-all ${i === current ? 'ring-2 ring-[#FD7E14] ring-offset-2 scale-110' : 'opacity-50'}`}
+              className={`w-10 h-10 rounded-xl bg-gradient-to-br ${t.avatarColor} flex items-center justify-center text-white text-xs font-bold transition-all ${i === current ? 'ring-2 ring-[#0074D9] ring-offset-2 scale-110' : 'opacity-50'}`}
             >
               {t.avatar}
             </motion.button>
