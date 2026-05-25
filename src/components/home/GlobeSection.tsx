@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Globe2 } from 'lucide-react';
 import { motion } from 'motion/react';
-import GlobeGL from 'globe.gl';
 import { DESTINATIONS } from '@/data/destinations';
 interface GlobePoint {
   lat: number;
@@ -46,6 +45,9 @@ export function GlobeSection() {
 
         const width  = globeRef.current.clientWidth  || 600;
         const height = globeRef.current.clientHeight || 600;
+
+        const { default: GlobeGL } = await import('globe.gl');
+        if (cancelled || !globeRef.current) return;
 
         const globe = GlobeGL()(globeRef.current)
           .width(width)
