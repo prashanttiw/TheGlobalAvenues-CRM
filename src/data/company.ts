@@ -51,11 +51,9 @@ export const COMPANY = {
 
 export const NAV_LINKS = [
   { label: 'Destinations', href: '/destinations' },
-  { label: 'Universities', href: '/universities' },
   { label: 'Courses', href: '/courses' },
   { label: 'Partners', href: '/partners' },
   { label: 'Services', href: '/services' },
   { label: 'About', href: '/about' },
-  { label: 'Blog', href: '/blog' },
   { label: 'Contact', href: '/contact' },
 ];
