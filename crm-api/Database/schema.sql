@@ -301,3 +301,68 @@ CREATE TABLE IF NOT EXISTS notifications (
   INDEX idx_notifications_user (user_id),
   INDEX idx_notifications_read_at (read_at)
 );
+
+CREATE TABLE IF NOT EXISTS commission_claims (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agent_id INT UNSIGNED NOT NULL,
+  application_id INT UNSIGNED NOT NULL,
+  tuition_fee DECIMAL(12,2) NULL,
+  commission_pct DECIMAL(5,2) NULL,
+  gross_amount DECIMAL(10,2) NOT NULL,
+  tax_deducted DECIMAL(10,2) DEFAULT 0.00,
+  net_amount DECIMAL(10,2) NOT NULL,
+  currency VARCHAR(10) DEFAULT 'USD',
+  status ENUM('pending','under_review','approved','paid','disputed','cancelled') DEFAULT 'pending',
+  reviewed_by INT UNSIGNED NULL,
+  reviewed_at DATETIME NULL,
+  paid_at DATETIME NULL,
+  payment_reference VARCHAR(100) NULL,
+  dispute_reason TEXT NULL,
+  notes TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+  INDEX idx_commission_agent (agent_id),
+  INDEX idx_commission_status (status)
+);
+
+CREATE TABLE IF NOT EXISTS resources (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  title VARCHAR(255) NOT NULL,
+  description TEXT NULL,
+  category ENUM('visa_guide','country_guide','brochure','marketing_material','training','template','other') DEFAULT 'other',
+  file_url VARCHAR(500) NULL,
+  file_type VARCHAR(50) NULL,
+  target_role ENUM('agent','sub_agent','all') DEFAULT 'all',
+  target_country VARCHAR(100) NULL,
+  is_active TINYINT(1) DEFAULT 1,
+  download_count INT UNSIGNED DEFAULT 0,
+  created_by INT UNSIGNED NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS leads (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  agent_id INT UNSIGNED NOT NULL,
+  sub_agent_id INT UNSIGNED NULL,
+  first_name VARCHAR(100) NOT NULL,
+  last_name VARCHAR(100) NOT NULL,
+  email VARCHAR(255) NULL,
+  phone VARCHAR(20) NULL,
+  phone_country VARCHAR(5) NULL,
+  nationality VARCHAR(100) NULL,
+  desired_country VARCHAR(100) NULL,
+  desired_subject VARCHAR(255) NULL,
+  desired_level VARCHAR(50) NULL,
+  budget VARCHAR(50) NULL,
+  notes TEXT NULL,
+  status ENUM('new','contacted','qualified','converted','lost') DEFAULT 'new',
+  converted_to INT UNSIGNED NULL,
+  source VARCHAR(100) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
+  INDEX idx_leads_agent (agent_id),
+  INDEX idx_leads_status (status)
+);

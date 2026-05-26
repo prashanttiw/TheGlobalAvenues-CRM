@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use TGA\CRM\Config\Cors;
 use TGA\CRM\Config\Environment;
+use TGA\CRM\Routes\AgentRoutes;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Routes\ApplicationRoutes;
 use TGA\CRM\Routes\AuthRoutes;
@@ -31,6 +32,7 @@ RouteRegistry::reset();
 AuthRoutes::register();
 StudentRoutes::register();
 ApplicationRoutes::register();
+AgentRoutes::register();
 
 RouteRegistry::dispatch(
     method: $_SERVER['REQUEST_METHOD'] ?? 'GET',

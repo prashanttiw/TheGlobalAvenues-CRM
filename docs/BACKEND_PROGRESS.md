@@ -19,3 +19,11 @@
 - Added route registration for `student` and `application` domains
 - Added agent and sub-agent access checks for application ownership
 - Added upfront validation for missing or invalid program and university references
+
+## Session 3 - May 26, 2026
+
+- Added agent routes for dashboard, profile, leads, applications, commissions, resources, and sub-agent listing
+- Added `AgentController` and `Agent` model
+- Extended schema with `commission_claims`, `resources`, and `leads`
+- Added agent and sub-agent aware dashboard aggregation and access checks
+- Added lead creation, listing, and update flows
