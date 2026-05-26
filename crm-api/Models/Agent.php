@@ -21,6 +21,7 @@ final class Agent extends BaseModel
         'agency_address',
         'years_in_business',
         'annual_student_volume',
+        'partnership_type',
         'pan_number',
         'gstin',
     ];

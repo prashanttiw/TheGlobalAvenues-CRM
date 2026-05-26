@@ -7,6 +7,12 @@ import { useStore } from '../hooks/useStore';
 import { User, Briefcase, ArrowRight, CheckCircle, Globe, GraduationCap, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
+import {
+  fetchCurrentUser,
+  registerAgent,
+  registerStudent,
+  updateStudentProfile,
+} from '../lib/api';
 
 // Zod Validations schemas
 const studentSchema = z.object({
@@ -14,7 +20,7 @@ const studentSchema = z.object({
   lastName: z.string().min(2, 'Last name must be at least 2 characters'),
   email: z.string().email('Please enter a valid email address'),
   phone: z.string().min(10, 'Please enter a valid 10-digit phone number'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/, 'Password must be 8+ chars and include upper, lower, number, and special character'),
   gpa: z.string().min(1, 'GPA / academic score is required'),
   englishScore: z.string().min(1, 'Please enter your IELTS/proficiency score'),
   desiredCountry: z.string().min(1, 'Please select your target country'),
@@ -29,6 +35,7 @@ const agentSchema = z.object({
   email: z.string().email('Please enter a valid agency email'),
   phone: z.string().min(10, 'Please enter a valid agency phone contact'),
   partnershipType: z.enum(['exclusive', 'non_exclusive']),
+  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/, 'Password must be 8+ chars and include upper, lower, number, and special character'),
 });
 
 const PUBLIC_STEPS = [
@@ -38,8 +45,10 @@ const PUBLIC_STEPS = [
 ];
 
 export function ApplyPage() {
-  const login = useStore((state) => state.login);
   const updateProfile = useStore((state) => state.updateProfile);
+  const setCurrentUser = useStore((state) => state.setCurrentUser);
+  const upsertStudentRecord = useStore((state) => state.upsertStudentRecord);
+  const upsertAgentRecord = useStore((state) => state.upsertAgentRecord);
   const navigate = useNavigate();
 
   const [role, setRole] = useState<'student' | 'agent'>('student');
@@ -87,6 +96,7 @@ export function ApplyPage() {
       email: '',
       phone: '',
       partnershipType: 'exclusive',
+      password: '',
     }
   });
 
@@ -108,10 +118,49 @@ export function ApplyPage() {
   };
 
   const onStudentRegisterSubmit = async (data: z.infer<typeof studentSchema>) => {
-    // 1. Simulate authentication and registration in our Zustand store
-    await login(data.email, 'student');
-    // 2. Hydrate student profile details in global state
-    updateProfile({
+    const budgetMap: Record<string, [number, number]> = {
+      '€5,000–€10,000/year': [5000, 10000],
+      '€10,000–€15,000/year': [10000, 15000],
+      '€15,000+/year': [15000, 25000],
+    };
+
+    const [budgetMin, budgetMax] = budgetMap[data.budgetRange] ?? [5000, 10000];
+
+    await registerStudent({
+      first_name: data.firstName,
+      last_name: data.lastName,
+      email: data.email,
+      phone: data.phone,
+      password: data.password,
+    });
+
+    await updateStudentProfile({
+      desired_country: data.desiredCountry,
+      desired_subject: data.desiredSubject,
+      desired_degree_level: 'bachelors',
+      budget_min: budgetMin,
+      budget_max: budgetMax,
+      career_goal: `Interested in ${data.desiredSubject} in ${data.desiredCountry}`,
+      nationality: 'Indian',
+      country_of_residence: 'India',
+    });
+
+    const user = await fetchCurrentUser();
+    setCurrentUser({
+      id: String(user.id),
+      email: user.email,
+      phone: user.phone,
+      role: user.role as any,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      emailVerified: user.emailVerified,
+      createdAt: new Date().toISOString(),
+      status: user.status as any,
+    });
+
+    upsertStudentRecord({
+      id: `stud-${user.id}`,
+      userId: String(user.id),
       firstName: data.firstName,
       lastName: data.lastName,
       dob: '2004-10-10',
@@ -122,15 +171,63 @@ export function ApplyPage() {
       desiredCountry: data.desiredCountry,
       desiredSubject: data.desiredSubject,
       budgetRange: data.budgetRange,
+      profileCompletionPct: 80,
+      gamificationPoints: 50,
     });
+
+    updateProfile({
+      firstName: data.firstName,
+      lastName: data.lastName,
+      nationality: 'Indian',
+      educationLevel: 'High School',
+      gpa: data.gpa,
+      englishScore: data.englishScore,
+      desiredCountry: data.desiredCountry,
+      desiredSubject: data.desiredSubject,
+      budgetRange: data.budgetRange,
+    });
+
     setSuccessMode(true);
-    toast.success('Student account registered! Profile verified.');
+    toast.success('Student account registered and synced with the live CRM API.');
   };
 
   const onAgentRegisterSubmit = async (data: z.infer<typeof agentSchema>) => {
-    await login(data.email, 'agent');
+    await registerAgent({
+      agency_name: data.agencyName,
+      agency_country: data.agencyCountry,
+      registration_number: data.registrationNumber,
+      email: data.email,
+      phone: data.phone,
+      partnership_type: data.partnershipType,
+      password: data.password,
+    });
+
+    const user = await fetchCurrentUser();
+    setCurrentUser({
+      id: String(user.id),
+      email: user.email,
+      phone: user.phone,
+      role: user.role as any,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      emailVerified: user.emailVerified,
+      createdAt: new Date().toISOString(),
+      status: user.status as any,
+    });
+
+    upsertAgentRecord({
+      id: `agent-${user.id}`,
+      userId: String(user.id),
+      agencyName: data.agencyName,
+      agencyCountry: data.agencyCountry,
+      registrationNumber: data.registrationNumber,
+      partnershipType: data.partnershipType,
+      tier: 'bronze',
+      status: 'pending',
+    });
+
     setSuccessMode(true);
-    toast.success('Partnership lead submitted successfully! Review pending.');
+    toast.success('Agent onboarding submitted and synced with the live CRM API.');
   };
 
   return (
@@ -499,6 +596,16 @@ export function ApplyPage() {
                           className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
                         />
                         {errorsAgent.phone && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.phone.message}</span>}
+                      </div>
+
+                      <div>
+                        <input
+                          type="password"
+                          placeholder="Create Access Password"
+                          {...regAgent('password')}
+                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
+                        />
+                        {errorsAgent.password && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.password.message}</span>}
                       </div>
 
                       <div>

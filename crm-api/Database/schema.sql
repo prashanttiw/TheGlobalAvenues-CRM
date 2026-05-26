@@ -366,3 +366,27 @@ CREATE TABLE IF NOT EXISTS leads (
   INDEX idx_leads_agent (agent_id),
   INDEX idx_leads_status (status)
 );
+
+CREATE TABLE IF NOT EXISTS quiz_questions (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  quiz_type ENUM('course_finder','country_matcher','profile_assessment') NOT NULL,
+  question_text TEXT NOT NULL,
+  question_type ENUM('single_choice','multi_choice','slider','text') NOT NULL,
+  options_json JSON NULL,
+  weight_map_json JSON NULL,
+  help_text VARCHAR(255) NULL,
+  order_index TINYINT NOT NULL,
+  is_required TINYINT(1) DEFAULT 1,
+  is_active TINYINT(1) DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS quiz_responses (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  student_profile_id INT UNSIGNED NOT NULL,
+  quiz_type ENUM('course_finder','country_matcher','profile_assessment') NOT NULL,
+  responses_json JSON NOT NULL,
+  result_json JSON NULL,
+  completed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (student_profile_id) REFERENCES student_profiles(id) ON DELETE CASCADE
+);

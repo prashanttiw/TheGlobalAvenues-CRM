@@ -27,3 +27,13 @@
 - Extended schema with `commission_claims`, `resources`, and `leads`
 - Added agent and sub-agent aware dashboard aggregation and access checks
 - Added lead creation, listing, and update flows
+
+## Session 4 - May 26, 2026
+
+- Added seed files for admin, universities, programs, and quiz questions
+- Extended schema with quiz question and response tables
+- Improved auth payloads so frontend layouts receive usable display names
+- Imported schema and seed files into the local `tga_crm` database
+- Verified live backend flows for health, admin login, student registration, and student profile update/read
+- Added a frontend API client and wired `/apply` and `/portal/login` to live backend password auth instead of mock-only flows
+- Removed fake success behavior for OTP and Google login flows until the backend supports them

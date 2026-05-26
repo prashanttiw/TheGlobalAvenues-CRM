@@ -86,6 +86,8 @@ final class User extends BaseModel
 
     public function buildProfileSummary(array $user): array
     {
+        $name = $this->resolveProfileName((int) $user['id'], (string) $user['role'], (string) $user['email']);
+
         return [
             'id' => (int) $user['id'],
             'email' => $user['email'],
@@ -94,6 +96,8 @@ final class User extends BaseModel
             'status' => $user['status'],
             'emailVerified' => (bool) $user['email_verified'],
             'phoneVerified' => (bool) $user['phone_verified'],
+            'firstName' => $name['first_name'],
+            'lastName' => $name['last_name'],
         ];
     }
 
@@ -156,5 +160,64 @@ final class User extends BaseModel
         $statement->execute([
             'token_hash' => hash('sha256', $refreshToken),
         ]);
+    }
+
+    private function resolveProfileName(int $userId, string $role, string $email): array
+    {
+        if ($role === 'student') {
+            $statement = $this->connection->prepare(
+                'SELECT first_name, last_name FROM student_profiles WHERE user_id = :user_id LIMIT 1'
+            );
+            $statement->execute(['user_id' => $userId]);
+            $profile = $statement->fetch(PDO::FETCH_ASSOC);
+
+            if ($profile !== false) {
+                return [
+                    'first_name' => (string) ($profile['first_name'] ?? 'Student'),
+                    'last_name' => (string) ($profile['last_name'] ?? 'User'),
+                ];
+            }
+        }
+
+        if ($role === 'agent') {
+            $statement = $this->connection->prepare(
+                'SELECT agency_name FROM agents WHERE user_id = :user_id LIMIT 1'
+            );
+            $statement->execute(['user_id' => $userId]);
+            $agencyName = $statement->fetchColumn();
+
+            if (is_string($agencyName) && $agencyName !== '') {
+                return [
+                    'first_name' => $agencyName,
+                    'last_name' => 'Team',
+                ];
+            }
+        }
+
+        if ($role === 'sub_agent') {
+            $statement = $this->connection->prepare(
+                'SELECT display_name FROM sub_agents WHERE user_id = :user_id LIMIT 1'
+            );
+            $statement->execute(['user_id' => $userId]);
+            $displayName = $statement->fetchColumn();
+
+            if (is_string($displayName) && $displayName !== '') {
+                $parts = preg_split('/\s+/', trim($displayName)) ?: [];
+
+                return [
+                    'first_name' => $parts[0] ?? 'Sub',
+                    'last_name' => count($parts) > 1 ? implode(' ', array_slice($parts, 1)) : 'Agent',
+                ];
+            }
+        }
+
+        $localPart = explode('@', $email)[0] ?? 'User';
+        $clean = preg_replace('/[^a-zA-Z0-9]+/', ' ', $localPart) ?? 'User';
+        $parts = preg_split('/\s+/', trim($clean)) ?: [];
+
+        return [
+            'first_name' => ucfirst(strtolower($parts[0] ?? 'User')),
+            'last_name' => ucfirst(strtolower($parts[1] ?? 'Account')),
+        ];
     }
 }
