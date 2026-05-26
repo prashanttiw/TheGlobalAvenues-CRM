@@ -5,8 +5,10 @@ declare(strict_types=1);
 use TGA\CRM\Config\Cors;
 use TGA\CRM\Config\Environment;
 use TGA\CRM\Helpers\Response;
+use TGA\CRM\Routes\ApplicationRoutes;
 use TGA\CRM\Routes\AuthRoutes;
 use TGA\CRM\Routes\RouteRegistry;
+use TGA\CRM\Routes\StudentRoutes;
 
 require_once __DIR__ . '/autoload.php';
 
@@ -27,6 +29,8 @@ set_exception_handler(static function (Throwable $exception): void {
 
 RouteRegistry::reset();
 AuthRoutes::register();
+StudentRoutes::register();
+ApplicationRoutes::register();
 
 RouteRegistry::dispatch(
     method: $_SERVER['REQUEST_METHOD'] ?? 'GET',

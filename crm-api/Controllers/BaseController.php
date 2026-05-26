@@ -20,4 +20,9 @@ abstract class BaseController
 
         return is_array($decoded) ? Sanitizer::array($decoded) : [];
     }
+
+    protected function getQueryParam(string $key, mixed $default = null): mixed
+    {
+        return $_GET[$key] ?? $default;
+    }
 }

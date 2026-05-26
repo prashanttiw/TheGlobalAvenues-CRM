@@ -165,3 +165,139 @@ CREATE TABLE IF NOT EXISTS sub_agents (
   FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
+
+CREATE TABLE IF NOT EXISTS universities (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  short_name VARCHAR(50) NULL,
+  country VARCHAR(100) NOT NULL,
+  city VARCHAR(100) NULL,
+  partnership_type ENUM('exclusive','non_exclusive') DEFAULT 'non_exclusive',
+  is_active TINYINT(1) DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS programs (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  university_id INT UNSIGNED NOT NULL,
+  name VARCHAR(255) NOT NULL,
+  degree_level ENUM('certificate','diploma','bachelors','masters','phd','short_course') NOT NULL,
+  subject_area VARCHAR(255) NULL,
+  tuition_fee DECIMAL(12,2) NULL,
+  tuition_currency VARCHAR(10) DEFAULT 'EUR',
+  intake_months_json JSON NULL,
+  is_active TINYINT(1) DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (university_id) REFERENCES universities(id) ON DELETE CASCADE,
+  INDEX idx_program_university (university_id)
+);
+
+CREATE TABLE IF NOT EXISTS applications (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  reference_number VARCHAR(20) NOT NULL UNIQUE,
+  student_user_id INT UNSIGNED NOT NULL,
+  agent_id INT UNSIGNED NULL,
+  sub_agent_id INT UNSIGNED NULL,
+  program_id INT UNSIGNED NOT NULL,
+  university_id INT UNSIGNED NOT NULL,
+  status ENUM(
+    'inquiry',
+    'profile_review',
+    'applied',
+    'documents_submitted',
+    'under_review',
+    'offer_received',
+    'conditional_offer',
+    'unconditional_offer',
+    'enrolled',
+    'cas_coe_issued',
+    'visa_applied',
+    'visa_approved',
+    'visa_rejected',
+    'pre_departure',
+    'departed',
+    'deferred',
+    'withdrawn',
+    'rejected'
+  ) DEFAULT 'inquiry',
+  priority ENUM('normal','high','urgent') DEFAULT 'normal',
+  intake_month TINYINT NOT NULL,
+  intake_year YEAR NOT NULL,
+  assigned_to INT UNSIGNED NULL,
+  source ENUM('direct','agent','referral','website') DEFAULT 'direct',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (student_user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (program_id) REFERENCES programs(id),
+  FOREIGN KEY (university_id) REFERENCES universities(id),
+  INDEX idx_application_student (student_user_id),
+  INDEX idx_application_status (status)
+);
+
+CREATE TABLE IF NOT EXISTS application_stage_history (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  application_id INT UNSIGNED NOT NULL,
+  from_status VARCHAR(50) NULL,
+  to_status VARCHAR(50) NOT NULL,
+  changed_by INT UNSIGNED NOT NULL,
+  note TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+  INDEX idx_stage_history_application (application_id)
+);
+
+CREATE TABLE IF NOT EXISTS application_notes (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  application_id INT UNSIGNED NOT NULL,
+  author_id INT UNSIGNED NOT NULL,
+  note TEXT NOT NULL,
+  is_internal TINYINT(1) DEFAULT 1,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+  INDEX idx_application_notes (application_id)
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  application_id INT UNSIGNED NOT NULL,
+  uploaded_by INT UNSIGNED NOT NULL,
+  document_type ENUM(
+    'passport','visa_copy','academic_transcript','degree_certificate',
+    'english_test_result','sop','lor','cv_resume','bank_statement',
+    'financial_sponsorship','offer_letter','cas_coe','enrollment_letter',
+    'photograph','birth_certificate','police_clearance','medical_certificate',
+    'insurance','other'
+  ) NOT NULL,
+  file_name VARCHAR(255) NOT NULL,
+  file_path VARCHAR(500) NOT NULL,
+  file_size INT UNSIGNED NULL,
+  mime_type VARCHAR(100) NULL,
+  file_uuid VARCHAR(36) NOT NULL UNIQUE,
+  status ENUM('pending','verified','rejected','expired') DEFAULT 'pending',
+  verified_by INT UNSIGNED NULL,
+  verified_at DATETIME NULL,
+  rejection_reason TEXT NULL,
+  expiry_date DATE NULL,
+  notes TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
+  INDEX idx_documents_application (application_id)
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NOT NULL,
+  type VARCHAR(100) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT NOT NULL,
+  data_json JSON NULL,
+  channel ENUM('in_app','email','whatsapp','sms') DEFAULT 'in_app',
+  read_at DATETIME NULL,
+  sent_at DATETIME NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_notifications_user (user_id),
+  INDEX idx_notifications_read_at (read_at)
+);

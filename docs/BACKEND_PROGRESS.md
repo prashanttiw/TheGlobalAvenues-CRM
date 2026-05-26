@@ -9,3 +9,13 @@
 - Scaffolded auth endpoints for register, login, refresh, logout, and get-me
 - Added uploads, logs, and database folder structure for the PHP API
 - PHP runtime is not installed in the current workspace, so runtime syntax checks and endpoint execution are still pending
+
+## Session 2 - May 26, 2026
+
+- Extended the schema with universities, programs, applications, stage history, notes, documents, and notifications
+- Added `StudentController` with profile, dashboard, applications, and notifications endpoints
+- Added `ApplicationController` with create, detail, status history, status update, and documents endpoints
+- Added `StudentProfile`, `Application`, and `Notification` models
+- Added route registration for `student` and `application` domains
+- Added agent and sub-agent access checks for application ownership
+- Added upfront validation for missing or invalid program and university references
