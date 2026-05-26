@@ -160,7 +160,7 @@ export function HeroSection() {
 
       {/* ── Main content ── */}
       <motion.div
-        className="relative z-10 max-w-5xl mx-auto px-6 text-center pt-28 pb-16"
+        className="relative z-10 mx-auto w-full max-w-5xl px-4 pt-24 pb-10 text-center sm:px-6 sm:pt-28 sm:pb-16"
         style={{ y: textY, opacity }}
       >
         {/* Trust badge */}
@@ -168,17 +168,17 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7 }}
-          className="inline-flex items-center gap-2.5 px-5 py-2.5 rounded-full glass border border-white/20 mb-10"
+          className="mb-8 inline-flex max-w-full items-center justify-center gap-2.5 rounded-full border border-white/20 px-4 py-2 text-center glass sm:mb-10 sm:px-5 sm:py-2.5"
         >
           <span className="flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-[#FFC107] opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-[#FFC107]" />
           </span>
-          <span className="text-sm text-white/90 font-medium">✦ Asia's Trusted Global Education Partner · ICEF Certified</span>
+          <span className="min-w-0 whitespace-normal text-xs font-medium leading-snug text-white/90 sm:text-sm">✦ Asia's Trusted Global Education Partner · ICEF Certified</span>
         </motion.div>
 
         {/* Headline with slide transition */}
-        <div className="mb-6 min-h-[160px] md:min-h-[200px] flex flex-col items-center justify-center">
+        <div className="mb-5 flex min-h-[132px] flex-col items-center justify-center sm:mb-6 sm:min-h-[160px] md:min-h-[200px]">
           <AnimatePresence mode="wait">
             <motion.div
               key={slide}
@@ -187,12 +187,12 @@ export function HeroSection() {
               exit={{ opacity: 0, y: -20, filter: 'blur(8px)' }}
               transition={{ duration: 0.7 }}
             >
-              <h1 className="text-5xl md:text-7xl font-bold text-white leading-[1.08] tracking-tight mb-3">
+              <h1 className="mb-3 max-w-full text-4xl font-bold leading-[1.08] tracking-tight text-white sm:text-5xl md:text-7xl">
                 {current.headline}
                 <br />
                 <span className="text-gradient-orange">{current.highlight}</span>
               </h1>
-              <p className="text-lg md:text-xl text-white/75 max-w-2xl mx-auto leading-relaxed">
+              <p className="mx-auto max-w-2xl text-sm leading-relaxed text-white/75 sm:text-base md:text-xl">
                 {current.sub}
               </p>
             </motion.div>
@@ -215,27 +215,29 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.3 }}
-          className="max-w-2xl mx-auto mb-8"
+          className="mx-auto mb-8 w-full max-w-2xl"
         >
-          <div className="flex items-center gap-2 p-2 bg-white/95 backdrop-blur-2xl rounded-2xl shadow-[0_8px_40px_rgba(253,126,20,0.35),0_0_0_1px_rgba(253,126,20,0.15)]">
-            <Search className="w-5 h-5 text-[#9CA3AF] ml-3 flex-shrink-0" />
-            <input
-              type="text"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && (window.location.href = `/universities${search ? `?q=${encodeURIComponent(search)}` : ''}`)}
-              placeholder="Search universities, courses, or countries..."
-              className="flex-1 bg-transparent outline-none text-[#1C1C1E] placeholder:text-[#9CA3AF] text-sm py-1"
-            />
+          <div className="flex flex-col gap-2 rounded-2xl bg-white/95 p-2 shadow-[0_8px_40px_rgba(253,126,20,0.35),0_0_0_1px_rgba(253,126,20,0.15)] backdrop-blur-2xl sm:flex-row sm:items-center">
+            <div className="flex w-full min-w-0 items-center">
+              <Search className="ml-3 h-5 w-5 flex-shrink-0 text-[#9CA3AF]" />
+              <input
+                type="text"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && (window.location.href = `/universities${search ? `?q=${encodeURIComponent(search)}` : ''}`)}
+                placeholder="Search universities, courses, or countries..."
+                className="min-w-0 flex-1 bg-transparent py-2 pl-3 text-sm text-[#1C1C1E] outline-none placeholder:text-[#9CA3AF] sm:py-1"
+              />
+            </div>
             <Link
               to={`/universities${search ? `?q=${encodeURIComponent(search)}` : ''}`}
-              className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white rounded-xl text-sm font-bold shadow-[0_4px_16px_rgba(253,126,20,0.5)] hover:shadow-[0_6px_24px_rgba(253,126,20,0.7)] hover:scale-105 transition-all flex-shrink-0"
+              className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_16px_rgba(253,126,20,0.5)] transition-all hover:scale-105 hover:shadow-[0_6px_24px_rgba(253,126,20,0.7)] sm:w-auto"
             >
               <Sparkles className="w-4 h-4" />
               Search
             </Link>
           </div>
-          <p className="text-xs text-white/50 mt-2 text-center">
+          <p className="mt-2 hidden text-center text-xs text-white/50 sm:block">
             Popular: <button onClick={() => setSearch('MBA')} className="hover:text-white/80 transition-colors">MBA</button> · <button onClick={() => setSearch('Computer Science')} className="hover:text-white/80 transition-colors">Computer Science</button> · <button onClick={() => setSearch('UK')} className="hover:text-white/80 transition-colors">UK</button> · <button onClick={() => setSearch('France')} className="hover:text-white/80 transition-colors">France</button>
           </p>
         </motion.div>
@@ -245,18 +247,18 @@ export function HeroSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.7, delay: 0.4 }}
-          className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14"
+          className="mb-10 flex flex-col items-center justify-center gap-3 sm:mb-14 sm:flex-row sm:gap-4"
         >
           <Link
             to="/apply"
-            className="group flex items-center gap-2.5 px-8 py-4 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white rounded-2xl font-bold text-base shadow-[0_8px_32px_rgba(253,126,20,0.5)] hover:shadow-[0_12px_48px_rgba(253,126,20,0.7)] hover:scale-105 transition-all animate-pulse-glow"
+            className="group flex w-full max-w-sm items-center justify-center gap-2.5 rounded-2xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-8 py-4 text-base font-bold text-white shadow-[0_8px_32px_rgba(253,126,20,0.5)] transition-all animate-pulse-glow hover:scale-105 hover:shadow-[0_12px_48px_rgba(253,126,20,0.7)] sm:w-auto"
           >
             Start My Journey
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </Link>
           <Link
             to="/partners"
-            className="flex items-center gap-2 px-8 py-4 glass text-white rounded-2xl font-bold text-base hover:bg-white/15 transition-all"
+            className="flex w-full max-w-sm items-center justify-center gap-2 rounded-2xl px-8 py-4 text-base font-bold text-white transition-all glass hover:bg-white/15 sm:w-auto"
           >
             View Our Partners
           </Link>

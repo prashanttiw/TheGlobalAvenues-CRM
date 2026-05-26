@@ -64,8 +64,8 @@ export function Header() {
       }`}
     >
       {/* Top bar */}
-      <div className={`hidden lg:block border-b transition-all duration-300 ${scrolled || !isHome ? 'border-[#FD7E14]/10 bg-[#FFFCF5]' : 'border-white/10 bg-black/20'}`}>
-        <div className="max-w-7xl mx-auto px-6 py-1.5 flex items-center justify-between">
+      <div className={`hidden xl:block border-b transition-all duration-300 ${scrolled || !isHome ? 'border-[#FD7E14]/10 bg-[#FFFCF5]' : 'border-white/10 bg-black/20'}`}>
+        <div className="max-w-[88rem] mx-auto px-6 lg:px-8 py-1.5 flex items-center justify-between">
           <div className="flex items-center gap-6 text-xs">
             <a href={`tel:${COMPANY.phone}`} className={`flex items-center gap-1.5 transition-colors ${scrolled || !isHome ? 'text-[#666]  hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
               <Phone className="w-3 h-3" />
@@ -85,25 +85,25 @@ export function Header() {
       </div>
 
       {/* Main nav */}
-      <div className="max-w-7xl mx-auto px-6 py-3">
-        <div className="flex items-center justify-between gap-8">
+      <div className="max-w-[88rem] mx-auto px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3">
+        <div className="flex items-center justify-between gap-3 xl:gap-5">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-3 flex-shrink-0">
+          <Link to="/" className="flex min-w-0 flex-shrink-0 items-center gap-2.5 sm:gap-3">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#D32F2F] flex items-center justify-center shadow-[0_4px_12px_rgba(253,126,20,0.35)]">
               <Globe className="w-5 h-5 text-white" />
             </div>
-            <div className="flex flex-col leading-none">
-              <span className={`text-base font-bold transition-colors ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
+            <div className="flex min-w-0 flex-col leading-none">
+              <span className={`truncate text-sm font-bold transition-colors sm:text-base ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
                 The Global Avenues
               </span>
-              <span className={`text-[10px] font-medium transition-colors ${scrolled || !isHome ? 'text-[#FD7E14]' : 'text-[#FFC107]'}`}>
+              <span className={`hidden text-[10px] font-medium transition-colors min-[380px]:block ${scrolled || !isHome ? 'text-[#FD7E14]' : 'text-[#FFC107]'}`}>
                 Asia's Trusted Education Partner
               </span>
             </div>
           </Link>
 
           {/* Desktop Nav */}
-          <nav className="hidden lg:flex items-center gap-1">
+          <nav className="hidden flex-1 items-center justify-center gap-0.5 xl:flex 2xl:gap-1">
             {NAV_LINKS.map((link) => {
               const hasDropdown = link.label in DROPDOWN_ITEMS;
               const isActive = location.pathname.startsWith(link.href) && link.href !== '/';
@@ -116,7 +116,7 @@ export function Header() {
                 >
                   {hasDropdown ? (
                     <button
-                      className={`flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      className={`flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all 2xl:px-3 ${
                         isActive
                           ? 'text-[#FD7E14] bg-[#FD7E14]/10'
                           : scrolled || !isHome
@@ -130,7 +130,7 @@ export function Header() {
                   ) : (
                     <Link
                       to={link.href}
-                      className={`flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all ${
+                      className={`flex items-center whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all 2xl:px-3 ${
                         isActive
                           ? 'text-[#FD7E14] bg-[#FD7E14]/10'
                           : scrolled || !isHome
@@ -177,10 +177,10 @@ export function Header() {
           </nav>
 
           {/* CTA Buttons */}
-          <div className="hidden lg:flex items-center gap-3">
+          <div className="hidden flex-shrink-0 items-center gap-2 xl:flex 2xl:gap-3">
             <Link
               to="/portal/login"
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
+              className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all 2xl:px-4 ${
                 scrolled || !isHome
                   ? 'border-[#FD7E14]/30 text-[#FD7E14] hover:bg-[#FD7E14]/8'
                   : 'border-white/30 text-white hover:bg-white/10'
@@ -191,7 +191,7 @@ export function Header() {
             </Link>
             <Link
               to="/apply"
-              className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white shadow-[0_4px_16px_rgba(253,126,20,0.35)] hover:shadow-[0_6px_24px_rgba(253,126,20,0.5)] hover:scale-105 transition-all"
+              className="flex items-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-4 py-2 text-sm font-bold text-white shadow-[0_4px_16px_rgba(253,126,20,0.35)] transition-all hover:scale-105 hover:shadow-[0_6px_24px_rgba(253,126,20,0.5)] 2xl:px-5"
             >
               Start Application
             </Link>
@@ -199,8 +199,11 @@ export function Header() {
 
           {/* Mobile menu button */}
           <button
+            type="button"
             onClick={() => setMobileOpen(!mobileOpen)}
-            className={`lg:hidden p-2 rounded-xl transition-colors ${scrolled || !isHome ? 'text-[#333] hover:bg-[#FD7E14]/10' : 'text-white hover:bg-white/10'}`}
+            aria-label={mobileOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={mobileOpen}
+            className={`rounded-xl p-2 transition-colors xl:hidden ${scrolled || !isHome ? 'text-[#333] hover:bg-[#FD7E14]/10' : 'text-white hover:bg-white/10'}`}
           >
             {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -214,9 +217,9 @@ export function Header() {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="lg:hidden bg-white border-t border-[#FD7E14]/10 overflow-hidden"
+            className="max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain border-t border-[#FD7E14]/10 bg-white xl:hidden"
           >
-            <div className="max-w-7xl mx-auto px-6 py-4 space-y-1">
+            <div className="mx-auto max-w-[88rem] space-y-1 px-4 py-4 sm:px-6">
               {NAV_LINKS.map((link) => (
                 <Link
                   key={link.label}
