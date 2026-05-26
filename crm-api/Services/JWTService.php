@@ -1,0 +1,105 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TGA\CRM\Services;
+
+use TGA\CRM\Config\Environment;
+
+final class JWTService
+{
+    public static function issueTokenPair(int $userId, string $role): array
+    {
+        $accessExpiry = (int) Environment::get('JWT_ACCESS_EXPIRY', '900');
+        $refreshExpiry = (int) Environment::get('JWT_REFRESH_EXPIRY', '604800');
+
+        $accessToken = self::encode([
+            'sub' => $userId,
+            'role' => $role,
+            'type' => 'access',
+            'iat' => time(),
+            'exp' => time() + $accessExpiry,
+        ], Environment::getRequired('JWT_ACCESS_SECRET'));
+
+        $refreshToken = self::encode([
+            'sub' => $userId,
+            'role' => $role,
+            'type' => 'refresh',
+            'iat' => time(),
+            'exp' => time() + $refreshExpiry,
+        ], Environment::getRequired('JWT_REFRESH_SECRET'));
+
+        return [
+            'access_token' => $accessToken,
+            'refresh_token' => $refreshToken,
+            'refresh_expires_at' => gmdate('Y-m-d H:i:s', time() + $refreshExpiry),
+        ];
+    }
+
+    public static function verifyAccessToken(string $token): array|false
+    {
+        $payload = self::decode($token, Environment::getRequired('JWT_ACCESS_SECRET'));
+
+        if ($payload === false || ($payload['type'] ?? '') !== 'access') {
+            return false;
+        }
+
+        return $payload;
+    }
+
+    public static function verifyRefreshToken(string $token): array|false
+    {
+        $payload = self::decode($token, Environment::getRequired('JWT_REFRESH_SECRET'));
+
+        if ($payload === false || ($payload['type'] ?? '') !== 'refresh') {
+            return false;
+        }
+
+        return $payload;
+    }
+
+    private static function encode(array $payload, string $secret): string
+    {
+        $header = ['alg' => Environment::get('JWT_ALGORITHM', 'HS256'), 'typ' => 'JWT'];
+
+        $headerEncoded = self::base64UrlEncode((string) json_encode($header, JSON_UNESCAPED_SLASHES));
+        $payloadEncoded = self::base64UrlEncode((string) json_encode($payload, JSON_UNESCAPED_SLASHES));
+        $signature = hash_hmac('sha256', $headerEncoded . '.' . $payloadEncoded, $secret, true);
+
+        return $headerEncoded . '.' . $payloadEncoded . '.' . self::base64UrlEncode($signature);
+    }
+
+    private static function decode(string $token, string $secret): array|false
+    {
+        $parts = explode('.', $token);
+
+        if (count($parts) !== 3) {
+            return false;
+        }
+
+        [$headerEncoded, $payloadEncoded, $signatureEncoded] = $parts;
+        $expectedSignature = self::base64UrlEncode(hash_hmac('sha256', $headerEncoded . '.' . $payloadEncoded, $secret, true));
+
+        if (!hash_equals($expectedSignature, $signatureEncoded)) {
+            return false;
+        }
+
+        $payload = json_decode(self::base64UrlDecode($payloadEncoded), true);
+
+        if (!is_array($payload) || time() >= (int) ($payload['exp'] ?? 0)) {
+            return false;
+        }
+
+        return $payload;
+    }
+
+    private static function base64UrlEncode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    private static function base64UrlDecode(string $value): string
+    {
+        return (string) base64_decode(strtr($value, '-_', '+/'));
+    }
+}
