@@ -17,48 +17,65 @@ export function InnovationBar() {
   const items = [...scholarshipWins, ...scholarshipWins];
 
   return (
-    <div className="relative py-6 bg-gradient-to-r from-[#FFC107] to-[#FFA000] overflow-hidden shadow-[0_4px_20px_rgba(255,193,7,0.3)]">
-      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAwIDAgTCAyMCAwIEwgMjAgMjAgTCAwIDIwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-30" />
-      
-      <div className="relative flex items-center gap-3 mb-3">
-        <div className="flex items-center gap-2 px-4">
-          <TrendingUp className="w-5 h-5 text-[#333333]" />
-          <span className="text-sm font-semibold text-[#333333]">Featured Partner Pathways</span>
-        </div>
-      </div>
+    <div className="relative z-30 -mt-10 mx-4 md:mx-auto max-w-6xl bg-white/95 backdrop-blur-xl border border-[#FD7E14]/15 rounded-3xl shadow-[0_24px_50px_rgba(253,126,20,0.12),0_0_0_1px_rgba(253,126,20,0.05)] overflow-hidden">
+      {/* Subtle brand glow light source in the background of the pill */}
+      <div className="absolute -top-10 left-1/4 w-72 h-72 rounded-full bg-[#FFC107]/10 blur-2xl pointer-events-none" />
+      <div className="absolute -bottom-10 right-1/4 w-72 h-72 rounded-full bg-[#FD7E14]/10 blur-2xl pointer-events-none" />
 
-      <div className="relative overflow-hidden">
-        <motion.div
-          className="flex gap-6"
-          animate={{
-            x: [0, -50 * scholarshipWins.length],
-          }}
-          transition={{
-            x: {
-              repeat: Infinity,
-              repeatType: 'loop',
-              duration: 30,
-              ease: 'linear',
-            },
-          }}
-        >
-          {items.map((win, index) => (
-            <div
-              key={index}
-              className="flex-shrink-0 flex items-center gap-3 bg-white/95 backdrop-blur-md rounded-xl px-6 py-3 border border-[#FD7E14]/20 shadow-[0_2px_8px_rgba(253,126,20,0.2)]"
-            >
-              <Award className="w-5 h-5 text-[#FD7E14]" />
-              <div className="flex items-center gap-2">
-                <span className="text-[#333333] font-semibold">{win.name}</span>
-                <span className="text-[#666666]">offers</span>
-                <span className="text-[#D32F2F] font-bold">{win.amount}</span>
-                <span className="text-[#666666]">through</span>
-                <span className="text-[#333333] font-medium">{win.university}</span>
-                <span className="text-[#999999]">({win.country})</span>
+      {/* Grid overlay for aesthetic structure */}
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAiIGhlaWdodD0iMjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSIyMCIgaGVpZ2h0PSIyMCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAwIDAgTCAyMCAwIEwgMjAgMjAgTCAwIDIwIFoiIGZpbGw9Im5vbmUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS1vcGFjaXR5PSIwLjA1IiBzdHJva2Utd2lkdGg9IjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-25" />
+
+      {/* Outer wrapper with padding */}
+      <div className="py-5 px-6 relative z-10">
+        <div className="flex items-center gap-2 mb-3.5 px-2">
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-[#FD7E14]/10 border border-[#FD7E14]/20 shadow-sm">
+            <TrendingUp className="w-3.5 h-3.5 text-[#FD7E14]" />
+          </div>
+          <span className="text-xs font-bold text-[#FD7E14] uppercase tracking-wider">Featured Partner Pathways</span>
+          
+          <div className="flex-1 h-[1px] bg-gradient-to-r from-[#FD7E14]/20 to-transparent ml-4" />
+        </div>
+
+        <div className="relative overflow-hidden py-1">
+          {/* Left/Right fades inside the pill for seamless text appearance */}
+          <div className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
+          <div className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-white to-transparent z-10 pointer-events-none" />
+
+          <motion.div
+            className="flex gap-6"
+            animate={{
+              x: ['0%', '-50%'],
+            }}
+            style={{ width: 'max-content' }}
+            transition={{
+              x: {
+                repeat: Infinity,
+                repeatType: 'loop',
+                duration: 35,
+                ease: 'linear',
+              },
+            }}
+          >
+            {items.map((win, index) => (
+              <div
+                key={index}
+                className="flex-shrink-0 flex items-center gap-3 bg-[#FFFCF5]/90 hover:bg-white hover:border-[#FD7E14]/30 hover:shadow-md rounded-2xl px-5 py-3 border border-[#FD7E14]/10 transition-all duration-300 cursor-default"
+              >
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FD7E14]/10 to-[#FFC107]/10 flex items-center justify-center border border-[#FD7E14]/20 shadow-sm">
+                  <Award className="w-4 h-4 text-[#FD7E14]" />
+                </div>
+                <div className="flex items-center gap-2 text-sm">
+                  <span className="text-[#1A1A1A] font-bold tracking-tight">{win.name}</span>
+                  <span className="text-[#666] text-xs">offers</span>
+                  <span className="text-[#C94D1B] font-extrabold bg-[#C94D1B]/5 border border-[#C94D1B]/10 px-2 py-0.5 rounded-lg text-xs tracking-tight">{win.amount}</span>
+                  <span className="text-[#666] text-xs">through</span>
+                  <span className="text-[#333] font-semibold text-xs">{win.university}</span>
+                  <span className="text-[#999] text-xs font-medium">({win.country})</span>
+                </div>
               </div>
-            </div>
-          ))}
-        </motion.div>
+            ))}
+          </motion.div>
+        </div>
       </div>
     </div>
   );

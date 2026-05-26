@@ -14,14 +14,14 @@ const ITEMS = [...PARTNER_LOGOS, ...PARTNER_LOGOS];
 
 export function PartnerTicker() {
   return (
-    <section className="py-10 bg-white border-y border-[#FD7E14]/10 overflow-hidden">
+    <section className="py-8 bg-white border-y border-[#FD7E14]/10 overflow-hidden">
       <div className="max-w-7xl mx-auto px-6 mb-6">
         <p className="text-center text-sm font-semibold text-[#999] uppercase tracking-widest">
           Trusted by Leading Universities Worldwide
         </p>
       </div>
 
-      <div className="relative overflow-hidden">
+      <div className="relative overflow-hidden py-3">
         {/* Left fade */}
         <div className="absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-white to-transparent z-10 pointer-events-none" />
         {/* Right fade */}
@@ -29,9 +29,9 @@ export function PartnerTicker() {
 
         <motion.div
           className="flex gap-8 items-center"
-          animate={{ x: [0, `-${PARTNER_LOGOS.length * 200}px`] }}
-          transition={{ duration: 40, repeat: Infinity, ease: 'linear' }}
-          style={{ width: `${ITEMS.length * 200}px` }}
+          animate={{ x: [0, `-${PARTNER_LOGOS.length * 192}px`] }}
+          transition={{ duration: 35, repeat: Infinity, ease: 'linear' }}
+          style={{ width: 'max-content' }}
         >
           {ITEMS.map((partner, i) => (
             <div
@@ -55,8 +55,12 @@ export function PartnerTicker() {
                   }}
                 />
                 {partner.isExclusive && (
-                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-[#FD7E14] rounded-full flex items-center justify-center text-white text-[8px] font-bold shadow-md">
-                    ✦
+                  <span className="absolute -top-2 -right-2 w-5 h-5 bg-white rounded-full flex items-center justify-center shadow-md border border-[#FD7E14]/30 overflow-hidden p-0.5">
+                    <img 
+                      src="/apple-touch-icon.png" 
+                      alt="TGA Logo"
+                      className="w-full h-full object-contain"
+                    />
                   </span>
                 )}
               </div>

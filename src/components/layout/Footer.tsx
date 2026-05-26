@@ -6,7 +6,6 @@ const columns = [
   {
     title: 'Explore',
     links: [
-      { label: 'Universities', href: '/universities' },
       { label: 'Destinations', href: '/destinations' },
       { label: 'Courses', href: '/courses' },
       { label: 'Partners', href: '/partners' },
@@ -17,7 +16,6 @@ const columns = [
     links: [
       { label: 'About', href: '/about' },
       { label: 'Services', href: '/services' },
-      { label: 'Blog', href: '/blog' },
       { label: 'Contact', href: '/contact' },
     ],
   },
