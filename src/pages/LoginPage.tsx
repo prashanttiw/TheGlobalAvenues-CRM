@@ -1,98 +1,282 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { User, Briefcase, ArrowRight, Lock, Globe } from 'lucide-react';
-import { motion } from 'motion/react';
+import { Link, useNavigate } from 'react-router-dom';
+import { useStore } from '../hooks/useStore';
+import { User, Briefcase, ShieldCheck, ArrowRight, Lock, Globe, Mail, MessageSquare } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { toast, Toaster } from 'sonner';
 
 export function LoginPage() {
-  const [role, setRole] = useState<'student' | 'agent'>('student');
-  const [formData, setFormData] = useState({ email: '', password: '' });
+  const login = useStore((state) => state.login);
+  const sendOTP = useStore((state) => state.sendOTP);
+  const verifyOTP = useStore((state) => state.verifyOTP);
+  const navigate = useNavigate();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const [role, setRole] = useState<'student' | 'agent' | 'admin'>('student');
+  const [method, setMethod] = useState<'password' | 'otp'>('password');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [isOtpSent, setIsOtpSent] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  // Dynamic Theme Colors depending on active role selection
+  const getThemeClass = () => {
+    if (role === 'student') return { primary: 'from-[#FD7E14] to-[#C94D1B]', accent: '#FD7E14', bg: 'bg-[#FD7E14]/10', shadow: 'rgba(253,126,20,0.15)' };
+    if (role === 'agent') return { primary: 'from-[#2D1B69] to-[#3B2B85]', accent: '#2D1B69', bg: 'bg-[#2D1B69]/10', shadow: 'rgba(45,27,105,0.15)' };
+    return { primary: 'from-[#0F0B1F] to-[#2D1B69]', accent: '#FFD700', bg: 'bg-[#FFD700]/10', shadow: 'rgba(255,215,0,0.15)' };
+  };
+
+  const theme = getThemeClass();
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (role === 'student') {
-      window.location.href = '/portal/student';
-    } else {
-      window.location.href = '/portal/agent';
+    setLoading(true);
+    
+    try {
+      if (method === 'password') {
+        const success = await login(email || 'demo@theglobalavenues.com', role);
+        if (success) {
+          toast.success(`Successfully signed in as TGA ${role}!`);
+          setTimeout(() => {
+            if (role === 'student') navigate('/portal/student');
+            else if (role === 'agent') navigate('/portal/agent');
+            else navigate('/portal/admin');
+          }, 800);
+        }
+      } else {
+        // OTP method
+        if (!isOtpSent) {
+          await sendOTP(email);
+          setIsOtpSent(true);
+          toast.info('Verification OTP sent! Enter "123456" to authorize.');
+        } else {
+          const ok = await verifyOTP(email, otpCode);
+          if (ok) {
+            const success = await login(email, role);
+            if (success) {
+              toast.success(`OTP verified! Welcome back.`);
+              setTimeout(() => {
+                if (role === 'student') navigate('/portal/student');
+                else if (role === 'agent') navigate('/portal/agent');
+                else navigate('/portal/admin');
+              }, 800);
+            }
+          } else {
+            toast.error('Invalid verification code. Please check and try again.');
+          }
+        }
+      }
+    } catch (err) {
+      toast.error('Authentication failed. Check your network or credentials.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#FFFCF5] to-[#FFEBE0] pt-16 flex items-center justify-center relative overflow-hidden">
-      {/* Background Decor */}
-      <div className="absolute top-0 right-0 w-[800px] h-[800px] bg-[#FD7E14]/5 rounded-full blur-[100px] -translate-y-1/2 translate-x-1/3" />
-      <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-[#C94D1B]/5 rounded-full blur-[80px] translate-y-1/3 -translate-x-1/3" />
+    <div className="min-h-screen bg-gradient-to-br from-[#FFFCF5] to-[#F8F7FF] pt-20 flex items-center justify-center relative overflow-hidden">
+      <Toaster position="top-center" richColors />
+      
+      {/* Dynamic Background Auras shifting with theme choice */}
+      <motion.div 
+        className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full blur-[120px] -translate-y-1/3 translate-x-1/4 pointer-events-none"
+        animate={{ backgroundColor: role === 'student' ? '#FD7E14' : '#2D1B69' }}
+        style={{ opacity: 0.05 }}
+        transition={{ duration: 0.6 }}
+      />
+      <motion.div 
+        className="absolute bottom-0 left-0 w-[550px] h-[550px] rounded-full blur-[100px] translate-y-1/3 -translate-x-1/4 pointer-events-none"
+        animate={{ backgroundColor: role === 'admin' ? '#FFD700' : '#C94D1B' }}
+        style={{ opacity: 0.04 }}
+        transition={{ duration: 0.6 }}
+      />
       
       <div className="max-w-md w-full px-6 py-12 relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-white rounded-3xl p-8 shadow-[0_20px_60px_rgba(253,126,20,0.15)] border border-[#FD7E14]/10"
+          className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 transition-shadow duration-500 shadow-xl"
+          style={{ boxShadow: `0 24px 60px ${theme.shadow}` }}
         >
+          {/* Main Logo */}
           <div className="flex justify-center mb-6">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#C94D1B] flex items-center justify-center shadow-lg">
-              <Globe className="w-7 h-7 text-white" />
-            </div>
+            <motion.div 
+              className={`w-12 h-12 rounded-xl bg-gradient-to-br ${theme.primary} flex items-center justify-center shadow-lg`}
+              layout
+            >
+              <Globe className="w-6 h-6 text-white" />
+            </motion.div>
           </div>
           
-          <h1 className="text-2xl font-bold text-center text-[#333] mb-2">Welcome Back</h1>
-          <p className="text-center text-[#666] mb-8 text-sm">Sign in to your Global Avenues portal</p>
+          <h1 className="text-2xl font-black text-center text-gray-900 mb-1">Portal Authentication</h1>
+          <p className="text-center text-xs text-gray-400 mb-6">Access your student, partner, or internal CRM cockpit</p>
 
-          {/* Role selector */}
-          <div className="flex rounded-xl bg-[#FFFCF5] p-1 mb-8 border border-[#FD7E14]/10">
-            {(['student', 'agent'] as const).map((r) => (
+          {/* Interactive Role Switcher */}
+          <div className="flex rounded-xl bg-gray-50 p-1 mb-6 border border-gray-200">
+            {[
+              { r: 'student', label: 'Student', icon: User },
+              { r: 'agent', label: 'Partner', icon: Briefcase },
+              { r: 'admin', label: 'Admin', icon: ShieldCheck }
+            ].map(({ r, label, icon: Icon }) => (
               <button
                 key={r}
-                onClick={() => setRole(r)}
-                className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-semibold transition-all ${role === r ? 'bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white shadow-[0_4px_12px_rgba(253,126,20,0.3)]' : 'text-[#666] hover:text-[#FD7E14]'}`}
+                type="button"
+                onClick={() => { setRole(r as any); setIsOtpSent(false); setOtpCode(''); }}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
+                  role === r 
+                    ? `bg-gradient-to-r ${theme.primary} text-white shadow-md` 
+                    : 'text-gray-500 hover:text-[#FD7E14]'
+                }`}
               >
-                {r === 'student' ? <User className="w-4 h-4" /> : <Briefcase className="w-4 h-4" />}
-                {r === 'student' ? "Student" : "Agent Partner"}
+                <Icon className="w-3.5 h-3.5" />
+                {label}
               </button>
             ))}
           </div>
 
-          <form className="space-y-5" onSubmit={handleLogin}>
-            <div>
-              <label className="block text-sm font-medium text-[#333] mb-1.5">Email Address</label>
-              <input
-                type="email"
-                placeholder="you@example.com"
-                required
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl border border-[#FD7E14]/20 bg-[#FFFCF5] text-sm outline-none focus:border-[#FD7E14] focus:shadow-[0_0_0_3px_rgba(253,126,20,0.1)] transition-all"
-              />
-            </div>
-            <div>
-              <div className="flex justify-between items-center mb-1.5">
-                <label className="block text-sm font-medium text-[#333]">Password</label>
-                <a href="#" className="text-xs text-[#FD7E14] hover:underline">Forgot password?</a>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#999]" />
-                <input
-                  type="password"
-                  placeholder="••••••••"
-                  required
-                  value={formData.password}
-                  onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                  className="w-full pl-10 pr-4 py-3 rounded-xl border border-[#FD7E14]/20 bg-[#FFFCF5] text-sm outline-none focus:border-[#FD7E14] focus:shadow-[0_0_0_3px_rgba(253,126,20,0.1)] transition-all"
-                />
-              </div>
-            </div>
+          {/* Toggle between password and OTP */}
+          <div className="flex justify-end gap-3 mb-6 text-xs font-bold text-gray-400">
+            <button 
+              type="button" 
+              onClick={() => { setMethod('password'); setIsOtpSent(false); }}
+              className={`pb-1 border-b-2 transition-all ${method === 'password' ? 'border-[#FD7E14] text-gray-900' : 'border-transparent hover:text-gray-600'}`}
+            >
+              Password Login
+            </button>
+            <button 
+              type="button" 
+              onClick={() => setMethod('otp')}
+              className={`pb-1 border-b-2 transition-all ${method === 'otp' ? 'border-[#FD7E14] text-gray-900' : 'border-transparent hover:text-gray-600'}`}
+            >
+              OTP Secure Login
+            </button>
+          </div>
+
+          <form className="space-y-4" onSubmit={handleSubmit}>
+            <AnimatePresence mode="wait">
+              {!isOtpSent ? (
+                <motion.div
+                  key="email-fields"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 10 }}
+                  className="space-y-4"
+                >
+                  {/* Email */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Email Address</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="email"
+                        placeholder={`${role}@theglobalavenues.com`}
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none focus:border-[#FD7E14] focus:bg-white focus:ring-4 focus:ring-[#FD7E14]/8 transition-all"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Password */}
+                  {method === 'password' && (
+                    <div>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Password</label>
+                        <a href="#" className="text-[10px] font-bold text-[#FD7E14] hover:underline uppercase tracking-wider">Forgot?</a>
+                      </div>
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none focus:border-[#FD7E14] focus:bg-white focus:ring-4 focus:ring-[#FD7E14]/8 transition-all"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="otp-fields"
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="space-y-4"
+                >
+                  {/* OTP Code entry */}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Verification OTP Code</label>
+                    <div className="relative">
+                      <MessageSquare className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Enter 123456"
+                        required
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value)}
+                        className="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none focus:border-[#FD7E14] focus:bg-white focus:ring-4 focus:ring-[#FD7E14]/8 tracking-[0.2em] font-extrabold text-center transition-all"
+                      />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#1A0A00] text-white rounded-xl font-bold shadow-lg hover:bg-[#2D1200] hover:scale-[1.02] transition-all mt-6"
+              disabled={loading}
+              className={`w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r ${theme.primary} text-white rounded-xl font-bold shadow-lg hover:scale-[1.01] transition-all mt-6 disabled:opacity-60 disabled:pointer-events-none`}
             >
-              Sign In <ArrowRight className="w-4 h-4" />
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  {method === 'otp' && !isOtpSent ? 'Send Secure OTP' : 'Authorize Entrance'}
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
 
-          <p className="text-center text-sm text-[#666] mt-6">
-            Don't have an account?{' '}
-            <Link to="/apply" className="text-[#FD7E14] font-semibold hover:underline">
-              Register here
+          {/* Social OAuth Google Button */}
+          <div className="relative my-6 text-center">
+            <span className="bg-white px-3 text-xs text-gray-400 relative z-10">Or connect with</span>
+            <div className="absolute top-1/2 left-0 right-0 h-px bg-gray-150 z-0" />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              // Simulate Social Google login
+              toast.success('Simulated Google Authentication Callback...');
+              setTimeout(() => {
+                login(`${role}@theglobalavenues.com`, role).then(() => {
+                  if (role === 'student') navigate('/portal/student');
+                  else if (role === 'agent') navigate('/portal/agent');
+                  else navigate('/portal/admin');
+                });
+              }, 1000);
+            }}
+            className="w-full flex items-center justify-center gap-2.5 py-2.5 border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 font-bold rounded-xl text-xs shadow-sm transition-colors"
+          >
+            <svg className="w-4.5 h-4.5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
+            </svg>
+            Google Social Login
+          </button>
+
+          <p className="text-center text-xs text-gray-400 mt-6">
+            Don't have a workspace?{' '}
+            <Link to="/apply" className="text-[#FD7E14] font-bold hover:underline">
+              Create Student Account
             </Link>
           </p>
         </motion.div>

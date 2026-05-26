@@ -158,6 +158,9 @@ export function HeroSection() {
         ))}
       </div>
 
+      {/* Subtle colorful backdrop glow aura behind text content */}
+      <div className="absolute top-[30%] left-1/2 -translate-x-1/2 w-[350px] sm:w-[500px] h-[150px] sm:h-[200px] bg-gradient-to-r from-[#FD7E14]/15 to-[#FFC107]/10 rounded-full blur-[90px] sm:blur-[130px] pointer-events-none z-0" />
+
       {/* ── Main content ── */}
       <motion.div
         className="relative z-10 mx-auto w-full max-w-5xl px-4 pt-24 pb-10 text-center sm:px-6 sm:pt-28 sm:pb-16"
@@ -166,9 +169,15 @@ export function HeroSection() {
         {/* Trust badge */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-          className="mb-8 inline-flex max-w-full items-center justify-center gap-2.5 rounded-full border border-white/20 px-4 py-2 text-center glass sm:mb-10 sm:px-5 sm:py-2.5"
+          animate={{ 
+            opacity: 1, 
+            y: [0, -6, 0] 
+          }}
+          transition={{ 
+            opacity: { duration: 0.7 },
+            y: { duration: 5, repeat: Infinity, ease: "easeInOut" }
+          }}
+          className="mb-8 inline-flex max-w-full items-center justify-center gap-2.5 rounded-full border border-white/20 px-4 py-2 text-center glass sm:mb-10 sm:px-5 sm:py-2.5 shadow-[0_4px_24px_rgba(253,126,20,0.15)] hover:border-[#FD7E14]/40 hover:shadow-[0_4px_30px_rgba(253,126,20,0.25)] transition-all duration-300"
         >
           <span className="flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-[#FFC107] opacity-75" />
@@ -217,20 +226,20 @@ export function HeroSection() {
           transition={{ duration: 0.7, delay: 0.3 }}
           className="mx-auto mb-8 w-full max-w-2xl"
         >
-          <div className="flex flex-col gap-2 rounded-2xl bg-white/95 p-2 shadow-[0_8px_40px_rgba(253,126,20,0.35),0_0_0_1px_rgba(253,126,20,0.15)] backdrop-blur-2xl sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-2 rounded-2xl bg-white/95 p-2 shadow-[0_8px_40px_rgba(253,126,20,0.35),0_0_0_1px_rgba(253,126,20,0.15)] focus-within:shadow-[0_12px_48px_rgba(253,126,20,0.45),0_0_0_2px_rgba(253,126,20,0.35)] focus-within:scale-[1.01] hover:scale-[1.005] hover:shadow-[0_10px_44px_rgba(253,126,20,0.4)] backdrop-blur-2xl transition-all duration-300 sm:flex-row sm:items-center">
             <div className="flex w-full min-w-0 items-center">
               <Search className="ml-3 h-5 w-5 flex-shrink-0 text-[#9CA3AF]" />
               <input
                 type="text"
                 value={search}
                 onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (window.location.href = `/universities${search ? `?q=${encodeURIComponent(search)}` : ''}`)}
+                onKeyDown={e => e.key === 'Enter' && (window.location.href = `/partners${search ? `?q=${encodeURIComponent(search)}` : ''}`)}
                 placeholder="Search universities, courses, or countries..."
                 className="min-w-0 flex-1 bg-transparent py-2 pl-3 text-sm text-[#1C1C1E] outline-none placeholder:text-[#9CA3AF] sm:py-1"
               />
             </div>
             <Link
-              to={`/universities${search ? `?q=${encodeURIComponent(search)}` : ''}`}
+              to={`/partners${search ? `?q=${encodeURIComponent(search)}` : ''}`}
               className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_16px_rgba(253,126,20,0.5)] transition-all hover:scale-105 hover:shadow-[0_6px_24px_rgba(253,126,20,0.7)] sm:w-auto"
             >
               <Sparkles className="w-4 h-4" />
@@ -293,16 +302,18 @@ export function HeroSection() {
 
       {/* ── Scroll indicator ── */}
       <motion.div
-        className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
+        className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-30"
         animate={{ y: [0, 8, 0] }}
         transition={{ duration: 2, repeat: Infinity }}
       >
-        <span className="text-xs text-white/40 uppercase tracking-widest">Scroll</span>
+        <span className="text-xs text-white/40 uppercase tracking-widest font-semibold">Scroll</span>
         <ChevronDown className="w-5 h-5 text-white/40" />
       </motion.div>
 
-      {/* ── Bottom fade to cream ── */}
-      <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-[#FFFCF5] to-transparent" />
+      {/* ── Sleek Razor-Thin Gold Accent Separator ── */}
+      <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#FD7E14]/30 to-transparent pointer-events-none z-20" />
+
+
     </section>
   );
 }

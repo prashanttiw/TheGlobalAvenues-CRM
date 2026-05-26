@@ -170,7 +170,7 @@ export const UNIVERSITIES: University[] = [
     countryCode: 'FR',
     city: 'Nancy / Paris',
     tier: 'exclusive',
-    logo: '/universities/icn-business-school-logo.svg',
+    logo: '/universities/icn-business-school-logo.png',
     heroImage: '/universities/icn-business-school-hero.png',
     description:
       'ICN is a triple-accredited creative business school in France with bachelor, master, and doctoral pathways built around the #ArtTechnologyManagement approach.',

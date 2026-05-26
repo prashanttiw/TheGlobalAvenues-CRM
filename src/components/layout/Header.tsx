@@ -13,13 +13,6 @@ const DROPDOWN_ITEMS: Record<string, { label: string; href: string; desc: string
     { label: 'Cyprus', href: '/destinations/cyprus', desc: 'Mesoyios and KES College' },
     { label: 'United States', href: '/destinations/united-states', desc: 'IAU and US partner pathways' },
   ],
-  Universities: [
-    { label: 'All Universities', href: '/universities', desc: 'Verified portfolio partners' },
-    { label: 'FH Kufstein Tirol', href: '/universities/fh-kufstein-tirol', desc: 'Austria' },
-    { label: 'EUAS', href: '/universities/estonian-entrepreneurship-university-of-applied-sciences', desc: 'Estonia' },
-    { label: 'ICN Business School', href: '/universities/icn-business-school', desc: 'France and Germany' },
-    { label: 'International American University', href: '/universities/international-american-university', desc: 'USA, Malta and UAE' },
-  ],
   Courses: [
     { label: 'All Courses', href: '/courses', desc: 'English-taught partner programs' },
     { label: 'Business & Management', href: '/courses/business-mba', desc: 'Bachelor, master and MBA routes' },
@@ -57,26 +50,26 @@ export function Header() {
 
   return (
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+      className={`fixed top-0 left-0 right-0 z-50 border-b transition-all duration-500 ease-in-out ${
         scrolled || !isHome
-          ? 'bg-white/98 backdrop-blur-xl shadow-[0_4px_20px_rgba(253,126,20,0.08)] border-b border-[#FD7E14]/10'
-          : 'bg-transparent'
+          ? 'bg-white/98 backdrop-blur-xl shadow-[0_4px_20px_rgba(253,126,20,0.08)] border-[#FD7E14]/10'
+          : 'bg-transparent border-transparent shadow-none'
       }`}
     >
       {/* Top bar */}
-      <div className={`hidden xl:block border-b transition-all duration-300 ${scrolled || !isHome ? 'border-[#FD7E14]/10 bg-[#FFFCF5]' : 'border-white/10 bg-black/20'}`}>
+      <div className={`hidden xl:block border-b transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'border-[#FD7E14]/10 bg-[#FFFCF5]' : 'border-white/10 bg-black/20'}`}>
         <div className="max-w-[88rem] mx-auto px-6 lg:px-8 py-1.5 flex items-center justify-between">
           <div className="flex items-center gap-6 text-xs">
-            <a href={`tel:${COMPANY.phone}`} className={`flex items-center gap-1.5 transition-colors ${scrolled || !isHome ? 'text-[#666]  hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
+            <a href={`tel:${COMPANY.phone}`} className={`flex items-center gap-1.5 transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'text-[#666] hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
               <Phone className="w-3 h-3" />
               {COMPANY.phone}
             </a>
-            <a href={`mailto:${COMPANY.email}`} className={`transition-colors ${scrolled || !isHome ? 'text-[#666] hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
+            <a href={`mailto:${COMPANY.email}`} className={`transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'text-[#666] hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
               {COMPANY.email}
             </a>
           </div>
           <div className="flex items-center gap-4 text-xs">
-            <span className={`flex items-center gap-1 ${scrolled || !isHome ? 'text-[#666]' : 'text-white/70'}`}>
+            <span className={`flex items-center gap-1 transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'text-[#666]' : 'text-white/70'}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
               ICEF Certified · AIRC Member
             </span>
@@ -88,18 +81,23 @@ export function Header() {
       <div className="max-w-[88rem] mx-auto px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3">
         <div className="flex items-center justify-between gap-3 xl:gap-5">
           {/* Logo */}
-          <Link to="/" className="flex min-w-0 flex-shrink-0 items-center gap-2.5 sm:gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#D32F2F] flex items-center justify-center shadow-[0_4px_12px_rgba(253,126,20,0.35)]">
-              <Globe className="w-5 h-5 text-white" />
-            </div>
-            <div className="flex min-w-0 flex-col leading-none">
-              <span className={`truncate text-sm font-bold transition-colors sm:text-base ${scrolled || !isHome ? 'text-[#333]' : 'text-white'}`}>
-                The Global Avenues
-              </span>
-              <span className={`hidden text-[10px] font-medium transition-colors min-[380px]:block ${scrolled || !isHome ? 'text-[#FD7E14]' : 'text-[#FFC107]'}`}>
-                Asia's Trusted Education Partner
-              </span>
-            </div>
+          <Link to="/" className="flex flex-shrink-0 items-center relative h-10 sm:h-12 w-44 sm:w-52">
+            {/* White transparent logo (Visible when transparent/top of Home) */}
+            <img 
+              src="/logo-footer-white-transparent.png" 
+              alt="The Global Avenues"
+              className={`absolute inset-y-0 left-0 h-full w-auto object-contain transition-all duration-500 ease-in-out ${
+                scrolled || !isHome ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'
+              }`}
+            />
+            {/* Original colored logo (Visible when scrolled or on subpages) */}
+            <img 
+              src="/logo-light.png" 
+              alt="The Global Avenues"
+              className={`absolute inset-y-0 left-0 h-full w-auto object-contain transition-all duration-500 ease-in-out ${
+                scrolled || !isHome ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
+              }`}
+            />
           </Link>
 
           {/* Desktop Nav */}
@@ -116,7 +114,7 @@ export function Header() {
                 >
                   {hasDropdown ? (
                     <button
-                      className={`flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all 2xl:px-3 ${
+                      className={`flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-500 ease-in-out 2xl:px-3 ${
                         isActive
                           ? 'text-[#FD7E14] bg-[#FD7E14]/10'
                           : scrolled || !isHome
@@ -130,7 +128,7 @@ export function Header() {
                   ) : (
                     <Link
                       to={link.href}
-                      className={`flex items-center whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all 2xl:px-3 ${
+                      className={`flex items-center whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-500 ease-in-out 2xl:px-3 ${
                         isActive
                           ? 'text-[#FD7E14] bg-[#FD7E14]/10'
                           : scrolled || !isHome
@@ -180,7 +178,7 @@ export function Header() {
           <div className="hidden flex-shrink-0 items-center gap-2 xl:flex 2xl:gap-3">
             <Link
               to="/portal/login"
-              className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all 2xl:px-4 ${
+              className={`flex items-center gap-2 whitespace-nowrap rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all duration-500 ease-in-out 2xl:px-4 ${
                 scrolled || !isHome
                   ? 'border-[#FD7E14]/30 text-[#FD7E14] hover:bg-[#FD7E14]/8'
                   : 'border-white/30 text-white hover:bg-white/10'
@@ -191,7 +189,7 @@ export function Header() {
             </Link>
             <Link
               to="/apply"
-              className="flex items-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-4 py-2 text-sm font-bold text-white shadow-[0_4px_16px_rgba(253,126,20,0.35)] transition-all hover:scale-105 hover:shadow-[0_6px_24px_rgba(253,126,20,0.5)] 2xl:px-5"
+              className="flex items-center gap-2 whitespace-nowrap rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-4 py-2 text-sm font-bold text-white shadow-[0_4px_16px_rgba(253,126,20,0.35)] transition-all duration-500 ease-in-out hover:scale-105 hover:shadow-[0_6px_24px_rgba(253,126,20,0.5)] 2xl:px-5"
             >
               Start Application
             </Link>
@@ -203,7 +201,7 @@ export function Header() {
             onClick={() => setMobileOpen(!mobileOpen)}
             aria-label={mobileOpen ? 'Close navigation menu' : 'Open navigation menu'}
             aria-expanded={mobileOpen}
-            className={`rounded-xl p-2 transition-colors xl:hidden ${scrolled || !isHome ? 'text-[#333] hover:bg-[#FD7E14]/10' : 'text-white hover:bg-white/10'}`}
+            className={`rounded-xl p-2 transition-all duration-500 ease-in-out xl:hidden ${scrolled || !isHome ? 'text-[#333] hover:bg-[#FD7E14]/10' : 'text-white hover:bg-white/10'}`}
           >
             {mobileOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>

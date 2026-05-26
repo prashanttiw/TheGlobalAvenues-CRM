@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Lock, ArrowRight, Zap, Star, FileCheck, Clock, Search, Building2 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { UNIVERSITIES, EXCLUSIVE_UNIVERSITIES } from '@/data/universities';
@@ -12,8 +12,10 @@ const BENEFITS = [
 ];
 
 export function PartnersPage() {
-  const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState<'exclusive' | 'all'>('exclusive');
+  const [searchParams] = useSearchParams();
+  const q = searchParams.get('q') || '';
+  const [search, setSearch] = useState(q);
+  const [activeTab, setActiveTab] = useState<'exclusive' | 'all'>(q ? 'all' : 'exclusive');
 
   const filtered = UNIVERSITIES.filter((u) => {
     const matchSearch = !search || u.name.toLowerCase().includes(search.toLowerCase()) || u.country.toLowerCase().includes(search.toLowerCase());
@@ -145,12 +147,23 @@ export function PartnersPage() {
                   )}
 
                   <div className="flex gap-2">
-                    <Link
-                      to={`/universities/${uni.slug}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#FD7E14]/10 hover:bg-[#FD7E14] rounded-xl text-[#FD7E14] hover:text-white font-semibold text-sm transition-all"
-                    >
-                      View Details <ArrowRight className="w-3.5 h-3.5" />
-                    </Link>
+                    {uni.website ? (
+                      <a
+                        href={uni.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#FD7E14]/10 hover:bg-[#FD7E14] rounded-xl text-[#FD7E14] hover:text-white font-semibold text-sm transition-all"
+                      >
+                        Visit Website <ArrowRight className="w-3.5 h-3.5" />
+                      </a>
+                    ) : (
+                      <Link
+                        to="/contact"
+                        className="flex-1 flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#FD7E14]/10 hover:bg-[#FD7E14] rounded-xl text-[#FD7E14] hover:text-white font-semibold text-sm transition-all"
+                      >
+                        Inquire Now <ArrowRight className="w-3.5 h-3.5" />
+                      </Link>
+                    )}
                     <Link
                       to="/apply"
                       className="flex items-center justify-center px-4 py-2.5 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] rounded-xl text-white font-semibold text-sm shadow-[0_4px_12px_rgba(253,126,20,0.3)] hover:shadow-[0_6px_20px_rgba(253,126,20,0.5)] transition-all"

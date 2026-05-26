@@ -35,8 +35,8 @@ export function CountryDetailPage() {
               <Link to="/contact" className="px-8 py-3 bg-[#FD7E14] text-white rounded-xl font-bold hover:bg-[#C94D1B] transition-colors">
                 Apply Now
               </Link>
-              <Link to="/universities" className="px-8 py-3 bg-white/10 backdrop-blur-md text-white rounded-xl font-bold hover:bg-white/20 transition-colors border border-white/20">
-                View Universities
+              <Link to="/partners" className="px-8 py-3 bg-white/10 backdrop-blur-md text-white rounded-xl font-bold hover:bg-white/20 transition-colors border border-white/20">
+                View Partners
               </Link>
             </div>
           </motion.div>

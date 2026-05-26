@@ -27,7 +27,19 @@ coverage/
 .DS_Store
 Thumbs.db
 .idea/
+.vscode/
 
 # Local verification artifacts
 .browser-check*.png
 .vite-dev*.log
+
+# AI Research & Sandbox Directories
+brain/
+.gemini/
+scratch/
+.system_generated/
+
+# Process and Vite local outputs
+.tmp-vite.*.log
+*.err.log
+*.out.log

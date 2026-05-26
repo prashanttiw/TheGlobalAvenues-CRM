@@ -137,13 +137,25 @@ export function ExclusivePartnersSection() {
                   </div>
 
                   {/* CTA */}
-                  <Link
-                    to={`/universities/${uni.slug}`}
-                    className="flex items-center justify-between w-full px-4 py-2.5 bg-[#FD7E14]/15 hover:bg-[#FD7E14] rounded-xl text-[#FD7E14] hover:text-white font-semibold text-sm transition-all group/btn"
-                  >
-                    View University
-                    <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
-                  </Link>
+                  {uni.website ? (
+                    <a
+                      href={uni.website}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between w-full px-4 py-2.5 bg-[#FD7E14]/15 hover:bg-[#FD7E14] rounded-xl text-[#FD7E14] hover:text-white font-semibold text-sm transition-all group/btn"
+                    >
+                      Visit Website
+                      <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+                    </a>
+                  ) : (
+                    <Link
+                      to="/contact"
+                      className="flex items-center justify-between w-full px-4 py-2.5 bg-[#FD7E14]/15 hover:bg-[#FD7E14] rounded-xl text-[#FD7E14] hover:text-white font-semibold text-sm transition-all group/btn"
+                    >
+                      Inquire Now
+                      <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+                    </Link>
+                  )}
                 </div>
               </div>
             </motion.div>
