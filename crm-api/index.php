@@ -10,6 +10,7 @@ use TGA\CRM\Routes\ApplicationRoutes;
 use TGA\CRM\Routes\AuthRoutes;
 use TGA\CRM\Routes\RouteRegistry;
 use TGA\CRM\Routes\StudentRoutes;
+use TGA\CRM\Routes\UniversityRoutes;
 
 require_once __DIR__ . '/autoload.php';
 
@@ -33,6 +34,7 @@ AuthRoutes::register();
 StudentRoutes::register();
 ApplicationRoutes::register();
 AgentRoutes::register();
+UniversityRoutes::register();
 
 RouteRegistry::dispatch(
     method: $_SERVER['REQUEST_METHOD'] ?? 'GET',

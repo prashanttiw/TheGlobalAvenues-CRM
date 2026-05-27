@@ -25,6 +25,21 @@ final class Application extends BaseModel
         return (int) $statement->fetchColumn() > 0;
     }
 
+    public function findProgramSnapshot(int $programId): ?array
+    {
+        $statement = $this->connection->prepare(
+            'SELECT p.id, p.university_id, p.name, p.degree_level, p.subject_area, u.name AS university_name
+             FROM programs p
+             INNER JOIN universities u ON u.id = p.university_id
+             WHERE p.id = :id AND p.is_active = 1 AND u.is_active = 1
+             LIMIT 1'
+        );
+        $statement->execute(['id' => $programId]);
+        $program = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $program === false ? null : $program;
+    }
+
     public function create(array $data): array
     {
         $referenceNumber = $this->generateReferenceNumber();

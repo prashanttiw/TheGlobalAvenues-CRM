@@ -37,3 +37,14 @@
 - Verified live backend flows for health, admin login, student registration, and student profile update/read
 - Added a frontend API client and wired `/apply` and `/portal/login` to live backend password auth instead of mock-only flows
 - Removed fake success behavior for OTP and Google login flows until the backend supports them
+
+## Session 5 - May 27, 2026
+
+- Added public `university` API routes for live catalog listing, program search, university detail, and compare flows
+- Added `UniversityController` and `University` model with frontend-ready payloads and pagination metadata
+- Hardened application creation so the backend derives and validates the correct university for a selected program
+- Hardened auth header parsing to support Apache/Windows variants like `REDIRECT_HTTP_AUTHORIZATION`
+- Rebuilt `/courses` and `/courses/:category` around live backend catalog data instead of static-only marketing counts
+- Rebuilt the student dashboard around live profile, dashboard, application, and catalog APIs
+- Replaced the fake quiz apply action with real application creation against the PHP API
+- Verified with PHP lint, public catalog endpoint smoke tests, bearer-token auth, cookie-auth student flow, and `npm run build`

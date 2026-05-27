@@ -12,7 +12,7 @@ final class AuthMiddleware
 {
     public static function user(): array
     {
-        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+        $header = self::resolveAuthorizationHeader();
         $cookieToken = $_COOKIE['access_token'] ?? null;
         $token = null;
 
@@ -33,5 +33,30 @@ final class AuthMiddleware
         }
 
         return $payload;
+    }
+
+    private static function resolveAuthorizationHeader(): string
+    {
+        $serverCandidates = [
+            $_SERVER['HTTP_AUTHORIZATION'] ?? null,
+            $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? null,
+        ];
+
+        foreach ($serverCandidates as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        if (function_exists('getallheaders')) {
+            $headers = getallheaders();
+            $candidate = $headers['Authorization'] ?? $headers['authorization'] ?? null;
+
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return '';
     }
 }

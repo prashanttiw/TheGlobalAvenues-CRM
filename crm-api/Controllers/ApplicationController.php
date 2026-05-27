@@ -26,7 +26,7 @@ final class ApplicationController extends BaseController
         $input = $this->getJsonInput();
         $errors = [];
 
-        foreach (['program_id', 'university_id', 'intake_month', 'intake_year'] as $field) {
+        foreach (['program_id', 'intake_month', 'intake_year'] as $field) {
             if (($input[$field] ?? null) === null) {
                 $errors[$field] = 'This field is required.';
             }
@@ -44,13 +44,23 @@ final class ApplicationController extends BaseController
             Response::error('Validation failed', 'VALIDATION_FAILED', 422, $errors);
         }
 
-        if (!$this->applications->programExists((int) $input['program_id'])) {
+        $program = $this->applications->findProgramSnapshot((int) $input['program_id']);
+
+        if ($program === null) {
             Response::error('Program not found', 'RESOURCE_NOT_FOUND', 404, [
                 'program_id' => 'Program not found.',
             ]);
         }
 
-        if (!$this->applications->universityExists((int) $input['university_id'])) {
+        $resolvedUniversityId = (int) ($input['university_id'] ?? $program['university_id']);
+
+        if ($resolvedUniversityId !== (int) $program['university_id']) {
+            Response::error('University mismatch for selected program', 'VALIDATION_FAILED', 422, [
+                'university_id' => 'Selected university does not match the program.',
+            ]);
+        }
+
+        if (!$this->applications->universityExists($resolvedUniversityId)) {
             Response::error('University not found', 'RESOURCE_NOT_FOUND', 404, [
                 'university_id' => 'University not found.',
             ]);
@@ -59,7 +69,7 @@ final class ApplicationController extends BaseController
         $application = $this->applications->create([
             'student_user_id' => $studentUserId,
             'program_id' => (int) $input['program_id'],
-            'university_id' => (int) $input['university_id'],
+            'university_id' => $resolvedUniversityId,
             'intake_month' => (int) $input['intake_month'],
             'intake_year' => (int) $input['intake_year'],
             'source' => (string) ($input['source'] ?? 'direct'),
