@@ -8,14 +8,17 @@ use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RoleMiddleware;
 use TGA\CRM\Models\Application;
+use TGA\CRM\Services\FileUploadService;
 
 final class ApplicationController extends BaseController
 {
     private Application $applications;
+    private FileUploadService $fileUploads;
 
     public function __construct()
     {
         $this->applications = new Application();
+        $this->fileUploads = new FileUploadService();
     }
 
     public function create(): void
@@ -170,12 +173,104 @@ final class ApplicationController extends BaseController
 
     public function uploadDocument(): void
     {
-        Response::error('Document upload service is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
+        $user = AuthMiddleware::user();
+        RoleMiddleware::enforce($user, ['student', 'agent', 'sub_agent', 'admin', 'super_admin', 'counsellor', 'visa_officer']);
+
+        $input = $this->getFormInput();
+        $applicationId = (int) ($input['application_id'] ?? 0);
+        $documentType = (string) ($input['document_type'] ?? '');
+        $file = $this->getUploadedFile('file');
+
+        if ($applicationId <= 0 || $documentType === '' || $file === null) {
+            Response::error('Validation failed', 'VALIDATION_FAILED', 422, [
+                'application_id' => 'Application id is required.',
+                'document_type' => 'Document type is required.',
+                'file' => 'A file upload is required.',
+            ]);
+        }
+
+        $application = $this->applications->findDetail($applicationId);
+
+        if ($application === null) {
+            Response::error('Application not found', 'RESOURCE_NOT_FOUND', 404);
+        }
+
+        $this->applications->assertAccess($application, $user);
+
+        $storedFile = null;
+
+        try {
+            $storedFile = $this->fileUploads->upload($file, $documentType, $applicationId);
+            $document = $this->applications->createDocument($applicationId, (int) $user['sub'], $documentType, $storedFile);
+        } catch (\RuntimeException $exception) {
+            if (is_array($storedFile) && isset($storedFile['absolute_path'])) {
+                try {
+                    $this->fileUploads->delete((string) $storedFile['absolute_path']);
+                } catch (\RuntimeException) {
+                }
+            }
+
+            Response::error($exception->getMessage(), 'VALIDATION_FAILED', 422);
+        }
+
+        Response::success('Document uploaded successfully', [
+            'document' => $document,
+        ], status: 201);
     }
 
     public function deleteDocument(): void
     {
-        Response::error('Document deletion flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
+        $user = AuthMiddleware::user();
+        RoleMiddleware::enforce($user, ['student', 'agent', 'sub_agent', 'admin', 'super_admin', 'counsellor', 'visa_officer']);
+
+        $documentId = (int) ($this->getQueryParam('id', 0) ?: $this->getQueryParam('document_id', 0));
+
+        if ($documentId <= 0) {
+            Response::error('Document id is required', 'VALIDATION_FAILED', 422, [
+                'id' => 'Document id is required.',
+            ]);
+        }
+
+        $document = $this->applications->findDocument($documentId);
+
+        if ($document === null) {
+            Response::error('Document not found', 'RESOURCE_NOT_FOUND', 404);
+        }
+
+        $application = $this->applications->findDetail((int) $document['application_id']);
+
+        if ($application === null) {
+            Response::error('Application not found', 'RESOURCE_NOT_FOUND', 404);
+        }
+
+        $this->applications->assertAccess($application, $user);
+
+        $status = (string) $document['status'];
+        $role = (string) $user['role'];
+        $isInternalRole = in_array($role, ['admin', 'super_admin', 'counsellor', 'visa_officer'], true);
+        $isStudentOwner = $role === 'student' && (int) $application['student_user_id'] === (int) $user['sub'];
+        $isAgentOwner = in_array($role, ['agent', 'sub_agent'], true);
+
+        if (!$isInternalRole && !$isStudentOwner && !$isAgentOwner) {
+            Response::error('You do not have permission to delete this document', 'AUTH_INSUFFICIENT_ROLE', 403);
+        }
+
+        if (!$isInternalRole && !in_array($status, ['pending', 'rejected'], true)) {
+            Response::error('Only unverified documents can be deleted', 'VALIDATION_FAILED', 422, [
+                'status' => 'Only pending or rejected documents can be deleted.',
+            ]);
+        }
+
+        $absolutePath = dirname(__DIR__) . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, (string) $document['file_path']);
+
+        try {
+            $this->fileUploads->delete($absolutePath);
+            $this->applications->deleteDocument($documentId);
+        } catch (\RuntimeException $exception) {
+            Response::error($exception->getMessage(), 'INTERNAL_SERVER_ERROR', 500);
+        }
+
+        Response::success('Document deleted successfully');
     }
 
     public function addNote(): void

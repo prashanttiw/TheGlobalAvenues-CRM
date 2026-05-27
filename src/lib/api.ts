@@ -27,8 +27,9 @@ let accessToken: string | null = null;
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSuccess<T>> {
   const headers = new Headers(init.headers ?? {});
+  const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
 
-  if (!headers.has('Content-Type') && init.body !== undefined) {
+  if (!headers.has('Content-Type') && init.body !== undefined && !isFormData) {
     headers.set('Content-Type', 'application/json');
   }
 
@@ -196,6 +197,7 @@ export type ApplicationDetailResponse = {
     file_path: string;
     file_size: number | null;
     mime_type: string | null;
+    file_uuid?: string;
     status: string;
     created_at: string;
   }>;
@@ -419,6 +421,39 @@ export async function createApplication(payload: {
   });
 
   return response.data.application;
+}
+
+export async function uploadApplicationDocument(payload: {
+  applicationId: number;
+  documentType: string;
+  file: File;
+}): Promise<ApplicationDetailResponse['documents'][number]> {
+  const formData = new FormData();
+  formData.set('application_id', String(payload.applicationId));
+  formData.set('document_type', payload.documentType);
+  formData.set('file', payload.file);
+
+  const response = await request<{ document: ApplicationDetailResponse['documents'][number] }>(
+    '/?route=application&action=upload_document',
+    {
+      method: 'POST',
+      body: formData,
+    }
+  );
+
+  return response.data.document;
+}
+
+export async function deleteApplicationDocument(documentId: number): Promise<void> {
+  const query = buildQuery({
+    route: 'application',
+    action: 'delete_document',
+    id: documentId,
+  });
+
+  await request<{}>(`/?${query}`, {
+    method: 'DELETE',
+  });
 }
 
 export function clearAuthSession(): void {

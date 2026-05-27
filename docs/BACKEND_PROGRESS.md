@@ -48,3 +48,14 @@
 - Rebuilt the student dashboard around live profile, dashboard, application, and catalog APIs
 - Replaced the fake quiz apply action with real application creation against the PHP API
 - Verified with PHP lint, public catalog endpoint smoke tests, bearer-token auth, cookie-auth student flow, and `npm run build`
+
+## Session 6 - May 27, 2026
+
+- Implemented secure student document upload in the PHP API with a new `FileUploadService`
+- Added server-side MIME validation, document-type-specific rules, file-size caps, UUID-based filenames, image payload inspection, and runtime upload directory creation
+- Blocked direct access to uploaded student documents with `crm-api/uploads/documents/.htaccess`
+- Added multipart form handling to the backend base controller and document create/delete persistence to the application model
+- Implemented live `upload_document` and `delete_document` application endpoints with access checks
+- Extended the frontend API client to support multipart upload and document deletion
+- Reworked the student portal documents tab so it now uploads real files, refreshes from the backend, and only allows deleting unverified documents
+- Verified with PHP lint, a real multipart upload/delete API flow, and another successful frontend production build

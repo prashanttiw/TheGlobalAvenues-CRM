@@ -25,4 +25,16 @@ abstract class BaseController
     {
         return $_GET[$key] ?? $default;
     }
+
+    protected function getFormInput(): array
+    {
+        return isset($_POST) && is_array($_POST) ? Sanitizer::array($_POST) : [];
+    }
+
+    protected function getUploadedFile(string $key): ?array
+    {
+        $file = $_FILES[$key] ?? null;
+
+        return is_array($file) ? $file : null;
+    }
 }

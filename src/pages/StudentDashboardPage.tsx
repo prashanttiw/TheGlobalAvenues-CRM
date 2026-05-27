@@ -18,11 +18,13 @@ import { toast, Toaster } from 'sonner';
 import { useStore } from '../hooks/useStore';
 import {
   createApplication,
+  deleteApplicationDocument,
   fetchApplicationDetail,
   fetchPrograms,
   fetchStudentApplications,
   fetchStudentDashboard,
   fetchStudentProfile,
+  uploadApplicationDocument,
   type ApplicationDetailResponse,
   type CatalogProgram,
   type StudentApplicationSummary,
@@ -103,6 +105,17 @@ const BUDGET_OPTIONS = [
   { label: 'Open to premium options', max: 50000 },
 ];
 
+const DOCUMENT_OPTIONS = [
+  { value: 'passport', label: 'Passport' },
+  { value: 'academic_transcript', label: 'Academic Transcript' },
+  { value: 'english_test_result', label: 'English Test Result' },
+  { value: 'sop', label: 'Statement of Purpose' },
+  { value: 'bank_statement', label: 'Bank Statement' },
+  { value: 'financial_sponsorship', label: 'Financial Sponsorship' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'other', label: 'Other Supporting Document' },
+];
+
 export function StudentDashboardPage() {
   const currentUser = useStore((state) => state.currentUser);
   const [activeTab, setActiveTab] = useState<DashboardTab>('dashboard');
@@ -121,6 +134,10 @@ export function StudentDashboardPage() {
   const [quizBudget, setQuizBudget] = useState(BUDGET_OPTIONS[1]);
   const [matches, setMatches] = useState<Array<CatalogProgram & { matchScore: number; reasons: string[] }>>([]);
   const [visaCountry, setVisaCountry] = useState('Austria');
+  const [selectedDocumentType, setSelectedDocumentType] = useState('passport');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadPortal = async (showRefreshState = false) => {
@@ -292,6 +309,47 @@ export function StudentDashboardPage() {
       toast.error(applyError instanceof Error ? applyError.message : 'Application creation failed.');
     } finally {
       setApplyingProgramId(null);
+    }
+  };
+
+  const handleUploadDocument = async () => {
+    if (!applicationDetail) {
+      toast.error('Create an application first before uploading documents.');
+      return;
+    }
+
+    if (!selectedFile) {
+      toast.error('Choose a file before uploading.');
+      return;
+    }
+
+    try {
+      setUploadingDocument(true);
+      await uploadApplicationDocument({
+        applicationId: applicationDetail.id,
+        documentType: selectedDocumentType,
+        file: selectedFile,
+      });
+      toast.success('Document uploaded to the secure vault.');
+      setSelectedFile(null);
+      await loadPortal(true);
+    } catch (uploadError) {
+      toast.error(uploadError instanceof Error ? uploadError.message : 'Upload failed.');
+    } finally {
+      setUploadingDocument(false);
+    }
+  };
+
+  const handleDeleteDocument = async (documentId: number) => {
+    try {
+      setDeletingDocumentId(documentId);
+      await deleteApplicationDocument(documentId);
+      toast.success('Document removed successfully.');
+      await loadPortal(true);
+    } catch (deleteError) {
+      toast.error(deleteError instanceof Error ? deleteError.message : 'Document deletion failed.');
+    } finally {
+      setDeletingDocumentId(null);
     }
   };
 
@@ -726,7 +784,7 @@ export function StudentDashboardPage() {
           <section className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
             <div className="rounded-[28px] border border-[#2D1B69]/10 bg-white p-6 shadow-sm">
               <div className="text-[11px] font-black uppercase tracking-[0.22em] text-[#7B7496]">Document ledger</div>
-              <h2 className="text-2xl font-black text-[#0F0B1F] mt-2">Verified documents already in the application record</h2>
+              <h2 className="text-2xl font-black text-[#0F0B1F] mt-2">Application file set now lives in the backend</h2>
               <div className="space-y-4 mt-6">
                 {(applicationDetail?.documents ?? []).map((document) => (
                   <article key={document.id} className="rounded-[22px] border border-[#2D1B69]/8 bg-[#F8F7FF] p-5">
@@ -734,10 +792,25 @@ export function StudentDashboardPage() {
                       <div>
                         <h3 className="text-lg font-black text-[#0F0B1F]">{formatStatus(document.document_type)}</h3>
                         <p className="text-sm text-[#5C5675] mt-1">{document.file_name}</p>
+                        <p className="text-xs text-[#7B7496] mt-2">
+                          {document.mime_type ?? 'Unknown type'}
+                          {document.file_size ? ` · ${formatFileSize(document.file_size)}` : ''}
+                        </p>
                       </div>
-                      <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${statusTone(document.status)}`}>
-                        {formatStatus(document.status)}
-                      </span>
+                      <div className="flex items-center gap-3">
+                        <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black uppercase tracking-[0.18em] ${statusTone(document.status)}`}>
+                          {formatStatus(document.status)}
+                        </span>
+                        {['pending', 'rejected'].includes(document.status) && (
+                          <button
+                            onClick={() => void handleDeleteDocument(document.id)}
+                            disabled={deletingDocumentId === document.id}
+                            className="rounded-xl border border-[#E24B4A]/15 px-3 py-2 text-xs font-bold text-[#B92E2E] disabled:opacity-60"
+                          >
+                            {deletingDocumentId === document.id ? 'Removing...' : 'Remove'}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </article>
                 ))}
@@ -756,10 +829,48 @@ export function StudentDashboardPage() {
                   <ShieldCheck className="w-3.5 h-3.5" />
                   Secure upload roadmap
                 </div>
-                <h3 className="text-xl font-black text-[#0F0B1F] mt-3">File upload is intentionally held behind the backend hardening pass.</h3>
+                <h3 className="text-xl font-black text-[#0F0B1F] mt-3">Secure upload is live for your current application.</h3>
                 <p className="text-sm text-[#5C5675] mt-3 leading-6">
-                  The API scaffold exists, but direct uploads stay disabled until MIME validation, UUID storage, and access-control checks are finished. This is a deliberate security decision, not missing polish.
+                  Files are server-validated by MIME type, renamed to UUIDs, and stored behind blocked direct access. Uploads only succeed after the backend accepts them.
                 </p>
+
+                <div className="space-y-4 mt-6">
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-[0.18em] text-[#7B7496] mb-2">Document type</label>
+                    <select
+                      value={selectedDocumentType}
+                      onChange={(event) => setSelectedDocumentType(event.target.value)}
+                      disabled={!applicationDetail}
+                      className="w-full rounded-xl border border-[#2D1B69]/10 bg-[#F8F7FF] px-4 py-3 text-sm font-semibold text-[#0F0B1F] outline-none disabled:opacity-60"
+                    >
+                      {DOCUMENT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-black uppercase tracking-[0.18em] text-[#7B7496] mb-2">Choose file</label>
+                    <input
+                      type="file"
+                      disabled={!applicationDetail || uploadingDocument}
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                      className="block w-full rounded-xl border border-[#2D1B69]/10 bg-[#F8F7FF] px-4 py-3 text-sm text-[#0F0B1F] file:mr-4 file:rounded-lg file:border-0 file:bg-[#2D1B69] file:px-4 file:py-2 file:text-sm file:font-bold file:text-white"
+                    />
+                    <p className="text-xs text-[#7B7496] mt-2">
+                      PDF is accepted for most documents. Passport and some identity files also accept JPG or PNG. Images are capped more tightly than PDFs.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => void handleUploadDocument()}
+                    disabled={!applicationDetail || !selectedFile || uploadingDocument}
+                    className="w-full rounded-xl bg-[#2D1B69] px-5 py-3 text-sm font-bold text-white disabled:opacity-60"
+                  >
+                    {uploadingDocument ? 'Uploading securely...' : 'Upload to document vault'}
+                  </button>
+                </div>
               </div>
 
               <div className="rounded-[28px] border border-[#2D1B69]/10 bg-[#0F0B1F] p-6 text-white shadow-[0_18px_48px_rgba(15,11,31,0.18)]">
@@ -869,4 +980,16 @@ function ActionLine({ title, value }: { title: string; value: string }) {
       <div className="text-lg font-black text-white mt-2">{value}</div>
     </div>
   );
+}
+
+function formatFileSize(size: number): string {
+  if (size >= 1024 * 1024) {
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  if (size >= 1024) {
+    return `${Math.round(size / 1024)} KB`;
+  }
+
+  return `${size} B`;
 }

@@ -167,7 +167,7 @@ final class Application extends BaseModel
     public function documents(int $applicationId): array
     {
         $statement = $this->connection->prepare(
-            'SELECT id, document_type, file_name, file_path, file_size, mime_type, status, created_at
+            'SELECT id, document_type, file_name, file_path, file_size, mime_type, file_uuid, status, created_at
              FROM documents
              WHERE application_id = :application_id
              ORDER BY created_at DESC'
@@ -175,6 +175,50 @@ final class Application extends BaseModel
         $statement->execute(['application_id' => $applicationId]);
 
         return $statement->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    public function createDocument(int $applicationId, int $uploadedBy, string $documentType, array $fileData): array
+    {
+        $statement = $this->connection->prepare(
+            'INSERT INTO documents (
+                application_id, uploaded_by, document_type, file_name, file_path, file_size, mime_type, file_uuid, status
+             ) VALUES (
+                :application_id, :uploaded_by, :document_type, :file_name, :file_path, :file_size, :mime_type, :file_uuid, :status
+             )'
+        );
+        $statement->execute([
+            'application_id' => $applicationId,
+            'uploaded_by' => $uploadedBy,
+            'document_type' => $documentType,
+            'file_name' => $fileData['file_name'],
+            'file_path' => $fileData['file_path'],
+            'file_size' => $fileData['file_size'],
+            'mime_type' => $fileData['mime_type'],
+            'file_uuid' => $fileData['uuid'],
+            'status' => 'pending',
+        ]);
+
+        return $this->findDocument((int) $this->connection->lastInsertId()) ?? [];
+    }
+
+    public function findDocument(int $documentId): ?array
+    {
+        $statement = $this->connection->prepare(
+            'SELECT id, application_id, uploaded_by, document_type, file_name, file_path, file_size, mime_type, file_uuid, status, created_at
+             FROM documents
+             WHERE id = :id
+             LIMIT 1'
+        );
+        $statement->execute(['id' => $documentId]);
+        $document = $statement->fetch(PDO::FETCH_ASSOC);
+
+        return $document === false ? null : $document;
+    }
+
+    public function deleteDocument(int $documentId): void
+    {
+        $statement = $this->connection->prepare('DELETE FROM documents WHERE id = :id');
+        $statement->execute(['id' => $documentId]);
     }
 
     public function assertAccess(array $application, array $user): void
