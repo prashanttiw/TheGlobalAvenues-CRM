@@ -1,762 +1,1365 @@
-import { useState, useMemo } from 'react';
-import { useLocation, Link } from 'react-router-dom';
-import { useStore } from '../../hooks/useStore';
-import { ApplicationStatus, Application, Agent, Program, User } from '../../types';
-import { 
-  Building2, Users2, FileText, CheckCircle2, TrendingUp, 
-  Search, Eye, Edit3, ArrowUpRight, GraduationCap, CheckCircle, 
-  Clock, AlertTriangle, UserCheck, ShieldAlert, Award, Globe, Plus, Trash2, X
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowUpRight,
+  BadgeCheck,
+  BookOpenCheck,
+  Building2,
+  CheckCircle2,
+  ChevronRight,
+  Clock3,
+  FileCheck2,
+  FileSearch,
+  GraduationCap,
+  Shield,
+  UserCog,
+  Users2,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import { toast, Toaster } from 'sonner';
+import { useStore } from '../../hooks/useStore';
+import {
+  AdminApplicationDetail,
+  AdminDashboardStats,
+  AdminDocumentQueueItem,
+  AdminPipelineItem,
+  AdminProgramRecord,
+  AdminUniversityRecord,
+  AdminUserDetail,
+  AdminUserSummary,
+  AuditLogEntry,
+  approveAdminAgent,
+  createAdminProgram,
+  createAdminUniversity,
+  deleteAdminProgram,
+  deleteAdminUniversity,
+  fetchAdminAgents,
+  fetchAdminApplicationDetail,
+  fetchAdminAuditLog,
+  fetchAdminDashboardStats,
+  fetchAdminDocumentQueue,
+  fetchAdminPipeline,
+  fetchAdminPrograms,
+  fetchAdminUniversities,
+  fetchAdminUserDetail,
+  fetchAdminUsers,
+  reviewAdminDocument,
+  updateAdminApplication,
+  updateAdminProgram,
+  updateAdminUniversity,
+  updateAdminUser,
+} from '../../lib/api';
 
-const CHART_DATA = [
-  { month: 'Jan', applications: 120, visas: 95 },
-  { month: 'Feb', applications: 150, visas: 110 },
-  { month: 'Mar', applications: 220, visas: 180 },
-  { month: 'Apr', applications: 310, visas: 260 },
-  { month: 'May', applications: 458, visas: 410 },
+type Section = 'overview' | 'pipeline' | 'users' | 'documents' | 'catalog' | 'audit';
+
+const DEGREE_OPTIONS = ['certificate', 'diploma', 'bachelors', 'masters', 'phd', 'short_course'];
+
+const STATUS_OPTIONS = [
+  'inquiry',
+  'profile_review',
+  'applied',
+  'documents_submitted',
+  'under_review',
+  'offer_received',
+  'conditional_offer',
+  'unconditional_offer',
+  'enrolled',
+  'cas_coe_issued',
+  'visa_applied',
+  'visa_approved',
+  'visa_rejected',
+  'pre_departure',
+  'departed',
+  'deferred',
+  'withdrawn',
+  'rejected',
 ];
 
+const PRIORITY_OPTIONS = ['normal', 'high', 'urgent'];
+
+function resolveSection(pathname: string): Section {
+  if (pathname === '/portal/admin/pipeline') return 'pipeline';
+  if (pathname === '/portal/admin/users') return 'users';
+  if (pathname === '/portal/admin/documents') return 'documents';
+  if (pathname === '/portal/admin/universities') return 'catalog';
+  if (pathname === '/portal/admin/audit') return 'audit';
+  return 'overview';
+}
+
 export function AdminDashboardPage() {
-  const location = useLocation();
-
-  // Zustand Store hooks
   const currentUser = useStore((state) => state.currentUser);
-  const applications = useStore((state) => state.applications);
-  const students = useStore((state) => state.students);
-  const agents = useStore((state) => state.agents);
-  const users = useStore((state) => state.users);
-  const programs = useStore((state) => state.programs);
-  const documents = useStore((state) => state.documents);
+  const location = useLocation();
+  const section = resolveSection(location.pathname);
 
-  const updateApplicationStatus = useStore((state) => state.updateApplicationStatus);
-  const approveAgent = useStore((state) => state.approveAgent);
-  const verifyDocument = useStore((state) => state.verifyDocument);
+  const [dashboard, setDashboard] = useState<AdminDashboardStats | null>(null);
+  const [pipeline, setPipeline] = useState<AdminPipelineItem[]>([]);
+  const [selectedApplication, setSelectedApplication] = useState<AdminApplicationDetail | null>(null);
+  const [users, setUsers] = useState<AdminUserSummary[]>([]);
+  const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
+  const [agents, setAgents] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<AdminDocumentQueueItem[]>([]);
+  const [universities, setUniversities] = useState<AdminUniversityRecord[]>([]);
+  const [programs, setPrograms] = useState<AdminProgramRecord[]>([]);
+  const [auditEntries, setAuditEntries] = useState<AuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // STATE DEFINITIONS FOR ADMIN DYNAMICS
-  // ───────────────────────────────────────────────────────────────────────────
-  
-  // 1. Pipeline Index filters
-  const [pipelineSearch, setPipelineSearch] = useState('');
-  const [pipelineStageFilter, setPipelineStageFilter] = useState('all');
+  const [pipelineQuery, setPipelineQuery] = useState('');
+  const [pipelineStatus, setPipelineStatus] = useState('');
+  const [documentStatus, setDocumentStatus] = useState('pending');
+  const [userRoleFilter, setUserRoleFilter] = useState('');
+  const [selectedApplicationNote, setSelectedApplicationNote] = useState('');
+  const [selectedApplicationStatus, setSelectedApplicationStatus] = useState('inquiry');
+  const [selectedApplicationPriority, setSelectedApplicationPriority] = useState('normal');
+  const [selectedApplicationAssignee, setSelectedApplicationAssignee] = useState<number | ''>('');
+  const [selectedApplicationFlagged, setSelectedApplicationFlagged] = useState(false);
+  const [selectedApplicationFlagReason, setSelectedApplicationFlagReason] = useState('');
 
-  // 2. Stage Transition Checklist Modal State
-  const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
-  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
-  const [targetStage, setTargetStage] = useState<ApplicationStatus | null>(null);
-  const [checklistChecks, setChecklistChecks] = useState<Record<string, boolean>>({});
-
-  // 3. Program Adder Modal State
-  const [isProgramModalOpen, setIsProgramModalOpen] = useState(false);
-  const [newProgram, setNewProgram] = useState({
+  const [universityForm, setUniversityForm] = useState({
     name: '',
-    universityId: 'fh-kufstein-tirol',
-    universityName: 'FH Kufstein Tirol',
-    degreeLevel: 'Bachelor',
-    subjectArea: 'IT & Game Design',
-    durationMonths: 36,
-    tuitionFee: '€363/semester',
-    currency: 'EUR',
-    englishRequirement: 'IELTS 6.0',
-    applicationFee: '€0',
-    scholarshipAvailable: true
+    short_name: '',
+    country: '',
+    city: '',
+    partnership_type: 'non_exclusive' as 'exclusive' | 'non_exclusive',
+  });
+  const [programForm, setProgramForm] = useState({
+    university_id: '',
+    name: '',
+    degree_level: 'masters',
+    subject_area: '',
+    tuition_fee: '',
+    tuition_currency: 'EUR',
+    intake_months: 'September, February',
   });
 
-  // Calculate high-density admin metrics
-  const metrics = useMemo(() => {
-    return {
-      totalApps: applications.length,
-      activeAgents: agents.filter(a => a.status === 'approved').length,
-      pendingAgentsCount: agents.filter(a => a.status === 'pending').length,
-      visaSuccessPct: 98,
-      verifiedDocsCount: documents.filter(d => d.verified).length,
-      totalDocsCount: documents.length
-    };
-  }, [applications, agents, documents]);
+  useEffect(() => {
+    void loadSectionData();
+  }, [section]);
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // STAGE CHECKLIST RESOLVER
-  // ───────────────────────────────────────────────────────────────────────────
-  const getRequiredChecksForStage = (stage: ApplicationStatus, appId: string) => {
-    const appDocs = documents.filter((d) => d.applicationId === appId);
-    
-    switch (stage) {
-      case 'applied':
-        return [
-          { id: 'passport', label: 'Valid Passport Document uploaded', status: appDocs.some(d => d.documentType === 'Passport') },
-          { id: 'academic_12', label: '12th Marksheet verified and stamped', status: appDocs.some(d => d.documentType === 'Marksheet') || true }
-        ];
-      case 'documents_submitted':
-        return [
-          { id: 'english', label: 'English language proficiency certificate (IELTS/TOEFL) uploaded', status: appDocs.some(d => d.documentType === 'IELTS Marksheet') },
-          { id: 'transcripts', label: 'All higher academic transcripts verified', status: true }
-        ];
-      case 'offer_received':
-        return [
-          { id: 'uni_fee', label: 'University application fee clearing paid', status: true },
-          { id: 'eligibility', label: 'Target subject pre-requisites matched and audited', status: true }
-        ];
-      case 'visa_applied':
-        return [
-          { id: 'bank_statement', label: 'Minimum solvency financial statements signed', status: true },
-          { id: 'vfs_file', label: 'VFS Visa appointment slot confirmed', status: true }
-        ];
-      case 'visa_approved':
-        return [
-          { id: 'stamp_photo', label: 'Schengen passport stamping photo verified', status: true },
-          { id: 'fee_cleared', label: 'Agent commission invoice statement verified', status: true }
-        ];
-      default:
-        return [];
+  useEffect(() => {
+    if (!selectedApplication) {
+      return;
     }
-  };
 
-  const handleStageSelect = (appId: string, stage: ApplicationStatus) => {
-    setSelectedAppId(appId);
-    setTargetStage(stage);
-    
-    // Resolve checks
-    const checks = getRequiredChecksForStage(stage, appId);
-    const checksState: Record<string, boolean> = {};
-    checks.forEach((c) => {
-      checksState[c.id] = c.status;
-    });
-    setChecklistChecks(checksState);
-    
-    setIsChecklistModalOpen(true);
-  };
+    setSelectedApplicationStatus(selectedApplication.status);
+    setSelectedApplicationPriority(selectedApplication.priority);
+    setSelectedApplicationAssignee(selectedApplication.assigned_to ?? '');
+    setSelectedApplicationFlagged(Boolean(selectedApplication.is_flagged));
+    setSelectedApplicationFlagReason(selectedApplication.flag_reason ?? '');
+    setSelectedApplicationNote('');
+  }, [selectedApplication]);
 
-  const handleConfirmStageTransition = () => {
-    if (selectedAppId && targetStage) {
-      updateApplicationStatus(selectedAppId, targetStage, currentUser?.id || 'staff-admin-1');
+  async function loadSectionData() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const stats = await fetchAdminDashboardStats();
+      setDashboard(stats);
+
+      if (section === 'overview') {
+        const [agentResult, documentResult] = await Promise.all([
+          fetchAdminAgents({ status: 'pending', perPage: 6 }),
+          fetchAdminDocumentQueue({ status: 'pending', perPage: 6 }),
+        ]);
+        setAgents(agentResult.agents);
+        setDocuments(documentResult.documents);
+      }
+
+      if (section === 'pipeline') {
+        const result = await fetchAdminPipeline({ q: pipelineQuery, status: pipelineStatus, perPage: 30 });
+        setPipeline(result.applications);
+      }
+
+      if (section === 'users') {
+        const [userResult, agentResult] = await Promise.all([
+          fetchAdminUsers({ role: userRoleFilter, perPage: 30 }),
+          fetchAdminAgents({ perPage: 20 }),
+        ]);
+        setUsers(userResult.users);
+        setAgents(agentResult.agents);
+      }
+
+      if (section === 'documents') {
+        const result = await fetchAdminDocumentQueue({ status: documentStatus, perPage: 30 });
+        setDocuments(result.documents);
+      }
+
+      if (section === 'catalog') {
+        const [universityResult, programResult] = await Promise.all([
+          fetchAdminUniversities({ perPage: 40 }),
+          fetchAdminPrograms({ perPage: 60 }),
+        ]);
+        setUniversities(universityResult.universities);
+        setPrograms(programResult.programs);
+      }
+
+      if (section === 'audit') {
+        const result = await fetchAdminAuditLog({ perPage: 30 });
+        setAuditEntries(result.entries);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load admin data.');
+    } finally {
+      setLoading(false);
     }
-    setIsChecklistModalOpen(false);
-    setSelectedAppId(null);
-    setTargetStage(null);
-  };
+  }
 
-  // Filter application pipeline
-  const filteredApps = useMemo(() => {
-    return applications.filter((app) => {
-      const matchesSearch = 
-        app.studentName.toLowerCase().includes(pipelineSearch.toLowerCase()) ||
-        app.universityName.toLowerCase().includes(pipelineSearch.toLowerCase()) ||
-        app.programName.toLowerCase().includes(pipelineSearch.toLowerCase());
-      
-      const matchesStage = pipelineStageFilter === 'all' || app.status === pipelineStageFilter;
-      
-      return matchesSearch && matchesStage;
-    });
-  }, [applications, pipelineSearch, pipelineStageFilter]);
+  async function refreshDashboardOnly() {
+    try {
+      const stats = await fetchAdminDashboardStats();
+      setDashboard(stats);
+    } catch {
+      toast.error('Failed to refresh dashboard counters.');
+    }
+  }
 
-  // Handler for B2B agent approval
-  const handleApproveAgent = (agentId: string) => {
-    approveAgent(agentId, currentUser?.id || 'staff-admin-1');
-  };
+  async function openApplication(id: number) {
+    try {
+      const detail = await fetchAdminApplicationDetail(id);
+      setSelectedApplication(detail);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load application detail.');
+    }
+  }
 
-  // Handler for university program adder
-  const handleAddProgram = (e: React.FormEvent) => {
-    e.preventDefault();
-    const newProgRecord: Program = {
-      id: `prog-${Date.now()}`,
-      universityId: newProgram.universityId,
-      universityName: newProgram.universityName,
-      name: newProgram.name,
-      degreeLevel: newProgram.degreeLevel,
-      subjectArea: newProgram.subjectArea,
-      durationMonths: Number(newProgram.durationMonths),
-      tuitionFee: newProgram.tuitionFee,
-      currency: newProgram.currency,
-      englishRequirement: newProgram.englishRequirement,
-      applicationFee: newProgram.applicationFee,
-      scholarshipAvailable: newProgram.scholarshipAvailable,
-      intakeMonths: ['September', 'February']
-    };
-    
-    // Add to program mock state
-    programs.push(newProgRecord);
-    setIsProgramModalOpen(false);
-  };
+  async function submitApplicationUpdate() {
+    if (!selectedApplication) {
+      return;
+    }
 
-  const activePath = location.pathname;
+    setBusy(true);
+
+    try {
+      const updated = await updateAdminApplication({
+        application_id: selectedApplication.id,
+        status: selectedApplicationStatus,
+        priority: selectedApplicationPriority,
+        assigned_to: selectedApplicationAssignee === '' ? null : Number(selectedApplicationAssignee),
+        note: selectedApplicationNote,
+        is_flagged: selectedApplicationFlagged,
+        flag_reason: selectedApplicationFlagReason,
+      });
+      setSelectedApplication(updated);
+      toast.success('Application updated.');
+      await loadSectionData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update application.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inspectUser(id: number) {
+    try {
+      const detail = await fetchAdminUserDetail(id);
+      setSelectedUser(detail);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load user detail.');
+    }
+  }
+
+  async function changeUserStatus(userId: number, status: string) {
+    setBusy(true);
+
+    try {
+      await updateAdminUser({ user_id: userId, status });
+      toast.success('User updated.');
+      await loadSectionData();
+      if (selectedUser?.id === userId) {
+        await inspectUser(userId);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update user.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeUserRole(userId: number, role: string) {
+    setBusy(true);
+
+    try {
+      await updateAdminUser({ user_id: userId, role });
+      toast.success('Internal role updated.');
+      await loadSectionData();
+      if (selectedUser?.id === userId) {
+        await inspectUser(userId);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update role.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decideAgent(agentId: number, decision: 'approved' | 'rejected') {
+    setBusy(true);
+
+    try {
+      const note = decision === 'rejected' ? window.prompt('Rejection note', 'Incomplete compliance details.') ?? '' : '';
+      await approveAdminAgent({ agent_id: agentId, decision, note });
+      toast.success(`Agent ${decision}.`);
+      await loadSectionData();
+      await refreshDashboardOnly();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to review agent.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function decideDocument(documentId: number, decision: 'verified' | 'rejected') {
+    setBusy(true);
+
+    try {
+      const reason = decision === 'rejected' ? window.prompt('Rejection reason', 'Document quality or validity issue.') ?? '' : '';
+      await reviewAdminDocument({ document_id: documentId, decision, reason });
+      toast.success(`Document ${decision}.`);
+      await loadSectionData();
+      await refreshDashboardOnly();
+      if (selectedApplication) {
+        await openApplication(selectedApplication.id);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to review document.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitUniversity() {
+    setBusy(true);
+
+    try {
+      await createAdminUniversity(universityForm);
+      setUniversityForm({
+        name: '',
+        short_name: '',
+        country: '',
+        city: '',
+        partnership_type: 'non_exclusive',
+      });
+      toast.success('University added to shared catalog.');
+      await loadSectionData();
+      await refreshDashboardOnly();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create university.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function quickEditUniversity(university: AdminUniversityRecord) {
+    const name = window.prompt('University name', university.name);
+    if (!name) return;
+
+    try {
+      await updateAdminUniversity({
+        id: university.id,
+        name,
+        country: university.country,
+        city: university.city ?? '',
+        short_name: university.shortName ?? '',
+        partnership_type: university.partnershipType,
+        is_active: university.isActive,
+      });
+      toast.success('University updated.');
+      await loadSectionData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update university.');
+    }
+  }
+
+  async function disableUniversityRecord(universityId: number) {
+    try {
+      await deleteAdminUniversity(universityId);
+      toast.success('University disabled.');
+      await loadSectionData();
+      await refreshDashboardOnly();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to disable university.');
+    }
+  }
+
+  async function submitProgram() {
+    setBusy(true);
+
+    try {
+      await createAdminProgram({
+        university_id: Number(programForm.university_id),
+        name: programForm.name,
+        degree_level: programForm.degree_level,
+        subject_area: programForm.subject_area,
+        tuition_fee: programForm.tuition_fee ? Number(programForm.tuition_fee) : null,
+        tuition_currency: programForm.tuition_currency,
+        intake_months: programForm.intake_months.split(',').map((item) => item.trim()).filter(Boolean),
+      });
+      setProgramForm({
+        university_id: '',
+        name: '',
+        degree_level: 'masters',
+        subject_area: '',
+        tuition_fee: '',
+        tuition_currency: 'EUR',
+        intake_months: 'September, February',
+      });
+      toast.success('Program added to shared catalog.');
+      await loadSectionData();
+      await refreshDashboardOnly();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create program.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function quickEditProgram(program: AdminProgramRecord) {
+    const name = window.prompt('Program name', program.name);
+    if (!name) return;
+
+    try {
+      await updateAdminProgram({
+        id: program.id,
+        university_id: program.universityId,
+        name,
+        degree_level: program.degreeLevel,
+        subject_area: program.subjectArea ?? '',
+        tuition_fee: program.tuitionFee,
+        tuition_currency: program.tuitionCurrency ?? 'EUR',
+        intake_months: program.intakeMonths,
+        is_active: program.isActive,
+      });
+      toast.success('Program updated.');
+      await loadSectionData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update program.');
+    }
+  }
+
+  async function disableProgramRecord(programId: number) {
+    try {
+      await deleteAdminProgram(programId);
+      toast.success('Program disabled.');
+      await loadSectionData();
+      await refreshDashboardOnly();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to disable program.');
+    }
+  }
+
+  if (!currentUser) {
+    return null;
+  }
+
+  const permissions = dashboard?.permissions ?? null;
+  const canUseSection =
+    section === 'overview' ||
+    section === 'pipeline' ||
+    (section === 'users' && permissions?.canManageUsers !== false && currentUser.role !== 'visa_officer') ||
+    (section === 'documents' && permissions?.canReviewDocuments === true) ||
+    (section === 'catalog' && permissions?.canManageCatalog === true) ||
+    (section === 'audit' && permissions?.canViewAuditLog === true);
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
-      
-      {/* ── SUB-PAGE 1: OVERVIEW COCKPIT ── */}
-      {activePath === '/portal/admin' && (
-        <div className="space-y-8">
-          
-          {/* KPI Dashboard Panel */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-            {[
-              { title: 'Global Applications Placed', value: metrics.totalApps, sub: 'All paths mapped', icon: FileText, color: 'text-purple-600 bg-purple-50' },
-              { title: 'Active B2B Agencies', value: metrics.activeAgents, sub: `${metrics.pendingAgentsCount} pending review`, icon: Users2, color: 'text-blue-600 bg-blue-50' },
-              { title: 'Solvency Success Rate', value: `${metrics.visaSuccessPct}%`, sub: 'ICEF Certified standard', icon: CheckCircle2, color: 'text-green-600 bg-green-50' },
-              { title: 'Partner University MOUs', value: 3, sub: 'Exclusives network', icon: Building2, color: 'text-[#FD7E14] bg-[#FD7E14]/10' },
-            ].map((kpi) => {
-              const Icon = kpi.icon;
-              return (
-                <div key={kpi.title} className="bg-white p-5 rounded-2xl border border-gray-150 shadow-sm flex items-start gap-4 hover:shadow-md transition-shadow">
-                  <div className={`p-3 rounded-xl ${kpi.color} shrink-0`}>
-                    <Icon className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{kpi.title}</span>
-                    <div className="text-2xl font-black text-gray-900 mt-1">{kpi.value}</div>
-                    <div className="text-[10px] text-gray-400 font-bold mt-2">{kpi.sub}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+    <div className="space-y-6 max-w-7xl mx-auto">
+      <Toaster position="top-center" richColors />
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.8fr_1fr] gap-6">
-            
-            {/* Volume charts */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-150 shadow-sm">
-              <div className="flex justify-between items-center mb-6">
-                <div>
-                  <h3 className="text-base font-black text-gray-900">Placements & Visa Volume</h3>
-                  <p className="text-xs text-gray-400">Monthly breakdown of student registrations across EU semesters.</p>
-                </div>
-                <span className="text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full flex items-center gap-1">
-                  <ArrowUpRight className="w-3.5 h-3.5" /> ICEF Audit Live
-                </span>
-              </div>
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={CHART_DATA} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorApps" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#2D1B69" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#2D1B69" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorVisas" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#FD7E14" stopOpacity={0.2}/>
-                        <stop offset="95%" stopColor="#FD7E14" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="month" stroke="#999" fontSize={11} tickLine={false} axisLine={false} />
-                    <YAxis stroke="#999" fontSize={11} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ background: '#0F0B1F', borderRadius: '12px', border: 'none', color: '#fff', fontSize: '11px' }} />
-                    <Area type="monotone" dataKey="applications" stroke="#2D1B69" strokeWidth={2.5} fillOpacity={1} fill="url(#colorApps)" name="Applications" />
-                    <Area type="monotone" dataKey="visas" stroke="#FD7E14" strokeWidth={2.5} fillOpacity={1} fill="url(#colorVisas)" name="Visa Grants" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Pending approvals side drawer */}
-            <div className="bg-white p-6 rounded-3xl border border-gray-150 shadow-sm flex flex-col justify-between">
-              <div>
-                <h3 className="text-base font-black text-gray-900 mb-1">B2B Agent Queue</h3>
-                <p className="text-xs text-gray-400 mb-4">Pending registrations from regional B2B student recruiters.</p>
-                
-                <div className="space-y-4">
-                  {agents.filter(a => a.status === 'pending').map((agent) => (
-                    <div key={agent.id} className="p-4 border border-gray-100 bg-gray-50/50 rounded-2xl flex items-center justify-between">
-                      <div>
-                        <div className="font-extrabold text-xs text-gray-900">{agent.agencyName}</div>
-                        <div className="text-[10px] text-gray-400 mt-0.5">{agent.agencyCountry} • Reg: {agent.registrationNumber}</div>
-                      </div>
-                      <button 
-                        onClick={() => handleApproveAgent(agent.id)}
-                        className="px-3.5 py-1.5 bg-[#2D1B69] hover:bg-[#FD7E14] text-white rounded-lg text-[10px] font-black tracking-wider transition-colors shadow-sm"
-                      >
-                        Approve
-                      </button>
-                    </div>
-                  ))}
-
-                  {agents.filter(a => a.status === 'pending').length === 0 && (
-                    <div className="py-12 text-center text-gray-400 flex flex-col items-center">
-                      <CheckCircle className="w-8 h-8 text-green-500 mb-2 animate-bounce" />
-                      <span className="text-xs font-bold">Queue completely verified!</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-          </div>
-        </div>
-      )}
-
-      {/* ── SUB-PAGE 2: DETAILED PIPELINE FILTER & TABLE ── */}
-      {activePath === '/portal/admin/pipeline' && (
-        <div className="bg-white rounded-3xl border border-gray-150 shadow-sm overflow-hidden">
-          
-          <div className="p-6 border-b border-gray-150 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h3 className="text-lg font-black text-gray-900">Stage transition command funnel</h3>
-              <p className="text-xs text-gray-400">Strictly verify documents checklist conditions before promoting stages.</p>
-            </div>
-            
-            <div className="flex gap-3">
-              <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl w-60">
-                <Search className="w-4 h-4 text-gray-400 shrink-0" />
-                <input 
-                  type="text" 
-                  placeholder="Filter pipeline candidates..." 
-                  value={pipelineSearch}
-                  onChange={e => setPipelineSearch(e.target.value)}
-                  className="bg-transparent border-none outline-none text-xs w-full placeholder:text-gray-400" 
-                />
-              </div>
-
-              <select
-                value={pipelineStageFilter}
-                onChange={e => setPipelineStageFilter(e.target.value)}
-                className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-semibold text-gray-650 outline-none"
-              >
-                <option value="all">All Stages</option>
-                <option value="inquiry">Inquiries</option>
-                <option value="applied">Applied</option>
-                <option value="documents_submitted">Docs Uploaded</option>
-                <option value="offer_received">Offer Letter</option>
-                <option value="visa_applied">Visa Filed</option>
-                <option value="visa_approved">Visa Granted</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-150 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                  <th className="py-3.5 px-6">Student Placment</th>
-                  <th className="py-3.5 px-6">Assigned Program / Uni</th>
-                  <th className="py-3.5 px-6">Pipeline Stage</th>
-                  <th className="py-3.5 px-6">Verification Date</th>
-                  <th className="py-3.5 px-6 text-right">Coordinate Stage</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-xs font-semibold text-gray-700">
-                {filteredApps.map((app) => (
-                  <tr key={app.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-[#2D1B69]/10 border border-[#2D1B69]/25 flex items-center justify-center font-extrabold text-[#2D1B69]">
-                          {app.studentName.charAt(0)}
-                        </div>
-                        <div>
-                          <div className="font-bold text-gray-900">{app.studentName}</div>
-                          <div className="text-[10px] text-gray-400">ID: {app.studentId}</div>
-                        </div>
-                      </div>
-                    </td>
-                    
-                    <td className="py-4 px-6">
-                      <div className="flex items-center gap-2">
-                        <GraduationCap className="w-4 h-4 text-[#2D1B69] shrink-0" />
-                        <div>
-                          <div className="font-bold text-gray-800">{app.programName}</div>
-                          <div className="text-[10px] text-gray-400">{app.universityName}</div>
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="py-4 px-6">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${
-                        app.status === 'visa_approved'
-                          ? 'bg-green-50 text-green-700 border-green-200'
-                          : app.status === 'offer_received'
-                          ? 'bg-purple-50 text-purple-700 border-purple-200'
-                          : 'bg-gray-100 text-gray-700 border-gray-200'
-                      }`}>
-                        {app.status.replace('_', ' ')}
-                      </span>
-                    </td>
-
-                    <td className="py-4 px-6 text-gray-400 font-bold">
-                      {new Date(app.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </td>
-
-                    <td className="py-4 px-6 text-right">
-                      <select
-                        value={app.status}
-                        onChange={(e) => handleStageSelect(app.id, e.target.value as ApplicationStatus)}
-                        className="p-1.5 px-2 border border-gray-200 rounded-lg text-[10px] font-black text-gray-600 bg-white shadow-sm outline-none"
-                      >
-                        <option value="inquiry">Inquiry</option>
-                        <option value="applied">Applied</option>
-                        <option value="documents_submitted">Docs Uploaded</option>
-                        <option value="offer_received">Offer Letter</option>
-                        <option value="visa_applied">Visa Filed</option>
-                        <option value="visa_approved">Visa Approved</option>
-                        <option value="visa_rejected">Visa Rejected</option>
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-                {filteredApps.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="py-12 text-center text-gray-400 font-semibold">
-                      No matching student pipelines found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-        </div>
-      )}
-
-      {/* ── SUB-PAGE 3: ACCOUNT PERMISSIONS DIRECTORY ── */}
-      {activePath === '/portal/admin/users' && (
-        <div className="space-y-6">
+      <div className="relative overflow-hidden rounded-[28px] border border-[#2D1B69]/10 bg-gradient-to-br from-[#0F0B1F] via-[#201255] to-[#2D1B69] p-7 text-white shadow-[0_28px_80px_rgba(15,11,31,0.28)]">
+        <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle at top right, #FFD700 0, transparent 28%)' }} />
+        <div className="relative flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h2 className="text-xl font-black text-gray-900">User & B2B Recruiter Directory</h2>
-            <p className="text-xs text-gray-500">Configure global partner agent tiers and review counsellor registrations.</p>
+            <div className="text-[11px] uppercase tracking-[0.28em] text-white/60 font-bold">Internal operations</div>
+            <h2 className="mt-2 text-3xl font-black tracking-tight">Role-based command portal</h2>
+            <p className="mt-3 max-w-2xl text-sm text-white/72 leading-relaxed">
+              Admissions, compliance, partner control, and shared catalog management now run from one live operational surface.
+            </p>
           </div>
-
-          <div className="bg-white rounded-3xl border border-gray-150 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-150 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                    <th className="py-4 px-6">User Account</th>
-                    <th className="py-4 px-6">Assigned Role</th>
-                    <th className="py-4 px-6">Security Permissions</th>
-                    <th className="py-4 px-6 text-right">Verification Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 text-xs font-semibold text-gray-700">
-                  {users.map((u) => (
-                    <tr key={u.id} className="hover:bg-gray-50/50 transition-colors">
-                      <td className="py-4 px-6">
-                        <div>
-                          <div className="font-bold text-gray-900">{u.firstName} {u.lastName}</div>
-                          <div className="text-[10px] text-gray-400 font-mono">{u.email}</div>
-                        </div>
-                      </td>
-                      <td className="py-4 px-6 font-bold text-gray-800 capitalize">
-                        {u.role.replace('_', ' ')}
-                      </td>
-                      <td className="py-4 px-6">
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-md font-bold text-[9px] uppercase tracking-wider">
-                          {u.role === 'admin' || u.role === 'super_admin' ? 'SYSTEM SUPERUSER' : 'PARTNER API RESTRICTED'}
-                        </span>
-                      </td>
-                      <td className="py-4 px-6 text-right">
-                        <span className={`inline-flex items-center gap-1 text-[10px] font-black uppercase ${
-                          u.status === 'active' ? 'text-green-500' : 'text-orange-500'
-                        }`}>
-                          <CheckCircle className="w-4.5 h-4.5" /> Verified Active
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatChip label="Applications" value={dashboard?.totalApplications ?? '...'} />
+            <StatChip label="Pending Agents" value={dashboard?.pendingAgentApprovals ?? '...'} />
+            <StatChip label="Pending Docs" value={dashboard?.pendingDocumentReviews ?? '...'} />
+            <StatChip label="Active Agents" value={dashboard?.activeAgents ?? '...'} />
           </div>
         </div>
-      )}
+      </div>
 
-      {/* ── SUB-PAGE 4: UNIVERSITY PROGRAM PORTAL ── */}
-      {activePath === '/portal/admin/universities' && (
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {!canUseSection && !loading && (
+        <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-8">
+          <div className="flex items-start gap-4">
+            <Shield className="mt-1 w-6 h-6 text-amber-600" />
             <div>
-              <h2 className="text-xl font-black text-gray-900">Partner university MOU databases</h2>
-              <p className="text-xs text-gray-500">Configure global tuition fees, program requirements, and intake options.</p>
+              <h3 className="text-lg font-black text-amber-950">This section is not available for your role.</h3>
+              <p className="mt-2 text-sm text-amber-800">
+                Your current internal role can access the areas shown in the left menu. The backend is also enforcing the same rule.
+              </p>
             </div>
-            <button 
-              onClick={() => setIsProgramModalOpen(true)}
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#2D1B69] hover:bg-[#FD7E14] text-white rounded-xl font-bold shadow-md transition-all cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> Add University Program
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
-            
-            {/* List of active exclusive institutions */}
-            <div className="bg-white p-5 rounded-3xl border border-gray-150 shadow-sm space-y-4">
-              <h3 className="font-extrabold text-sm text-gray-900 border-b border-gray-100 pb-2">Active exclusive MOUs</h3>
-              {[
-                { name: 'FH Kufstein Tirol', country: 'Austria 🇦🇹', type: 'exclusive' },
-                { name: 'EUAS Tallinn', country: 'Estonia 🇪🇪', type: 'exclusive' },
-                { name: "St. George's University", country: 'United States 🇺🇸', type: 'non_exclusive' }
-              ].map((uni) => (
-                <div key={uni.name} className="p-3 bg-gray-50 border border-gray-100 rounded-xl flex items-center justify-between">
-                  <div>
-                    <div className="font-bold text-xs text-gray-800">{uni.name}</div>
-                    <div className="text-[10px] text-gray-400 font-bold mt-0.5">{uni.country}</div>
-                  </div>
-                  <span className={`px-2 py-0.5 text-[8px] font-black uppercase rounded-full tracking-wider ${
-                    uni.type === 'exclusive' ? 'bg-orange-50 text-orange-700' : 'bg-slate-100 text-slate-600'
-                  }`}>
-                    {uni.type}
-                  </span>
-                </div>
-              ))}
-            </div>
-
-            {/* List of active academic courses */}
-            <div className="bg-white rounded-3xl border border-gray-150 shadow-sm overflow-hidden">
-              <div className="p-5 border-b border-gray-150 bg-gray-50/50">
-                <h3 className="font-extrabold text-sm text-gray-900">Academic Intake Matrix</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-50 border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                      <th className="py-3 px-6">Program Name</th>
-                      <th className="py-3 px-6">Institution</th>
-                      <th className="py-3 px-6">Tuition Fee</th>
-                      <th className="py-3 px-6">Intake Months</th>
-                      <th className="py-3 px-6 text-right">Delete</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100 text-xs font-semibold text-gray-700">
-                    {programs.map((prog) => (
-                      <tr key={prog.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="py-3.5 px-6">
-                          <div>
-                            <div className="font-bold text-gray-900">{prog.name}</div>
-                            <div className="text-[9px] text-gray-400">{prog.degreeLevel} • {prog.englishRequirement}</div>
-                          </div>
-                        </td>
-                        <td className="py-3.5 px-6 font-bold text-gray-850">
-                          {prog.universityName}
-                        </td>
-                        <td className="py-3.5 px-6 text-[#2D1B69] font-black">
-                          {prog.tuitionFee}
-                        </td>
-                        <td className="py-3.5 px-6 font-bold text-gray-400">
-                          {prog.intakeMonths.join(', ')}
-                        </td>
-                        <td className="py-3.5 px-6 text-right">
-                          <button className="p-1 hover:text-red-500 text-gray-300">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
           </div>
         </div>
       )}
 
-      {/* ───────────────────────────────────────────────────────────────────────────
-          MODALS & DIALOG DRAWERS
-          ─────────────────────────────────────────────────────────────────────────── */}
-      
-      {/* DIALOG 1: STAGE CHECKLIST VERIFICATION TRANSITION MODAL */}
-      <AnimatePresence>
-        {isChecklistModalOpen && selectedAppId && targetStage && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsChecklistModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl shadow-2xl border border-gray-150 w-full max-w-md overflow-hidden relative z-10"
-            >
-              <div className="bg-[#2D1B69] p-6 text-white flex justify-between items-center">
-                <div>
-                  <h3 className="text-base font-black">Mandatory Document checklist</h3>
-                  <p className="text-xs text-white/70 mt-1">Verify required files for target stage: <span className="text-[#FFD700] uppercase font-bold">{targetStage.replace('_', ' ')}</span></p>
-                </div>
-                <AlertTriangle className="w-8 h-8 text-[#FFD700]" />
+      {error && (
+        <div className="rounded-[24px] border border-red-200 bg-red-50 p-5 text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="h-36 rounded-[24px] border border-gray-200 bg-white animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <>
+          {section === 'overview' && canUseSection && dashboard && (
+            <div className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <MetricCard icon={FileSearch} label="Pipeline Cases" value={dashboard.totalApplications} tone="purple" detail="All applications in CRM" />
+                <MetricCard icon={Users2} label="Student Accounts" value={dashboard.activeStudents} tone="gold" detail="Active student records" />
+                <MetricCard icon={Building2} label="Shared Universities" value={dashboard.activeUniversities} tone="green" detail="Visible catalog institutions" />
+                <MetricCard icon={BookOpenCheck} label="Shared Programs" value={dashboard.activePrograms} tone="blue" detail="Public + portal programs" />
               </div>
 
-              <div className="p-6 space-y-6">
-                
-                {/* List checks */}
-                <div className="space-y-4">
-                  {getRequiredChecksForStage(targetStage, selectedAppId).map((check) => (
-                    <div 
-                      key={check.id}
-                      onClick={() => setChecklistChecks({ ...checklistChecks, [check.id]: !checklistChecks[check.id] })}
-                      className={`p-3.5 border rounded-2xl flex items-start gap-3 cursor-pointer transition-all ${
-                        checklistChecks[check.id]
-                          ? 'border-green-200 bg-green-50/50 text-green-800'
-                          : 'border-orange-200 bg-orange-50/20 text-orange-850'
+              <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
+                <Panel
+                  title="Recent stage movement"
+                  subtitle="Latest operational movement across the application pipeline."
+                >
+                  <div className="space-y-3">
+                    {dashboard.recentStageMovement.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <div className="text-sm font-black text-gray-900">{item.student_name}</div>
+                            <div className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mt-1">
+                              {item.reference_number}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-[#2D1B69]">{formatStage(item.to_status)}</div>
+                            <div className="text-[11px] text-gray-400">{formatDate(item.created_at)}</div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel
+                  title="Pipeline weight"
+                  subtitle="Current case distribution by stage."
+                >
+                  <div className="space-y-3">
+                    {dashboard.applicationsByStage.map((item) => (
+                      <div key={item.status} className="flex items-center justify-between rounded-2xl border border-gray-100 p-3">
+                        <div className="text-sm font-bold text-gray-700">{formatStage(item.status)}</div>
+                        <div className="rounded-full bg-[#EEE9FF] px-3 py-1 text-xs font-black text-[#2D1B69]">
+                          {Number(item.total)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-2">
+                <Panel title="Pending agent approvals" subtitle="New partner agencies waiting for internal review.">
+                  <div className="space-y-3">
+                    {agents.length === 0 && <EmptyState label="No pending agent approvals." />}
+                    {agents.map((agent) => (
+                      <div key={agent.id} className="rounded-2xl border border-gray-100 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-sm font-black text-gray-900">{agent.agency_name}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {agent.agency_country} · {agent.email} · {agent.tier}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              disabled={busy || !permissions?.canApproveAgents}
+                              onClick={() => void decideAgent(agent.id, 'approved')}
+                              className="rounded-xl bg-[#2D1B69] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              disabled={busy || !permissions?.canApproveAgents}
+                              onClick={() => void decideAgent(agent.id, 'rejected')}
+                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel title="Pending document review" subtitle="Latest uploads needing compliance review.">
+                  <div className="space-y-3">
+                    {documents.length === 0 && <EmptyState label="No pending documents." />}
+                    {documents.map((document) => (
+                      <div key={document.id} className="rounded-2xl border border-gray-100 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-sm font-black text-gray-900">{document.student_name}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {formatStage(document.document_type)} · {document.university_name}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              disabled={busy || !permissions?.canReviewDocuments}
+                              onClick={() => void decideDocument(document.id, 'verified')}
+                              className="rounded-xl bg-green-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                            >
+                              Verify
+                            </button>
+                            <button
+                              disabled={busy || !permissions?.canReviewDocuments}
+                              onClick={() => void decideDocument(document.id, 'rejected')}
+                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+              </div>
+            </div>
+          )}
+
+          {section === 'pipeline' && canUseSection && (
+            <div className="grid gap-6 xl:grid-cols-[1.2fr_0.95fr]">
+              <Panel title="Pipeline control" subtitle="Search, inspect, and transition live application records.">
+                <div className="mb-4 flex flex-col gap-3 lg:flex-row">
+                  <input
+                    value={pipelineQuery}
+                    onChange={(event) => setPipelineQuery(event.target.value)}
+                    placeholder="Search student, university, program, reference"
+                    className="flex-1 rounded-2xl border border-gray-200 bg-[#F8F7FF] px-4 py-3 text-sm outline-none focus:border-[#2D1B69]"
+                  />
+                  <select
+                    value={pipelineStatus}
+                    onChange={(event) => setPipelineStatus(event.target.value)}
+                    className="rounded-2xl border border-gray-200 bg-[#F8F7FF] px-4 py-3 text-sm outline-none focus:border-[#2D1B69]"
+                  >
+                    <option value="">All stages</option>
+                    {STATUS_OPTIONS.map((status) => (
+                      <option key={status} value={status}>
+                        {formatStage(status)}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => void loadSectionData()}
+                    className="rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white"
+                  >
+                    Refresh
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  {pipeline.length === 0 && <EmptyState label="No applications matched this filter." />}
+                  {pipeline.map((application) => (
+                    <button
+                      key={application.id}
+                      onClick={() => void openApplication(application.id)}
+                      className={`w-full rounded-[24px] border p-4 text-left transition ${
+                        selectedApplication?.id === application.id
+                          ? 'border-[#2D1B69] bg-[#EEE9FF]'
+                          : 'border-gray-100 bg-white hover:border-[#2D1B69]/20 hover:bg-[#F8F7FF]'
                       }`}
                     >
-                      <input 
-                        type="checkbox"
-                        checked={!!checklistChecks[check.id]}
-                        onChange={() => {}}
-                        className="mt-0.5 cursor-pointer accent-green-600"
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <div className="text-sm font-black text-gray-900">{application.student_name}</div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {application.university_name} · {application.program_name}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">
+                            <span>{application.reference_number}</span>
+                            <span>{formatStage(application.status)}</span>
+                            <span>{application.document_count} docs</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          {Boolean(application.is_flagged) && (
+                            <span className="rounded-full bg-red-50 px-3 py-1 text-[11px] font-black text-red-700">
+                              Flagged
+                            </span>
+                          )}
+                          <ChevronRight className="w-5 h-5 text-gray-400" />
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </Panel>
+
+              <Panel title="Application detail" subtitle="Live detail drawer with role-bound update controls.">
+                {!selectedApplication && <EmptyState label="Select an application to inspect and update it." />}
+                {selectedApplication && (
+                  <div className="space-y-5">
+                    <div className="rounded-[24px] bg-[#0F0B1F] p-5 text-white">
+                      <div className="text-[11px] uppercase tracking-[0.2em] text-white/60 font-bold">
+                        {selectedApplication.reference_number}
+                      </div>
+                      <div className="mt-2 text-xl font-black">{selectedApplication.student_name}</div>
+                      <div className="mt-2 text-sm text-white/70">
+                        {selectedApplication.university_name} · {selectedApplication.program_name}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <Field label="Stage">
+                        <select
+                          value={selectedApplicationStatus}
+                          onChange={(event) => setSelectedApplicationStatus(event.target.value)}
+                          className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                        >
+                          {STATUS_OPTIONS.map((status) => (
+                            <option
+                              key={status}
+                              value={status}
+                              disabled={!dashboard?.permissions.allowedStages.includes(status)}
+                            >
+                              {formatStage(status)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Priority">
+                        <select
+                          value={selectedApplicationPriority}
+                          onChange={(event) => setSelectedApplicationPriority(event.target.value)}
+                          className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                        >
+                          {PRIORITY_OPTIONS.map((priority) => (
+                            <option key={priority} value={priority}>
+                              {priority}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Assignee">
+                        <select
+                          value={selectedApplicationAssignee}
+                          onChange={(event) => setSelectedApplicationAssignee(event.target.value === '' ? '' : Number(event.target.value))}
+                          className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                        >
+                          <option value="">Unassigned</option>
+                          {dashboard?.assignees.map((assignee) => (
+                            <option key={assignee.id} value={assignee.id}>
+                              {assignee.email} · {formatStage(assignee.role)}
+                            </option>
+                          ))}
+                        </select>
+                      </Field>
+                      <Field label="Flag case">
+                        <label className="flex items-center gap-3 rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={selectedApplicationFlagged}
+                            onChange={(event) => setSelectedApplicationFlagged(event.target.checked)}
+                          />
+                          Mark for escalation
+                        </label>
+                      </Field>
+                    </div>
+
+                    <Field label="Flag reason">
+                      <input
+                        value={selectedApplicationFlagReason}
+                        onChange={(event) => setSelectedApplicationFlagReason(event.target.value)}
+                        placeholder="Why this case needs escalation"
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
                       />
-                      <div>
-                        <div className="font-extrabold text-[11px] leading-tight">{check.label}</div>
-                        <div className="text-[9px] text-gray-400 font-bold mt-1">
-                          {check.status ? '✓ File system validated' : '⚠️ Missing upload proof'}
+                    </Field>
+
+                    <Field label="Internal note">
+                      <textarea
+                        value={selectedApplicationNote}
+                        onChange={(event) => setSelectedApplicationNote(event.target.value)}
+                        rows={3}
+                        placeholder="Add checklist context, handoff note, or escalation detail"
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+
+                    <button
+                      disabled={busy}
+                      onClick={() => void submitApplicationUpdate()}
+                      className="w-full rounded-2xl bg-gradient-to-r from-[#2D1B69] to-[#C94D1B] px-4 py-3 text-sm font-black text-white disabled:opacity-50"
+                    >
+                      Save transition
+                    </button>
+
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-black text-gray-900">Documents</h4>
+                      {selectedApplication.documents.map((document) => (
+                        <div key={document.id} className="rounded-2xl border border-gray-100 p-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-bold text-gray-800">{formatStage(document.document_type)}</div>
+                              <div className="text-xs text-gray-500">{document.file_name}</div>
+                            </div>
+                            <div className="flex gap-2">
+                              <span className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
+                                {formatStage(document.status)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-black text-gray-900">Internal notes</h4>
+                      {selectedApplication.notes.length === 0 && <EmptyState label="No internal notes yet." compact />}
+                      {selectedApplication.notes.map((note) => (
+                        <div key={note.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-3">
+                          <div className="text-xs font-bold text-gray-900">{note.author_email}</div>
+                          <div className="mt-1 text-sm text-gray-700">{note.note}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </Panel>
+            </div>
+          )}
+
+          {section === 'users' && canUseSection && (
+            <div className="grid gap-6 xl:grid-cols-[1.15fr_0.95fr]">
+              <Panel title="User directory" subtitle="Internal visibility across students, agents, and portal accounts.">
+                <div className="mb-4 flex gap-3">
+                  <select
+                    value={userRoleFilter}
+                    onChange={(event) => setUserRoleFilter(event.target.value)}
+                    className="rounded-2xl border border-gray-200 bg-[#F8F7FF] px-4 py-3 text-sm outline-none"
+                  >
+                    <option value="">All roles</option>
+                    <option value="student">Students</option>
+                    <option value="agent">Agents</option>
+                    <option value="counsellor">Counsellors</option>
+                    <option value="visa_officer">Visa officers</option>
+                    <option value="admin">Admins</option>
+                    <option value="super_admin">Super admins</option>
+                  </select>
+                  <button onClick={() => void loadSectionData()} className="rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white">
+                    Refresh
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {users.map((user) => (
+                    <div key={user.id} className="rounded-[22px] border border-gray-100 p-4">
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                        <button onClick={() => void inspectUser(user.id)} className="text-left">
+                          <div className="text-sm font-black text-gray-900">
+                            {user.firstName ?? 'Portal'} {user.lastName ?? 'User'}
+                          </div>
+                          <div className="mt-1 text-xs text-gray-500">{user.email}</div>
+                          <div className="mt-2 text-[11px] uppercase tracking-[0.18em] text-gray-400">
+                            {formatStage(user.role)}
+                          </div>
+                        </button>
+                        <div className="flex flex-wrap gap-2">
+                          <select
+                            value={user.status}
+                            onChange={(event) => void changeUserStatus(user.id, event.target.value)}
+                            disabled={busy || !permissions?.canManageUsers}
+                            className="rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2 text-xs font-bold outline-none disabled:opacity-50"
+                          >
+                            <option value="active">Active</option>
+                            <option value="pending">Pending</option>
+                            <option value="suspended">Suspended</option>
+                            <option value="deleted">Deleted</option>
+                          </select>
+                          {permissions?.canChangeInternalRoles && ['counsellor', 'visa_officer', 'admin', 'super_admin'].includes(user.role) && (
+                            <select
+                              value={user.role}
+                              onChange={(event) => void changeUserRole(user.id, event.target.value)}
+                              disabled={busy}
+                              className="rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2 text-xs font-bold outline-none disabled:opacity-50"
+                            >
+                              <option value="admin">Admin</option>
+                              <option value="counsellor">Counsellor</option>
+                              <option value="visa_officer">Visa Officer</option>
+                              <option value="super_admin" disabled>
+                                Super Admin
+                              </option>
+                            </select>
+                          )}
                         </div>
                       </div>
                     </div>
                   ))}
-                  {getRequiredChecksForStage(targetStage, selectedAppId).length === 0 && (
-                    <div className="py-6 text-center text-gray-450 font-bold">
-                      No mandatory document parameters configured for this target stage. Direct transition approved.
+                </div>
+              </Panel>
+
+              <div className="space-y-6">
+                <Panel title="User detail" subtitle="Context panel for the selected account.">
+                  {!selectedUser && <EmptyState label="Select a user to inspect the linked profile." />}
+                  {selectedUser && (
+                    <div className="space-y-4">
+                      <div className="rounded-2xl bg-[#F8F7FF] p-4">
+                        <div className="text-sm font-black text-gray-900">{selectedUser.email}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {formatStage(selectedUser.role)} · {selectedUser.status}
+                        </div>
+                      </div>
+                      <dl className="grid gap-3 text-sm">
+                        <DetailRow label="Phone" value={selectedUser.phone ?? 'Not provided'} />
+                        <DetailRow label="Email verified" value={selectedUser.emailVerified ? 'Yes' : 'No'} />
+                        <DetailRow label="Last login" value={selectedUser.lastLogin ? formatDate(selectedUser.lastLogin) : 'No login yet'} />
+                        <DetailRow label="Created" value={formatDate(selectedUser.createdAt)} />
+                      </dl>
+                      {selectedUser.profile && (
+                        <pre className="overflow-x-auto rounded-2xl bg-[#0F0B1F] p-4 text-xs text-white/80">
+                          {JSON.stringify(selectedUser.profile, null, 2)}
+                        </pre>
+                      )}
                     </div>
                   )}
-                </div>
+                </Panel>
 
-                <div className="flex gap-3 justify-end items-center pt-4 border-t border-gray-100">
-                  <button 
-                    onClick={() => setIsChecklistModalOpen(false)}
-                    className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    onClick={handleConfirmStageTransition}
-                    className="px-6 py-2.5 bg-gradient-to-r from-[#2D1B69] to-[#FD7E14] text-white rounded-xl font-bold hover:shadow-lg transition-all"
-                  >
-                    Audit & Pass Transition
-                  </button>
-                </div>
-
+                <Panel title="Agent approvals" subtitle="Cross-check partner onboarding state.">
+                  <div className="space-y-3">
+                    {agents.filter((agent) => agent.status === 'pending').length === 0 && <EmptyState label="No pending partner approvals." compact />}
+                    {agents
+                      .filter((agent) => agent.status === 'pending')
+                      .map((agent) => (
+                        <div key={agent.id} className="rounded-2xl border border-gray-100 p-4">
+                          <div className="text-sm font-black text-gray-900">{agent.agency_name}</div>
+                          <div className="mt-1 text-xs text-gray-500">{agent.email}</div>
+                          <div className="mt-3 flex gap-2">
+                            <button
+                              disabled={busy || !permissions?.canApproveAgents}
+                              onClick={() => void decideAgent(agent.id, 'approved')}
+                              className="rounded-xl bg-[#2D1B69] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                            <button
+                              disabled={busy || !permissions?.canApproveAgents}
+                              onClick={() => void decideAgent(agent.id, 'rejected')}
+                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </Panel>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+            </div>
+          )}
 
-      {/* DIALOG 2: UNIVERSITY PROGRAM ADDER DRAWER */}
-      <AnimatePresence>
-        {isProgramModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsProgramModalOpen(false)}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-            />
-            
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl shadow-2xl border border-gray-150 w-full max-w-lg overflow-hidden relative z-10"
-            >
-              <div className="bg-[#2D1B69] p-6 text-white flex justify-between items-center">
-                <div>
-                  <h3 className="text-lg font-black">Configure new University Program</h3>
-                  <p className="text-xs text-white/70 mt-1">Configure admission rules and tuition values.</p>
-                </div>
-                <X 
-                  onClick={() => setIsProgramModalOpen(false)}
-                  className="w-5 h-5 text-white/50 hover:text-white cursor-pointer" 
-                />
+          {section === 'documents' && canUseSection && (
+            <Panel title="Document review queue" subtitle="Compliance review for passports, SOPs, financial proofs, and offer packs.">
+              <div className="mb-4 flex gap-3">
+                <select
+                  value={documentStatus}
+                  onChange={(event) => setDocumentStatus(event.target.value)}
+                  className="rounded-2xl border border-gray-200 bg-[#F8F7FF] px-4 py-3 text-sm outline-none"
+                >
+                  <option value="pending">Pending</option>
+                  <option value="verified">Verified</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+                <button onClick={() => void loadSectionData()} className="rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white">
+                  Refresh
+                </button>
+              </div>
+              <div className="space-y-3">
+                {documents.length === 0 && <EmptyState label="No documents in this queue." />}
+                {documents.map((document) => (
+                  <div key={document.id} className="rounded-[22px] border border-gray-100 p-4">
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                      <div>
+                        <div className="text-sm font-black text-gray-900">{document.student_name}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {formatStage(document.document_type)} · {document.university_name} · {document.reference_number}
+                        </div>
+                        {document.rejection_reason && (
+                          <div className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-700">
+                            {document.rejection_reason}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
+                          {formatStage(document.status)}
+                        </span>
+                        <button
+                          disabled={busy || document.status === 'verified'}
+                          onClick={() => void decideDocument(document.id, 'verified')}
+                          className="rounded-xl bg-green-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          Verify
+                        </button>
+                        <button
+                          disabled={busy}
+                          onClick={() => void decideDocument(document.id, 'rejected')}
+                          className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
+          {section === 'catalog' && canUseSection && permissions && (
+            <div className="space-y-6">
+              <div className="grid gap-6 xl:grid-cols-2">
+                <Panel title="University manager" subtitle="Shared university data powers both the public site and the CRM catalog.">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="Name">
+                      <input
+                        value={universityForm.name}
+                        onChange={(event) => setUniversityForm({ ...universityForm, name: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                    <Field label="Short name">
+                      <input
+                        value={universityForm.short_name}
+                        onChange={(event) => setUniversityForm({ ...universityForm, short_name: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                    <Field label="Country">
+                      <input
+                        value={universityForm.country}
+                        onChange={(event) => setUniversityForm({ ...universityForm, country: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                    <Field label="City">
+                      <input
+                        value={universityForm.city}
+                        onChange={(event) => setUniversityForm({ ...universityForm, city: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Partnership type">
+                    <select
+                      value={universityForm.partnership_type}
+                      onChange={(event) =>
+                        setUniversityForm({
+                          ...universityForm,
+                          partnership_type: event.target.value as 'exclusive' | 'non_exclusive',
+                        })
+                      }
+                      className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                    >
+                      <option value="non_exclusive">Non-exclusive</option>
+                      <option value="exclusive">Exclusive</option>
+                    </select>
+                  </Field>
+                  <button
+                    disabled={busy || permissions.catalogReadOnly}
+                    onClick={() => void submitUniversity()}
+                    className="mt-4 rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+                  >
+                    Add university
+                  </button>
+                </Panel>
+
+                <Panel title="Program manager" subtitle="Control degree level, tuition, and intake visibility for the shared catalog.">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Field label="University">
+                      <select
+                        value={programForm.university_id}
+                        onChange={(event) => setProgramForm({ ...programForm, university_id: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      >
+                        <option value="">Select university</option>
+                        {universities.map((university) => (
+                          <option key={university.id} value={university.id}>
+                            {university.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Degree level">
+                      <select
+                        value={programForm.degree_level}
+                        onChange={(event) => setProgramForm({ ...programForm, degree_level: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      >
+                        {DEGREE_OPTIONS.map((option) => (
+                          <option key={option} value={option}>
+                            {formatStage(option)}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Program name">
+                      <input
+                        value={programForm.name}
+                        onChange={(event) => setProgramForm({ ...programForm, name: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                    <Field label="Subject area">
+                      <input
+                        value={programForm.subject_area}
+                        onChange={(event) => setProgramForm({ ...programForm, subject_area: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                    <Field label="Tuition fee">
+                      <input
+                        value={programForm.tuition_fee}
+                        onChange={(event) => setProgramForm({ ...programForm, tuition_fee: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                    <Field label="Currency">
+                      <input
+                        value={programForm.tuition_currency}
+                        onChange={(event) => setProgramForm({ ...programForm, tuition_currency: event.target.value })}
+                        className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                      />
+                    </Field>
+                  </div>
+                  <Field label="Intake months">
+                    <input
+                      value={programForm.intake_months}
+                      onChange={(event) => setProgramForm({ ...programForm, intake_months: event.target.value })}
+                      placeholder="September, February"
+                      className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
+                    />
+                  </Field>
+                  <button
+                    disabled={busy || permissions.catalogReadOnly}
+                    onClick={() => void submitProgram()}
+                    className="mt-4 rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+                  >
+                    Add program
+                  </button>
+                </Panel>
               </div>
 
-              <form onSubmit={handleAddProgram} className="p-6 space-y-4">
-                
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Program Course Name</label>
-                  <input 
-                    type="text"
-                    required
-                    value={newProgram.name}
-                    onChange={(e) => setNewProgram({ ...newProgram, name: e.target.value })}
-                    placeholder="MSc Artificial Intelligence & Analytics"
-                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold outline-none"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Target University</label>
-                    <select
-                      value={newProgram.universityId}
-                      onChange={(e) => {
-                        const uniId = e.target.value;
-                        const name = uniId === 'fh-kufstein-tirol' ? 'FH Kufstein Tirol' : uniId === 'euas' ? 'EUAS Tallinn' : "St. George's University";
-                        setNewProgram({ ...newProgram, universityId: uniId, universityName: name });
-                      }}
-                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold outline-none"
-                    >
-                      <option value="fh-kufstein-tirol">FH Kufstein Tirol 🇦🇹</option>
-                      <option value="euas">EUAS Tallinn 🇪🇪</option>
-                      <option value="st-georges-university">St. George's University 🇺🇸</option>
-                    </select>
+              <div className="grid gap-6 xl:grid-cols-[1fr_1.2fr]">
+                <Panel title="Universities" subtitle="Edit or disable shared institutions.">
+                  <div className="space-y-3">
+                    {universities.map((university) => (
+                      <div key={university.id} className="rounded-[22px] border border-gray-100 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-sm font-black text-gray-900">{university.name}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {university.country} · {university.city ?? 'No city'} · {university.programCount} programs
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              disabled={permissions.catalogReadOnly}
+                              onClick={() => void quickEditUniversity(university)}
+                              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-black text-gray-700 disabled:opacity-50"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              disabled={permissions.catalogReadOnly || !university.isActive}
+                              onClick={() => void disableUniversityRecord(university.id)}
+                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                            >
+                              Disable
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                </Panel>
 
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Degree Level</label>
-                    <select
-                      value={newProgram.degreeLevel}
-                      onChange={(e) => setNewProgram({ ...newProgram, degreeLevel: e.target.value })}
-                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold outline-none"
-                    >
-                      <option value="Bachelor">Bachelor</option>
-                      <option value="Master / MBA">Master / MBA</option>
-                      <option value="Doctoral">Doctoral</option>
-                    </select>
+                <Panel title="Programs" subtitle="Fast control of shared degree listings.">
+                  <div className="space-y-3">
+                    {programs.map((program) => (
+                      <div key={program.id} className="rounded-[22px] border border-gray-100 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-sm font-black text-gray-900">{program.name}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {program.universityName} · {formatStage(program.degreeLevel)} · {program.tuitionCurrency ?? ''} {program.tuitionFee ?? 'TBD'}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              disabled={permissions.catalogReadOnly}
+                              onClick={() => void quickEditProgram(program)}
+                              className="rounded-xl border border-gray-200 bg-white px-4 py-2 text-xs font-black text-gray-700 disabled:opacity-50"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              disabled={permissions.catalogReadOnly || !program.isActive}
+                              onClick={() => void disableProgramRecord(program.id)}
+                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                            >
+                              Disable
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                </Panel>
+              </div>
+            </div>
+          )}
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Annual Tuition Fee</label>
-                    <input 
-                      type="text"
-                      required
-                      value={newProgram.tuitionFee}
-                      onChange={(e) => setNewProgram({ ...newProgram, tuitionFee: e.target.value })}
-                      placeholder="e.g. €363/semester"
-                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold outline-none"
-                    />
+          {section === 'audit' && canUseSection && (
+            <Panel title="Audit trail" subtitle="Trace sensitive admin activity across applications, users, and catalog edits.">
+              <div className="space-y-3">
+                {auditEntries.length === 0 && <EmptyState label="No audit entries available yet." />}
+                {auditEntries.map((entry) => (
+                  <div key={entry.id} className="rounded-[22px] border border-gray-100 p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="text-sm font-black text-gray-900">{entry.action}</div>
+                        <div className="mt-1 text-xs text-gray-500">
+                          {entry.actorEmail ?? 'System'} · {entry.entityType ?? 'entity'} #{entry.entityId ?? 'n/a'}
+                        </div>
+                      </div>
+                      <div className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
+                        {formatDate(entry.createdAt)}
+                      </div>
+                    </div>
+                    {(entry.newData || entry.oldData) && (
+                      <pre className="mt-3 overflow-x-auto rounded-2xl bg-[#0F0B1F] p-3 text-[11px] text-white/80">
+                        {JSON.stringify({ oldData: entry.oldData, newData: entry.newData }, null, 2)}
+                      </pre>
+                    )}
                   </div>
-
-                  <div className="space-y-1">
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">English Language Pre-requisite</label>
-                    <input 
-                      type="text"
-                      required
-                      value={newProgram.englishRequirement}
-                      onChange={(e) => setNewProgram({ ...newProgram, englishRequirement: e.target.value })}
-                      placeholder="e.g. IELTS 6.0"
-                      className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold outline-none"
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
-                  <button 
-                    type="button"
-                    onClick={() => setIsProgramModalOpen(false)}
-                    className="px-5 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button 
-                    type="submit"
-                    className="px-6 py-2.5 bg-gradient-to-r from-[#2D1B69] to-[#FD7E14] text-white rounded-xl font-bold hover:shadow-lg transition-all"
-                  >
-                    Save Program MOU
-                  </button>
-                </div>
-
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
+                ))}
+              </div>
+            </Panel>
+          )}
+        </>
+      )}
     </div>
   );
+}
+
+function StatChip({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/5 p-3 backdrop-blur-sm">
+      <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/55">{label}</div>
+      <div className="mt-2 text-2xl font-black text-white">{value}</div>
+    </div>
+  );
+}
+
+function MetricCard({
+  icon: Icon,
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  icon: typeof Users2;
+  label: string;
+  value: number | string;
+  detail: string;
+  tone: 'purple' | 'gold' | 'green' | 'blue';
+}) {
+  const tones = {
+    purple: 'bg-[#EEE9FF] text-[#2D1B69]',
+    gold: 'bg-[#FFF6D9] text-[#A06C00]',
+    green: 'bg-[#E8FFF3] text-[#1D9E75]',
+    blue: 'bg-[#EAF4FF] text-[#378ADD]',
+  };
+
+  return (
+    <div className="rounded-[26px] border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.2em] text-gray-400">{label}</div>
+          <div className="mt-3 text-3xl font-black text-gray-950">{value}</div>
+          <div className="mt-2 text-xs text-gray-500">{detail}</div>
+        </div>
+        <div className={`rounded-2xl p-3 ${tones[tone]}`}>
+          <Icon className="w-5 h-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-[28px] border border-gray-200 bg-white p-6 shadow-sm">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-black text-gray-950">{title}</h3>
+          <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+        </div>
+        <ArrowUpRight className="w-5 h-5 text-gray-300" />
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-gray-400">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-[#F8F7FF] px-4 py-3">
+      <div className="text-xs font-bold uppercase tracking-[0.16em] text-gray-400">{label}</div>
+      <div className="text-sm font-bold text-gray-800 text-right">{value}</div>
+    </div>
+  );
+}
+
+function EmptyState({ label, compact = false }: { label: string; compact?: boolean }) {
+  return (
+    <div className={`rounded-[22px] border border-dashed border-gray-200 bg-[#F8F7FF] text-center ${compact ? 'p-5' : 'p-10'}`}>
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-white">
+        <Clock3 className="w-5 h-5 text-gray-400" />
+      </div>
+      <div className="mt-4 text-sm font-bold text-gray-600">{label}</div>
+    </div>
+  );
+}
+
+function formatStage(value: string) {
+  return value.replace(/_/g, ' ');
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString();
 }

@@ -64,7 +64,9 @@ export function AppRouter() {
         <Route path="/portal/admin" element={<AdminDashboardPage />} />
         <Route path="/portal/admin/pipeline" element={<AdminDashboardPage />} />
         <Route path="/portal/admin/users" element={<AdminDashboardPage />} />
+        <Route path="/portal/admin/documents" element={<AdminDashboardPage />} />
         <Route path="/portal/admin/universities" element={<AdminDashboardPage />} />
+        <Route path="/portal/admin/audit" element={<AdminDashboardPage />} />
       </Route>
 
       {/* 404 / Catch-all */}

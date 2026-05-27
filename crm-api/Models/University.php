@@ -225,8 +225,12 @@ final class University extends BaseModel
         }
 
         if (($filters['q'] ?? '') !== '') {
-            $where[] = '(u.name LIKE :q OR u.short_name LIKE :q OR u.country LIKE :q OR u.city LIKE :q)';
-            $params[':q'] = '%' . trim((string) $filters['q']) . '%';
+            $where[] = '(u.name LIKE :q_name OR u.short_name LIKE :q_short_name OR u.country LIKE :q_country OR u.city LIKE :q_city)';
+            $search = '%' . trim((string) $filters['q']) . '%';
+            $params[':q_name'] = $search;
+            $params[':q_short_name'] = $search;
+            $params[':q_country'] = $search;
+            $params[':q_city'] = $search;
         }
 
         return [$joins, 'WHERE ' . implode(' AND ', $where), $params];
@@ -268,8 +272,13 @@ final class University extends BaseModel
         }
 
         if (($filters['q'] ?? '') !== '') {
-            $where[] = '(p.name LIKE :q OR p.subject_area LIKE :q OR u.name LIKE :q OR u.country LIKE :q OR u.city LIKE :q)';
-            $params[':q'] = '%' . trim((string) $filters['q']) . '%';
+            $where[] = '(p.name LIKE :q_program_name OR p.subject_area LIKE :q_subject_area OR u.name LIKE :q_university_name OR u.country LIKE :q_country OR u.city LIKE :q_city)';
+            $search = '%' . trim((string) $filters['q']) . '%';
+            $params[':q_program_name'] = $search;
+            $params[':q_subject_area'] = $search;
+            $params[':q_university_name'] = $search;
+            $params[':q_country'] = $search;
+            $params[':q_city'] = $search;
         }
 
         return ['WHERE ' . implode(' AND ', $where), $params];

@@ -59,3 +59,14 @@
 - Extended the frontend API client to support multipart upload and document deletion
 - Reworked the student portal documents tab so it now uploads real files, refreshes from the backend, and only allows deleting unverified documents
 - Verified with PHP lint, a real multipart upload/delete API flow, and another successful frontend production build
+
+## Session 7 - May 27, 2026
+
+- Implemented the role-based internal admin portal backend with new `admin` routes, controller, model, audit logging service, and schema support for `audit_logs`, `is_flagged`, and `flag_reason`
+- Added internal-role permissions for `counsellor`, `visa_officer`, `admin`, and `super_admin`, including a stage-transition matrix and document-review restrictions
+- Added live admin endpoints for dashboard stats, pipeline, application detail/update, document queue/review, users/detail/update, agent approvals, university/program CRUD, and audit-log reads
+- Seeded local internal users for `super_admin`, `admin`, `counsellor`, and `visa_officer` with a shared development password for XAMPP verification
+- Replaced the mock admin frontend with a live `/portal/admin` console and role-aware layout/menu, including overview, pipeline, users/agents, document review, catalog management, and audit views
+- Extended the frontend API client with typed admin operations and routed the new admin sections through the real backend
+- Fixed PDO named-placeholder collisions in catalog/admin search queries so public catalog search and admin filters work reliably with native prepared statements
+- Verified with PHP lint, live role logins for all four internal roles, permission-denial tests, shared catalog create/disable propagation to the public university listing, audit-log recording, and a successful `npm run build`

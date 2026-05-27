@@ -7,6 +7,7 @@ use TGA\CRM\Config\Environment;
 use TGA\CRM\Routes\AgentRoutes;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Routes\ApplicationRoutes;
+use TGA\CRM\Routes\AdminRoutes;
 use TGA\CRM\Routes\AuthRoutes;
 use TGA\CRM\Routes\RouteRegistry;
 use TGA\CRM\Routes\StudentRoutes;
@@ -35,6 +36,7 @@ StudentRoutes::register();
 ApplicationRoutes::register();
 AgentRoutes::register();
 UniversityRoutes::register();
+AdminRoutes::register();
 
 RouteRegistry::dispatch(
     method: $_SERVER['REQUEST_METHOD'] ?? 'GET',

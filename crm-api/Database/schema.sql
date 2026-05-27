@@ -226,6 +226,8 @@ CREATE TABLE IF NOT EXISTS applications (
   intake_month TINYINT NOT NULL,
   intake_year YEAR NOT NULL,
   assigned_to INT UNSIGNED NULL,
+  is_flagged TINYINT(1) DEFAULT 0,
+  flag_reason TEXT NULL,
   source ENUM('direct','agent','referral','website') DEFAULT 'direct',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -284,6 +286,22 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (application_id) REFERENCES applications(id) ON DELETE CASCADE,
   INDEX idx_documents_application (application_id)
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  user_id INT UNSIGNED NULL,
+  action VARCHAR(100) NOT NULL,
+  entity_type VARCHAR(100) NULL,
+  entity_id INT UNSIGNED NULL,
+  old_data JSON NULL,
+  new_data JSON NULL,
+  ip_address VARCHAR(45) NULL,
+  user_agent VARCHAR(500) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_audit_user (user_id),
+  INDEX idx_audit_action (action),
+  INDEX idx_audit_entity (entity_type, entity_id)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (

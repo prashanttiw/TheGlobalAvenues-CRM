@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TGA\CRM\Controllers;
 
+use TGA\CRM\Config\Constants;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RoleMiddleware;
@@ -140,6 +141,18 @@ final class ApplicationController extends BaseController
                 'application_id' => 'Application id is required.',
                 'new_status' => 'New status is required.',
             ]);
+        }
+
+        if (!in_array($newStatus, Constants::APPLICATION_STATUSES, true)) {
+            Response::error('Validation failed', 'VALIDATION_FAILED', 422, [
+                'new_status' => 'Invalid application status.',
+            ]);
+        }
+
+        $allowedStages = Constants::STAGE_PERMISSIONS[(string) $user['role']] ?? [];
+
+        if (!in_array($newStatus, $allowedStages, true)) {
+            Response::error('You do not have permission to move the application to this stage', 'AUTH_INSUFFICIENT_ROLE', 403);
         }
 
         $updated = $this->applications->updateStatus(

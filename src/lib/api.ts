@@ -54,7 +54,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSucc
   return payload as ApiSuccess<T>;
 }
 
-function buildQuery(params: Record<string, string | number | undefined | null>): string {
+function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
   const query = new URLSearchParams();
 
   Object.entries(params).forEach(([key, value]) => {
@@ -162,6 +162,255 @@ export type StudentDashboardStats = {
   applicationCount: number;
   recentApplications: StudentApplicationSummary[];
   unreadNotifications: number;
+};
+
+export type AdminPermissionSummary = {
+  role: string;
+  allowedStages: string[];
+  canManageCatalog: boolean;
+  catalogReadOnly: boolean;
+  canReviewDocuments: boolean;
+  canManageUsers: boolean;
+  canChangeInternalRoles: boolean;
+  canViewAuditLog: boolean;
+  canApproveAgents: boolean;
+};
+
+export type AdminDashboardStats = {
+  totalApplications: number;
+  pendingAgentApprovals: number;
+  pendingDocumentReviews: number;
+  activeStudents: number;
+  activeAgents: number;
+  activeUniversities: number;
+  activePrograms: number;
+  applicationsByStage: Array<{ status: string; total: string | number }>;
+  pendingAgentsPreview: Array<{
+    id: number;
+    agency_name: string;
+    agency_country: string;
+    registration_number: string | null;
+    email: string;
+    created_at: string;
+  }>;
+  pendingDocumentsPreview: Array<{
+    id: number;
+    document_type: string;
+    status: string;
+    created_at: string;
+    reference_number: string;
+    student_name: string;
+  }>;
+  recentStageMovement: Array<{
+    id: number;
+    application_id: number;
+    from_status: string | null;
+    to_status: string;
+    created_at: string;
+    reference_number: string;
+    student_name: string;
+  }>;
+  assignees: Array<{
+    id: number;
+    email: string;
+    role: string;
+    status: string;
+  }>;
+  permissions: AdminPermissionSummary;
+};
+
+export type AdminPipelineItem = {
+  id: number;
+  reference_number: string;
+  status: string;
+  priority: string;
+  intake_month: number;
+  intake_year: number;
+  assigned_to: number | null;
+  is_flagged: boolean | number;
+  flag_reason: string | null;
+  created_at: string;
+  updated_at: string;
+  student_name: string;
+  student_email: string;
+  university_id: number;
+  university_name: string;
+  university_country: string;
+  program_id: number;
+  program_name: string;
+  degree_level: string;
+  agent_id: number | null;
+  agency_name: string | null;
+  assignee_email: string | null;
+  document_count: number | string;
+  latest_note_at: string | null;
+};
+
+export type AdminApplicationDetail = {
+  id: number;
+  reference_number: string;
+  student_user_id: number;
+  agent_id: number | null;
+  program_id: number;
+  university_id: number;
+  status: string;
+  priority: string;
+  intake_month: number;
+  intake_year: number;
+  assigned_to: number | null;
+  is_flagged: boolean | number;
+  flag_reason: string | null;
+  source: string;
+  created_at: string;
+  updated_at: string;
+  student_name: string;
+  student_email: string;
+  student_phone: string | null;
+  nationality: string | null;
+  desired_country: string | null;
+  desired_subject: string | null;
+  profile_completion: number | null;
+  university_name: string;
+  university_country: string;
+  program_name: string;
+  degree_level: string;
+  agency_name: string | null;
+  agent_email: string | null;
+  assignee_email: string | null;
+  documents: Array<{
+    id: number;
+    application_id: number;
+    uploaded_by: number;
+    document_type: string;
+    file_name: string;
+    file_path: string;
+    file_size: number | null;
+    mime_type: string | null;
+    file_uuid: string;
+    status: string;
+    rejection_reason: string | null;
+    verified_by: number | null;
+    verified_at: string | null;
+    created_at: string;
+  }>;
+  history: Array<{
+    id: number;
+    from_status: string | null;
+    to_status: string;
+    changed_by: number;
+    note: string | null;
+    created_at: string;
+    changed_by_email: string | null;
+  }>;
+  notes: Array<{
+    id: number;
+    note: string;
+    is_internal: boolean | number;
+    created_at: string;
+    author_id: number;
+    author_email: string;
+    author_role: string;
+  }>;
+};
+
+export type AdminDocumentQueueItem = {
+  id: number;
+  application_id: number;
+  document_type: string;
+  file_name: string;
+  file_path: string;
+  file_size: number | null;
+  mime_type: string | null;
+  status: string;
+  rejection_reason: string | null;
+  created_at: string;
+  reference_number: string;
+  application_status: string;
+  student_name: string;
+  student_email: string;
+  university_name: string;
+  program_name: string;
+};
+
+export type AdminUserSummary = {
+  id: number;
+  email: string;
+  phone: string | null;
+  role: string;
+  status: string;
+  emailVerified: boolean;
+  createdAt: string;
+  firstName: string | null;
+  lastName: string | null;
+};
+
+export type AdminUserDetail = {
+  id: number;
+  email: string;
+  phone: string | null;
+  role: string;
+  status: string;
+  emailVerified: boolean;
+  phoneVerified: boolean;
+  lastLogin: string | null;
+  createdAt: string;
+  profile: Record<string, unknown> | null;
+};
+
+export type AdminAgentSummary = {
+  id: number;
+  user_id: number;
+  agency_name: string;
+  agency_country: string;
+  registration_number: string | null;
+  partnership_type: 'exclusive' | 'non_exclusive';
+  tier: 'bronze' | 'silver' | 'gold';
+  status: string;
+  approved_at: string | null;
+  email: string;
+  phone: string | null;
+  user_status: string;
+};
+
+export type AdminUniversityRecord = {
+  id: number;
+  name: string;
+  shortName: string | null;
+  country: string;
+  city: string | null;
+  partnershipType: 'exclusive' | 'non_exclusive';
+  isActive: boolean;
+  programCount: number;
+  createdAt: string;
+};
+
+export type AdminProgramRecord = {
+  id: number;
+  universityId: number;
+  universityName: string;
+  name: string;
+  degreeLevel: string;
+  subjectArea: string | null;
+  tuitionFee: number | null;
+  tuitionCurrency: string | null;
+  intakeMonths: string[];
+  isActive: boolean;
+  createdAt: string;
+};
+
+export type AuditLogEntry = {
+  id: number;
+  userId: number | null;
+  actorEmail: string | null;
+  actorRole: string | null;
+  action: string;
+  entityType: string | null;
+  entityId: number | null;
+  oldData: Record<string, unknown> | null;
+  newData: Record<string, unknown> | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  createdAt: string;
 };
 
 export type ApplicationDetailResponse = {
@@ -458,4 +707,365 @@ export async function deleteApplicationDocument(documentId: number): Promise<voi
 
 export function clearAuthSession(): void {
   accessToken = null;
+}
+
+export async function fetchAdminDashboardStats(): Promise<AdminDashboardStats> {
+  const response = await request<{ stats: AdminDashboardStats }>('/?route=admin&action=get_dashboard_stats');
+
+  return response.data.stats;
+}
+
+export async function fetchAdminPipeline(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  status?: string;
+  country?: string;
+  universityId?: number;
+  agentId?: number;
+  assignedTo?: number;
+} = {}): Promise<{ applications: AdminPipelineItem[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_pipeline',
+    page: params.page,
+    per_page: params.perPage,
+    q: params.q,
+    status: params.status,
+    country: params.country,
+    university_id: params.universityId,
+    agent_id: params.agentId,
+    assigned_to: params.assignedTo,
+  });
+
+  const response = await request<{ applications: AdminPipelineItem[] }>(`/?${query}`);
+
+  return {
+    applications: response.data.applications,
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function fetchAdminApplicationDetail(applicationId: number): Promise<AdminApplicationDetail> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_application_detail',
+    id: applicationId,
+  });
+
+  const response = await request<{ application: AdminApplicationDetail }>(`/?${query}`);
+
+  return response.data.application;
+}
+
+export async function updateAdminApplication(payload: {
+  application_id: number;
+  status?: string;
+  priority?: string;
+  assigned_to?: number | null;
+  note?: string;
+  is_flagged?: boolean;
+  flag_reason?: string;
+}): Promise<AdminApplicationDetail> {
+  const response = await request<{ application: AdminApplicationDetail }>('/?route=admin&action=update_application', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.application;
+}
+
+export async function fetchAdminDocumentQueue(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  status?: string;
+} = {}): Promise<{ documents: AdminDocumentQueueItem[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_document_queue',
+    page: params.page,
+    per_page: params.perPage,
+    q: params.q,
+    status: params.status,
+  });
+
+  const response = await request<{ documents: AdminDocumentQueueItem[] }>(`/?${query}`);
+
+  return {
+    documents: response.data.documents,
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function reviewAdminDocument(payload: {
+  document_id: number;
+  decision: 'verified' | 'rejected';
+  reason?: string;
+}): Promise<AdminDocumentQueueItem> {
+  const response = await request<{ document: AdminDocumentQueueItem }>('/?route=admin&action=review_document', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.document;
+}
+
+export async function fetchAdminUsers(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  role?: string;
+  status?: string;
+} = {}): Promise<{ users: AdminUserSummary[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_users',
+    page: params.page,
+    per_page: params.perPage,
+    q: params.q,
+    role: params.role,
+    status: params.status,
+  });
+
+  const response = await request<{ users: AdminUserSummary[] }>(`/?${query}`);
+
+  return {
+    users: response.data.users,
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function fetchAdminUserDetail(userId: number): Promise<AdminUserDetail> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_user_detail',
+    id: userId,
+  });
+
+  const response = await request<{ user: AdminUserDetail }>(`/?${query}`);
+
+  return response.data.user;
+}
+
+export async function updateAdminUser(payload: {
+  user_id: number;
+  status?: string;
+  role?: string;
+}): Promise<AdminUserDetail> {
+  const response = await request<{ user: AdminUserDetail }>('/?route=admin&action=update_user', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.user;
+}
+
+export async function fetchAdminAgents(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  tier?: string;
+  status?: string;
+} = {}): Promise<{ agents: AdminAgentSummary[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_agents',
+    page: params.page,
+    per_page: params.perPage,
+    q: params.q,
+    tier: params.tier,
+    status: params.status,
+  });
+
+  const response = await request<{ agents: AdminAgentSummary[] }>(`/?${query}`);
+
+  return {
+    agents: response.data.agents,
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function approveAdminAgent(payload: {
+  agent_id: number;
+  decision: 'approved' | 'rejected';
+  note?: string;
+}): Promise<AdminAgentSummary> {
+  const response = await request<{ agent: AdminAgentSummary }>('/?route=admin&action=approve_agent', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.agent;
+}
+
+export async function fetchAdminUniversities(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  status?: string;
+} = {}): Promise<{ universities: AdminUniversityRecord[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_universities',
+    page: params.page,
+    per_page: params.perPage,
+    q: params.q,
+    status: params.status,
+  });
+
+  const response = await request<{ universities: AdminUniversityRecord[] }>(`/?${query}`);
+
+  return {
+    universities: response.data.universities,
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function createAdminUniversity(payload: {
+  name: string;
+  short_name?: string;
+  country: string;
+  city?: string;
+  partnership_type?: 'exclusive' | 'non_exclusive';
+  is_active?: boolean;
+}): Promise<AdminUniversityRecord> {
+  const response = await request<{ university: AdminUniversityRecord }>('/?route=admin&action=create_university', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.university;
+}
+
+export async function updateAdminUniversity(payload: {
+  id: number;
+  name?: string;
+  short_name?: string;
+  country?: string;
+  city?: string;
+  partnership_type?: 'exclusive' | 'non_exclusive';
+  is_active?: boolean;
+}): Promise<AdminUniversityRecord> {
+  const response = await request<{ university: AdminUniversityRecord }>('/?route=admin&action=update_university', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.university;
+}
+
+export async function deleteAdminUniversity(universityId: number): Promise<AdminUniversityRecord> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'delete_university',
+    id: universityId,
+  });
+
+  const response = await request<{ university: AdminUniversityRecord }>(`/?${query}`, {
+    method: 'DELETE',
+  });
+
+  return response.data.university;
+}
+
+export async function fetchAdminPrograms(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  status?: string;
+  universityId?: number;
+  degreeLevel?: string;
+} = {}): Promise<{ programs: AdminProgramRecord[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_programs',
+    page: params.page,
+    per_page: params.perPage,
+    q: params.q,
+    status: params.status,
+    university_id: params.universityId,
+    degree_level: params.degreeLevel,
+  });
+
+  const response = await request<{ programs: AdminProgramRecord[] }>(`/?${query}`);
+
+  return {
+    programs: response.data.programs,
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function createAdminProgram(payload: {
+  university_id: number;
+  name: string;
+  degree_level: string;
+  subject_area?: string;
+  tuition_fee?: number | null;
+  tuition_currency?: string;
+  intake_months?: string[];
+  is_active?: boolean;
+}): Promise<AdminProgramRecord> {
+  const response = await request<{ program: AdminProgramRecord }>('/?route=admin&action=create_program', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.program;
+}
+
+export async function updateAdminProgram(payload: {
+  id: number;
+  university_id?: number;
+  name?: string;
+  degree_level?: string;
+  subject_area?: string;
+  tuition_fee?: number | null;
+  tuition_currency?: string;
+  intake_months?: string[];
+  is_active?: boolean;
+}): Promise<AdminProgramRecord> {
+  const response = await request<{ program: AdminProgramRecord }>('/?route=admin&action=update_program', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+
+  return response.data.program;
+}
+
+export async function deleteAdminProgram(programId: number): Promise<AdminProgramRecord> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'delete_program',
+    id: programId,
+  });
+
+  const response = await request<{ program: AdminProgramRecord }>(`/?${query}`, {
+    method: 'DELETE',
+  });
+
+  return response.data.program;
+}
+
+export async function fetchAdminAuditLog(params: {
+  page?: number;
+  perPage?: number;
+  action?: string;
+  entityType?: string;
+} = {}): Promise<{ entries: AuditLogEntry[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'get_audit_log',
+    page: params.page,
+    per_page: params.perPage,
+    audit_action: params.action,
+    entity_type: params.entityType,
+  });
+
+  const response = await request<{ entries: AuditLogEntry[] }>(`/?${query}`);
+
+  return {
+    entries: response.data.entries,
+    meta: response.meta as PaginationMeta,
+  };
 }

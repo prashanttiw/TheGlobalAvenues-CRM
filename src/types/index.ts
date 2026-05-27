@@ -17,7 +17,7 @@ export interface User {
   avatarUrl?: string;
   emailVerified: boolean;
   createdAt: string;
-  status: 'active' | 'suspended' | 'pending';
+  status: 'active' | 'suspended' | 'pending' | 'deleted';
 }
 
 export interface StudentProfile {
@@ -87,16 +87,21 @@ export interface Program {
 
 export type ApplicationStatus =
   | 'inquiry'
+  | 'profile_review'
   | 'applied'
   | 'documents_submitted'
+  | 'under_review'
   | 'offer_received'
   | 'conditional_offer'
-  | 'unconditional'
+  | 'unconditional_offer'
   | 'enrolled'
+  | 'cas_coe_issued'
   | 'visa_applied'
   | 'visa_approved'
   | 'visa_rejected'
+  | 'pre_departure'
   | 'departed'
+  | 'deferred'
   | 'withdrawn';
 
 export interface Application {
