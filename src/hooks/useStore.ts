@@ -194,6 +194,9 @@ interface CRMState {
   logout: () => void;
   sendOTP: (email: string) => Promise<string>;
   verifyOTP: (email: string, code: string) => Promise<boolean>;
+  setCurrentUser: (user: User | null) => void;
+  upsertStudentRecord: (profile: StudentProfile) => void;
+  upsertAgentRecord: (agent: Agent) => void;
   
   // ── Student Actions ──
   updateProfile: (profile: Partial<StudentProfile>) => void;
@@ -274,6 +277,8 @@ export const useStore = create<CRMState>((set, get) => ({
 
   logout: () => set({ currentUser: null }),
 
+  setCurrentUser: (user) => set({ currentUser: user }),
+
   sendOTP: async (email) => {
     console.log(`[OTP Engine] Simulated email code trigger sent to ${email}: 123456`);
     return '123456';
@@ -283,23 +288,68 @@ export const useStore = create<CRMState>((set, get) => ({
     return code === '123456';
   },
 
+  upsertStudentRecord: (profile) => {
+    set((state) => {
+      const existingIndex = state.students.findIndex((student) => student.userId === profile.userId);
+
+      if (existingIndex === -1) {
+        return { students: [...state.students, profile] };
+      }
+
+      return {
+        students: state.students.map((student) => student.userId === profile.userId ? profile : student),
+      };
+    });
+  },
+
+  upsertAgentRecord: (agent) => {
+    set((state) => {
+      const existingIndex = state.agents.findIndex((entry) => entry.userId === agent.userId);
+
+      if (existingIndex === -1) {
+        return { agents: [...state.agents, agent] };
+      }
+
+      return {
+        agents: state.agents.map((entry) => entry.userId === agent.userId ? agent : entry),
+      };
+    });
+  },
+
   // ── Student Actions ──
   updateProfile: (profile) => {
     set((state) => ({
-      students: state.students.map((s) => {
-        if (s.userId === state.currentUser?.id) {
-          const merged = { ...s, ...profile };
-          // Calculate dynamically the completion percentage
-          let filled = 0;
-          const fields: (keyof StudentProfile)[] = ['firstName', 'lastName', 'dob', 'nationality', 'educationLevel', 'gpa', 'englishScore', 'desiredCountry', 'desiredSubject', 'budgetRange'];
-          fields.forEach((f) => {
-            if (merged[f]) filled++;
-          });
-          merged.profileCompletionPct = Math.round((filled / fields.length) * 100);
-          return merged;
+      students: (() => {
+        const currentUserId = state.currentUser?.id;
+
+        if (!currentUserId) {
+          return state.students;
         }
-        return s;
-      }),
+
+        const existing = state.students.find((s) => s.userId === currentUserId);
+        const baseProfile: StudentProfile = existing ?? {
+          id: `stud-${currentUserId}`,
+          userId: currentUserId,
+          firstName: state.currentUser?.firstName ?? 'Student',
+          lastName: state.currentUser?.lastName ?? 'User',
+          profileCompletionPct: 0,
+          gamificationPoints: 0,
+        };
+
+        const merged = { ...baseProfile, ...profile };
+        let filled = 0;
+        const fields: (keyof StudentProfile)[] = ['firstName', 'lastName', 'dob', 'nationality', 'educationLevel', 'gpa', 'englishScore', 'desiredCountry', 'desiredSubject', 'budgetRange'];
+        fields.forEach((f) => {
+          if (merged[f]) filled++;
+        });
+        merged.profileCompletionPct = Math.round((filled / fields.length) * 100);
+
+        if (!existing) {
+          return [...state.students, merged];
+        }
+
+        return state.students.map((student) => student.userId === currentUserId ? merged : student);
+      })(),
     }));
   },
 
