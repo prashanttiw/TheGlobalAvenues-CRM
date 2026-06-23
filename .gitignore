@@ -1,14 +1,18 @@
 # Dependencies
 node_modules/
+crm-api/vendor/
 
 # Build output
 dist/
 build/
 
-# Local environment
+# Local environment files (contain secrets — never commit)
 .env
 .env.*
 !.env.example
+crm-api/.env
+crm-api/.env.*
+!crm-api/.env.example
 
 # Logs
 *.log
@@ -16,6 +20,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+crm-api/logs/*.log
 
 # Tooling caches
 .vite/
@@ -28,6 +33,9 @@ coverage/
 Thumbs.db
 .idea/
 .vscode/
+
+# Kiro AI workspace files (local tooling, not project source)
+.kiro/
 
 # Local verification artifacts
 .browser-check*.png
