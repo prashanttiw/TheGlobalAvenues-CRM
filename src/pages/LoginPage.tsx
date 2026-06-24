@@ -4,7 +4,7 @@ import { useStore } from '../hooks/useStore';
 import { User, Briefcase, ShieldCheck, ArrowRight, Lock, Globe, Mail, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
-import { clearAuthSession, fetchAgentProfile, fetchCurrentUser, fetchStudentProfile, loginWithPassword } from '../lib/api';
+import { clearAuthSession, fetchAgentProfile, fetchCurrentUser, fetchStudentProfile, loginWithPassword, requestOtpLogin, verifyOtpLogin } from '../lib/api';
 
 export function LoginPage() {
   const setCurrentUser = useStore((state) => state.setCurrentUser);
@@ -29,67 +29,80 @@ export function LoginPage() {
 
   const theme = getThemeClass();
 
+  const applyAuthenticatedUser = async () => {
+    const user = await fetchCurrentUser();
+
+    setCurrentUser({
+      id: String(user.id),
+      email: user.email,
+      phone: user.phone,
+      role: user.role as any,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      emailVerified: user.emailVerified,
+      createdAt: new Date().toISOString(),
+      status: user.status as any,
+    });
+
+    if (user.role === 'student') {
+      const profile = await fetchStudentProfile();
+      upsertStudentRecord({
+        id: String(profile.id),
+        userId: String(profile.user_id),
+        firstName: profile.first_name,
+        lastName: profile.last_name,
+        dob: profile.dob ?? undefined,
+        nationality: profile.nationality ?? undefined,
+        desiredCountry: profile.desired_country ?? undefined,
+        desiredSubject: profile.desired_subject ?? undefined,
+        budgetRange: profile.budget_min && profile.budget_max ? `${profile.budget_min}-${profile.budget_max} ${profile.budget_currency ?? 'USD'}` : undefined,
+        profileCompletionPct: profile.profile_completion,
+        gamificationPoints: profile.gamification_points,
+      });
+    }
+
+    if (user.role === 'agent' || user.role === 'sub_agent') {
+      const profile = await fetchAgentProfile();
+      upsertAgentRecord({
+        id: String(profile.id),
+        userId: String(profile.user_id),
+        agencyName: profile.agency_name,
+        agencyCountry: profile.agency_country,
+        registrationNumber: profile.registration_number ?? '',
+        partnershipType: profile.partnership_type,
+        tier: profile.tier,
+        status: profile.status === 'inactive' || profile.status === 'rejected' ? 'suspended' : (profile.status as any),
+      });
+    }
+
+    return user;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    
+
     try {
-      if (method === 'password') {
-        await loginWithPassword(email || 'demo@theglobalavenues.com', password);
-        const user = await fetchCurrentUser();
-
-        setCurrentUser({
-          id: String(user.id),
-          email: user.email,
-          phone: user.phone,
-          role: user.role as any,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          emailVerified: user.emailVerified,
-          createdAt: new Date().toISOString(),
-          status: user.status as any,
-        });
-
-        if (user.role === 'student') {
-          const profile = await fetchStudentProfile();
-          upsertStudentRecord({
-            id: String(profile.id),
-            userId: String(profile.user_id),
-            firstName: profile.first_name,
-            lastName: profile.last_name,
-            dob: profile.dob ?? undefined,
-            nationality: profile.nationality ?? undefined,
-            desiredCountry: profile.desired_country ?? undefined,
-            desiredSubject: profile.desired_subject ?? undefined,
-            budgetRange: profile.budget_min && profile.budget_max ? `${profile.budget_min}-${profile.budget_max} ${profile.budget_currency ?? 'USD'}` : undefined,
-            profileCompletionPct: profile.profile_completion,
-            gamificationPoints: profile.gamification_points,
-          });
-        }
-
-        if (user.role === 'agent' || user.role === 'sub_agent') {
-          const profile = await fetchAgentProfile();
-          upsertAgentRecord({
-            id: String(profile.id),
-            userId: String(profile.user_id),
-            agencyName: profile.agency_name,
-            agencyCountry: profile.agency_country,
-            registrationNumber: profile.registration_number ?? '',
-            partnershipType: profile.partnership_type,
-            tier: profile.tier,
-            status: profile.status === 'inactive' || profile.status === 'rejected' ? 'suspended' : (profile.status as any),
-          });
-        }
-
-        toast.success(`Successfully signed in as TGA ${user.role}!`);
-        setTimeout(() => {
-          if (user.role === 'student') navigate('/portal/student');
-          else if (user.role === 'agent' || user.role === 'sub_agent') navigate('/portal/agent');
-          else navigate('/portal/admin');
-        }, 800);
-      } else {
-        toast.info('OTP login is not wired to the backend yet. Use password login for the live CRM flow.');
+      if (method === 'otp' && !isOtpSent) {
+        await requestOtpLogin(email);
+        setIsOtpSent(true);
+        toast.success('OTP sent to your email address.');
+        return;
       }
+
+      if (method === 'otp') {
+        await verifyOtpLogin(email, otpCode);
+      } else {
+        await loginWithPassword(email, password);
+      }
+
+      const user = await applyAuthenticatedUser();
+      toast.success('Successfully signed in as TGA ' + user.role + '!');
+      setTimeout(() => {
+        if (user.role === 'student') navigate('/portal/student');
+        else if (user.role === 'agent' || user.role === 'sub_agent') navigate('/portal/agent');
+        else navigate('/portal/admin');
+      }, 800);
     } catch (err) {
       clearAuthSession();
       toast.error('Authentication failed. Check your network or credentials.');
@@ -97,7 +110,6 @@ export function LoginPage() {
       setLoading(false);
     }
   };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FFFCF5] to-[#F8F7FF] pt-20 flex items-center justify-center relative overflow-hidden">
       <Toaster position="top-center" richColors />
@@ -140,7 +152,7 @@ export function LoginPage() {
           <div className="flex rounded-xl bg-gray-50 p-1 mb-6 border border-gray-200">
             {[
               { r: 'student', label: 'Student', icon: User },
-              { r: 'agent', label: 'Partner', icon: Briefcase },
+              { r: 'agent', label: 'Agent', icon: Briefcase },
               { r: 'admin', label: 'Admin', icon: ShieldCheck }
             ].map(({ r, label, icon: Icon }) => (
               <button

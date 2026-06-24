@@ -43,7 +43,18 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSucc
     credentials: 'include',
   });
 
-  const payload = await response.json();
+  const rawPayload = await response.json();
+  const payload =
+    rawPayload && typeof rawPayload === 'object'
+      ? ('data' in rawPayload
+          ? rawPayload
+          : {
+              success: rawPayload.success !== false,
+              message: typeof rawPayload.message === 'string' ? rawPayload.message : '',
+              data: rawPayload,
+              meta: typeof rawPayload.meta === 'object' ? rawPayload.meta : undefined,
+            })
+      : { success: false, message: 'Request failed', code: 'INVALID_RESPONSE' };
 
   if (!response.ok || payload.success !== true) {
     const error = payload as ApiError;
@@ -52,6 +63,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSucc
   }
 
   return payload as ApiSuccess<T>;
+}
+
+function extractAccessToken(data: Record<string, unknown>): string {
+  const token = data.accessToken ?? data.access_token;
+  if (typeof token !== 'string' || token === '') {
+    throw new Error('Authentication token missing from response');
+  }
+  return token;
 }
 
 function buildQuery(params: Record<string, string | number | boolean | undefined | null>): string {
@@ -470,7 +489,7 @@ export async function registerStudent(payload: {
     }
   );
 
-  accessToken = response.data.accessToken;
+  accessToken = extractAccessToken(response.data as Record<string, unknown>);
 }
 
 export async function registerAgent(payload: {
@@ -499,7 +518,7 @@ export async function registerAgent(payload: {
     }
   );
 
-  accessToken = response.data.accessToken;
+  accessToken = extractAccessToken(response.data as Record<string, unknown>);
 
   await updateAgentProfile({
     registration_number: payload.registration_number,
@@ -516,11 +535,31 @@ export async function loginWithPassword(email: string, password: string): Promis
     }
   );
 
-  accessToken = response.data.accessToken;
+  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+}
+
+export async function requestOtpLogin(email: string): Promise<void> {
+  await request('/?route=auth&action=otp-login/request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function verifyOtpLogin(email: string, otpCode: string): Promise<{ user: AuthUser }> {
+  const response = await request<{ user: AuthUser; accessToken: string }>(
+    '/?route=auth&action=otp-login/verify',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, otp_code: otpCode }),
+    }
+  );
+
+  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  return { user: response.data.user };
 }
 
 export async function fetchCurrentUser(): Promise<AuthUser> {
-  const response = await request<{ user: AuthUser }>('/?route=auth&action=get_me');
+  const response = await request<{ user: AuthUser }>('/?route=auth&action=me');
 
   return response.data.user;
 }
