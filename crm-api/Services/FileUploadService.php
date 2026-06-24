@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace TGA\CRM\Services;
 
+use PDO;
 use finfo;
 use TGA\CRM\Config\Environment;
 use TGA\CRM\Helpers\FileHelper;
+use TGA\CRM\Helpers\UlidGenerator;
 
 final class FileUploadService
 {
@@ -38,15 +40,24 @@ final class FileUploadService
         'other' => ['application/pdf', 'image/jpeg', 'image/png'],
     ];
 
-    public function upload(array $file, string $documentType, int $applicationId): array
-    {
+    public function upload(
+        PDO $pdo,
+        array $file,
+        string $documentType,
+        string $ownerType,
+        int $ownerId,
+        string $uploadedByType,
+        int $uploadedById,
+        ?string $displayFilename = null
+    ): array {
         $this->assertUploadArray($file);
         $this->assertUploadError((int) $file['error']);
         $this->assertUploadedFile((string) $file['tmp_name']);
 
         $mimeType = $this->detectMimeType((string) $file['tmp_name']);
         $this->assertAllowedMimeType($documentType, $mimeType);
-        $this->assertFileSize((int) $file['size'], $mimeType);
+        $fileSize = (int) $file['size'];
+        $this->assertFileSize($fileSize, $mimeType);
         $this->assertSafeImagePayload((string) $file['tmp_name'], $mimeType);
 
         $uuid = $this->generateUuidV4();
@@ -56,32 +67,61 @@ final class FileUploadService
             throw new \RuntimeException('Unsupported file type.');
         }
 
+        if ($displayFilename === null) {
+            $displayFilename = basename((string) $file['name']);
+        }
+
         $uploadRoot = Environment::get('UPLOAD_PATH', 'uploads');
         $targetDirectory = FileHelper::joinPaths(
             dirname(__DIR__),
             $uploadRoot,
             'documents',
-            'application-' . $applicationId
+            $ownerType . '-' . $ownerId
         );
         FileHelper::ensureDirectory($targetDirectory);
 
         $storedFileName = $uuid . '.' . $extension;
         $absoluteTarget = FileHelper::joinPaths($targetDirectory, $storedFileName);
 
+        // Move to final location
         if (!move_uploaded_file((string) $file['tmp_name'], $absoluteTarget)) {
             throw new \RuntimeException('Failed to store uploaded file.');
         }
 
         $relativePath = FileHelper::normalizeRelativePath(
-            FileHelper::joinPaths($uploadRoot, 'documents', 'application-' . $applicationId, $storedFileName)
+            FileHelper::joinPaths($uploadRoot, 'documents', $ownerType . '-' . $ownerId, $storedFileName)
         );
 
+        $checksum = hash_file('sha256', $absoluteTarget);
+        $publicId = UlidGenerator::generate();
+
+        try {
+            $stmt = $pdo->prepare(
+                'INSERT INTO files
+                 (public_id, owner_type, owner_id, display_filename, stored_filename,
+                  storage_path, is_public, mime_type, file_size_bytes, checksum_sha256,
+                  version_number, uploaded_by_type, uploaded_by_id, created_at)
+                 VALUES (?,?,?,?,?,?,0,?,?,?,1,?,?,NOW())'
+            );
+            $stmt->execute([
+                $publicId, $ownerType, $ownerId,
+                $displayFilename, $storedFileName, $relativePath,
+                $mimeType, $fileSize, $checksum,
+                $uploadedByType, $uploadedById
+            ]);
+        } catch (\Exception $e) {
+            // Rollback filesystem change
+            @unlink($absoluteTarget);
+            throw $e;
+        }
+
         return [
-            'uuid' => $uuid,
-            'file_path' => $relativePath,
-            'file_name' => $storedFileName,
-            'mime_type' => $mimeType,
-            'file_size' => (int) $file['size'],
+            'public_id'     => $publicId,
+            'file_path'     => $relativePath,
+            'stored_name'   => $storedFileName,
+            'mime_type'     => $mimeType,
+            'file_size'     => $fileSize,
+            'checksum'      => $checksum,
             'absolute_path' => $absoluteTarget,
         ];
     }
@@ -89,7 +129,6 @@ final class FileUploadService
     public function delete(string $absolutePath): bool
     {
         FileHelper::deleteIfExists($absolutePath);
-
         return true;
     }
 

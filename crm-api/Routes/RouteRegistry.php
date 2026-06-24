@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace TGA\CRM\Routes;
 
-use TGA\CRM\Controllers\AuthController;
 use TGA\CRM\Helpers\Response;
 
 final class RouteRegistry
@@ -16,25 +15,71 @@ final class RouteRegistry
         self::$routes = [];
     }
 
-    public static function add(string $method, string $route, string $action, callable $handler): void
+    public static function get(string $route, string $action, callable $handler): void
     {
-        self::$routes[strtoupper($method) . ':' . $route . ':' . $action] = $handler;
+        self::$routes['GET'][$route][$action] = $handler;
+    }
+
+    public static function post(string $route, string $action, callable $handler): void
+    {
+        self::$routes['POST'][$route][$action] = $handler;
+    }
+
+    public static function put(string $route, string $action, callable $handler): void
+    {
+        self::$routes['PUT'][$route][$action] = $handler;
+    }
+
+    public static function delete(string $route, string $action, callable $handler): void
+    {
+        self::$routes['DELETE'][$route][$action] = $handler;
     }
 
     public static function dispatch(string $method, string $route, string $action): void
     {
-        $routeKey = strtoupper($method) . ':' . $route . ':' . $action;
-
-        if (isset(self::$routes[$routeKey])) {
-            self::$routes[$routeKey]();
-            return;
+        if (!isset(self::$routes[$method])) {
+            Response::error("Route '{$method} /?route={$route}&action={$action}' not found", 'NOT_FOUND', 404);
         }
 
-        if ($route === 'health' && $action === 'ping') {
-            (new AuthController())->ping();
-            return;
+        // Exact match
+        $handler = self::$routes[$method][$route][$action] ?? null;
+        if ($handler !== null) {
+            $handler();
+            exit;
         }
 
-        Response::error('Resource not found', 'RESOURCE_NOT_FOUND', 404);
+        // Parameterized match
+        $routeParts = explode('/', $route);
+        foreach (self::$routes[$method] as $registeredRoute => $actions) {
+            if (!isset($actions[$action])) {
+                continue;
+            }
+
+            $registeredParts = explode('/', $registeredRoute);
+            if (count($routeParts) !== count($registeredParts)) {
+                continue;
+            }
+
+            $params = [];
+            $match = true;
+
+            for ($i = 0; $i < count($registeredParts); $i++) {
+                if (str_starts_with($registeredParts[$i], ':')) {
+                    // Capture parameter
+                    $params[] = $routeParts[$i];
+                } elseif ($registeredParts[$i] !== $routeParts[$i]) {
+                    $match = false;
+                    break;
+                }
+            }
+
+            if ($match) {
+                $handler = $actions[$action];
+                $handler(...$params);
+                exit;
+            }
+        }
+
+        Response::error("Route '{$method} /?route={$route}&action={$action}' not found", 'NOT_FOUND', 404);
     }
 }
