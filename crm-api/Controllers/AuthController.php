@@ -4,218 +4,809 @@ declare(strict_types=1);
 
 namespace TGA\CRM\Controllers;
 
-use TGA\CRM\Config\Constants;
-use TGA\CRM\Config\Environment;
+use PDO;
+use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
-use TGA\CRM\Helpers\Sanitizer;
-use TGA\CRM\Helpers\Validator;
+use TGA\CRM\Services\JWTService;
+use TGA\CRM\Services\OTPService;
+use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RateLimitMiddleware;
-use TGA\CRM\Middleware\ValidationMiddleware;
-use TGA\CRM\Models\User;
-use TGA\CRM\Services\JWTService;
 
-final class AuthController extends BaseController
+final class AuthController
 {
-    private User $users;
+    private PDO $pdo;
+    
+    private const DUMMY_HASH = '$argon2id$v=19$m=19456,t=2,p=1$ZHVtbXlzYWx0ZHVtbXlzYWx0$dummyhashvalue';
 
     public function __construct()
     {
-        $this->users = new User();
-    }
-
-    public function ping(): void
-    {
-        Response::success('API is healthy', [
-            'app' => Environment::get('APP_NAME', 'TGA CRM API'),
-            'version' => Environment::get('APP_VERSION', '1.0.0'),
-        ]);
-    }
-
-    public function register(): void
-    {
-        $input = $this->getJsonInput();
-        $errors = Validator::validateRegistration($input);
-
-        if (!in_array($input['role'] ?? '', ['student', 'agent'], true)) {
-            $errors['role'] = 'Role must be student or agent.';
-        }
-
-        ValidationMiddleware::assertValid($errors);
-
-        if ($this->users->findByEmail((string) $input['email']) !== null) {
-            Response::error('Email address is already registered', 'VALIDATION_FAILED', 409, [
-                'email' => 'Email address is already registered',
-            ]);
-        }
-
-        $userId = $this->users->createUser([
-            'email' => (string) Sanitizer::email($input['email'] ?? null),
-            'phone' => (string) ($input['phone'] ?? ''),
-            'password_hash' => password_hash((string) $input['password'], PASSWORD_BCRYPT, ['cost' => 12]),
-            'role' => (string) $input['role'],
-            'status' => 'pending',
-        ]);
-
-        if (($input['role'] ?? '') === 'student') {
-            $this->users->createStudentProfile($userId, [
-                'first_name' => (string) $input['first_name'],
-                'last_name' => (string) $input['last_name'],
-            ]);
-        }
-
-        if (($input['role'] ?? '') === 'agent') {
-            $this->users->createAgentProfile($userId, [
-                'agency_name' => (string) ($input['agency_name'] ?? trim(($input['first_name'] ?? '') . ' ' . ($input['last_name'] ?? ''))),
-                'agency_country' => (string) ($input['agency_country'] ?? 'India'),
-            ]);
-        }
-
-        $tokens = JWTService::issueTokenPair($userId, (string) $input['role']);
-        $this->users->storeRefreshToken($userId, $tokens['refresh_token'], $tokens['refresh_expires_at']);
-        $this->setAuthCookies($tokens['access_token'], $tokens['refresh_token']);
-
-        Response::success('Registration successful', [
-            'userId' => $userId,
-            'role' => $input['role'],
-            'accessToken' => $tokens['access_token'],
-        ], status: 201);
+        $this->pdo = Database::getConnection();
     }
 
     public function login(): void
     {
-        $input = $this->getJsonInput();
-        ValidationMiddleware::assertValid(Validator::validateLogin($input));
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $email = trim((string) ($input['email'] ?? ''));
+        $password = (string) ($input['password'] ?? '');
+        $otpCode = isset($input['otp_code']) ? trim((string) $input['otp_code']) : null;
 
-        $identifier = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-        RateLimitMiddleware::assertAllowed(
-            identifier: $identifier,
-            action: 'auth_login',
-            maxRequests: (int) Environment::get('RATE_LIMIT_AUTH_REQUESTS', '5'),
-            windowSeconds: (int) Environment::get('RATE_LIMIT_AUTH_WINDOW', '60')
+        if ($email === '' || $password === '') {
+            Response::error('Email and password required', 'VALIDATION_ERROR', 400);
+        }
+
+        $ip = RateLimitMiddleware::getIpAddress();
+        RateLimitMiddleware::assertAllowed("login_ip_{$ip}", 'login', 10, 900);
+
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
+        RateLimitMiddleware::assertAllowed("login_email_{$emailHash}", 'login_email', 10, 900);
+
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$emailHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $hashToVerify = $user ? $user['password_hash'] : self::DUMMY_HASH;
+        $passwordValid = password_verify($password, $hashToVerify);
+
+        if (!$user || !$passwordValid) {
+            $this->pdo->prepare(
+                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
+            )->execute([$emailHash, $ip]);
+            Response::error('Invalid credentials', 'AUTH_FAILED', 401);
+        }
+
+        if (($user['status'] ?? '') !== 'active') {
+            $this->pdo->prepare(
+                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
+            )->execute([(string) $user['id'], $ip]);
+            Response::error('Account is inactive or suspended', 'ACCOUNT_INACTIVE', 403);
+        }
+
+        if ((int) ($user['two_factor_enabled'] ?? 0) === 1) {
+            $otpService = new OTPService($this->pdo);
+            if ($otpCode === null || $otpCode === '') {
+                $otpService->generate($email, '2fa_login');
+                Response::json([
+                    'success' => true,
+                    'message' => 'OTP sent to email',
+                    'requires_otp' => true,
+                ], 202);
+            }
+
+            if ($otpService->verify($email, $otpCode, '2fa_login') !== \TGA\CRM\Services\OTPResult::Valid) {
+                Response::error('Invalid or expired OTP', 'OTP_INVALID', 401);
+            }
+        }
+
+        if (($user['user_type'] ?? '') === 'agent') {
+            $agentStmt = $this->pdo->prepare('SELECT status, created_at, rejected_reason FROM agents WHERE user_id = ? LIMIT 1');
+            $agentStmt->execute([(int) $user['id']]);
+            $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($agent) {
+                if ($agent['status'] === 'pending') {
+                    Response::json([
+                        'success' => true,
+                        'data' => [
+                            'account_status' => 'pending_approval',
+                            'submitted_at' => $agent['created_at'],
+                        ],
+                        'message' => 'Your application is under review',
+                    ]);
+                }
+
+                if ($agent['status'] === 'rejected') {
+                    Response::json([
+                        'success' => true,
+                        'data' => [
+                            'account_status' => 'rejected',
+                            'rejection_reason' => $agent['rejected_reason'],
+                        ],
+                        'message' => 'Application not approved',
+                    ]);
+                }
+
+                if ($agent['status'] === 'suspended') {
+                    $this->pdo->prepare(
+                        "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
+                    )->execute([(string) $user['id'], $ip]);
+                    Response::error('Account suspended. Contact support.', 'ACCOUNT_SUSPENDED', 403);
+                }
+            }
+        }
+
+        $permissions = [];
+        if (($user['user_type'] ?? '') === 'admin') {
+            $permissions = RBACMiddleware::loadPermissionsForAdmin((int) $user['id'], $this->pdo);
+        }
+
+        $tokens = JWTService::issueTokenPair(
+            (int) $user['id'],
+            (string) $user['public_id'],
+            (string) $user['user_type'],
+            $permissions
         );
 
-        $user = $this->users->findByEmail((string) $input['email']);
+        $this->saveSession((int) $user['id'], $tokens['jti'], $tokens['refresh_token'], $tokens['refresh_expires_at']);
+        $this->setRefreshCookie($tokens['refresh_token'], $tokens['refresh_expires_at']);
 
-        if ($user === null || !password_verify((string) $input['password'], (string) ($user['password_hash'] ?? ''))) {
-            Response::error('Invalid email or password', Constants::AUTH_ERROR_CODES['invalid'], 401);
-        }
+        $profile = $this->buildUserResponse($user, $permissions);
+        $this->pdo->prepare(
+            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
+        )->execute([(int) $user['id'], $emailHash, $ip]);
 
-        $this->users->updateLastLogin((int) $user['id'], (string) ($_SERVER['REMOTE_ADDR'] ?? ''));
-        $tokens = JWTService::issueTokenPair((int) $user['id'], (string) $user['role']);
-        $this->users->storeRefreshToken((int) $user['id'], $tokens['refresh_token'], $tokens['refresh_expires_at']);
-        $this->setAuthCookies($tokens['access_token'], $tokens['refresh_token']);
-
-        Response::success('Login successful', [
-            'user' => $this->users->buildProfileSummary($user),
+        Response::json([
+            'success' => true,
+            'message' => 'Login successful',
             'accessToken' => $tokens['access_token'],
-        ]);
-    }
-
-    public function refreshToken(): void
-    {
-        $refreshToken = $_COOKIE['refresh_token'] ?? '';
-
-        if (!is_string($refreshToken) || $refreshToken === '') {
-            Response::error('Missing refresh token', Constants::AUTH_ERROR_CODES['invalid'], 401);
-        }
-
-        $tokenPair = $this->users->rotateRefreshToken($refreshToken);
-
-        if ($tokenPair === null) {
-            Response::error('Invalid refresh token', Constants::AUTH_ERROR_CODES['invalid'], 401);
-        }
-
-        $this->setAuthCookies($tokenPair['access_token'], $tokenPair['refresh_token']);
-
-        Response::success('Token refreshed', [
-            'accessToken' => $tokenPair['access_token'],
+            'access_token' => $tokens['access_token'],
+            'user' => $profile,
         ]);
     }
 
     public function logout(): void
     {
+        $payload = AuthMiddleware::user();
+        if (isset($payload['jti'])) {
+            $jtiHash = hash('sha256', $payload['jti']);
+            $stmt = $this->pdo->prepare('UPDATE user_sessions SET revoked_at = NOW() WHERE jti_hash = ?');
+            $stmt->execute([$jtiHash]);
+        }
+
+        $this->clearRefreshCookie();
+        Response::json(['success' => true, 'message' => 'Logged out successfully']);
+    }
+
+    public function refresh(): void
+    {
         $refreshToken = $_COOKIE['refresh_token'] ?? '';
-
-        if (is_string($refreshToken) && $refreshToken !== '') {
-            $this->users->revokeRefreshToken($refreshToken);
+        if ($refreshToken === '') {
+            Response::error('Refresh token missing', 'AUTH_FAILED', 401);
         }
 
-        $this->clearAuthCookies();
-        Response::success('Logout successful');
-    }
-
-    public function getMe(): void
-    {
-        $tokenUser = AuthMiddleware::user();
-        $user = $this->users->findById((int) $tokenUser['sub']);
-
-        if ($user === null) {
-            Response::error('User not found', 'RESOURCE_NOT_FOUND', 404);
+        $payload = JWTService::verifyRefreshToken($refreshToken);
+        if (!$payload) {
+            Response::error('Invalid refresh token', 'AUTH_FAILED', 401);
         }
 
-        Response::success('User fetched successfully', [
-            'user' => $this->users->buildProfileSummary($user),
+        $hash = hash('sha256', $refreshToken);
+        $stmt = $this->pdo->prepare('SELECT id FROM user_sessions WHERE refresh_token_hash = ? AND revoked_at IS NULL AND expires_at > NOW()');
+        $stmt->execute([$hash]);
+        $session = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$session) {
+            Response::error('Session expired or revoked', 'AUTH_FAILED', 401);
+        }
+
+        $permissions = [];
+        if (($payload['utype'] ?? '') === 'admin') {
+            $permissions = RBACMiddleware::loadPermissionsForAdmin((int) $payload['sub'], $this->pdo);
+        }
+
+        $tokens = JWTService::issueTokenPair((int) $payload['sub'], (string) $payload['pid'], (string) $payload['utype'], $permissions);
+        $this->saveSession((int) $payload['sub'], $tokens['jti'], $tokens['refresh_token'], $tokens['refresh_expires_at']);
+        $this->pdo->prepare('UPDATE user_sessions SET revoked_at = NOW() WHERE id = ?')->execute([(int) $session['id']]);
+        $this->setRefreshCookie($tokens['refresh_token'], $tokens['refresh_expires_at']);
+
+        $user = $this->fetchAuthUser((int) $payload['sub']);
+        $profile = $this->buildUserResponse($user, $permissions);
+
+        Response::json([
+            'success' => true,
+            'message' => 'Session refreshed',
+            'accessToken' => $tokens['access_token'],
+            'access_token' => $tokens['access_token'],
+            'user' => $profile,
         ]);
-    }
-
-    public function verifyEmail(): void
-    {
-        Response::error('Email verification flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
-    }
-
-    public function resendOtp(): void
-    {
-        Response::error('OTP resend flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
-    }
-
-    public function forgotPassword(): void
-    {
-        Response::error('Forgot password flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
     }
 
     public function resetPassword(): void
     {
-        Response::error('Reset password flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $email = trim((string) ($input['email'] ?? ''));
+        if ($email === '') {
+            Response::error('Email required', 'VALIDATION_ERROR', 400);
+        }
+
+        $ip = RateLimitMiddleware::getIpAddress();
+        RateLimitMiddleware::assertAllowed("forgot_password_ip_{$ip}", 'forgot_password_ip', 3, 3600);
+
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
+        RateLimitMiddleware::assertAllowed("forgot_password_email_{$emailHash}", 'forgot_password_email', 3, 3600);
+
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$emailHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $this->pdo->prepare(
+            "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('password_reset_requested', ?, ?, NOW())"
+        )->execute([$emailHash, $ip]);
+
+        if ($user && ($user['status'] ?? '') === 'active') {
+            $otpService = new OTPService($this->pdo);
+            $otpService->generate($email, 'password_reset', (int) (\TGA\CRM\Config\Environment::get('OTP_EXPIRY_MINUTES', '10')));
+        }
+
+        Response::json([
+            'success' => true,
+            'message' => 'If an account exists, you will receive an OTP via email',
+        ]);
     }
+
+    public function resetPasswordVerifyOtp(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $email = trim((string) ($input['email'] ?? ''));
+        $otp = trim((string) ($input['otp_code'] ?? ''));
+
+        if ($email === '' || $otp === '') {
+            Response::error('Missing fields', 'VALIDATION_ERROR', 400);
+        }
+
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
+        RateLimitMiddleware::assertAllowed("forgot_password_verify_{$emailHash}", 'forgot_password_verify', 5, 900);
+
+        $otpService = new OTPService($this->pdo);
+        if ($otpService->verify($email, $otp, 'password_reset') !== \TGA\CRM\Services\OTPResult::Valid) {
+            Response::error('Invalid or expired OTP', 'OTP_INVALID', 400);
+        }
+
+        $stmt = $this->pdo->prepare('SELECT password_hash FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$emailHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            Response::error('Invalid or expired OTP', 'OTP_INVALID', 400);
+        }
+
+        $pwdFragment = substr((string) $user['password_hash'], 0, 12);
+        $resetToken = JWTService::issueResetToken($emailHash, $pwdFragment);
+
+        Response::json([
+            'success' => true,
+            'reset_token' => $resetToken,
+        ]);
+    }
+
+    public function resetPasswordConfirm(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $resetToken = trim((string) ($input['reset_token'] ?? ''));
+        $newPassword = (string) ($input['new_password'] ?? '');
+        $confirmPassword = (string) ($input['confirm_password'] ?? '');
+
+        if ($resetToken === '' || $newPassword === '' || $confirmPassword === '') {
+            Response::error('Missing fields', 'VALIDATION_ERROR', 400);
+        }
+
+        if ($newPassword !== $confirmPassword) {
+            Response::error('Passwords do not match', 'VALIDATION_ERROR', 400);
+        }
+
+        $payload = JWTService::verifyResetToken($resetToken);
+        if (!$payload) {
+            Response::error('Invalid or expired reset token', 'AUTH_FAILED', 401);
+        }
+
+        $pwdValidation = \TGA\CRM\Services\PasswordValidator::validate($newPassword);
+        if (!$pwdValidation['valid']) {
+            Response::error(implode(', ', $pwdValidation['errors']), 'VALIDATION_ERROR', 400);
+        }
+
+        $emailHash = (string) $payload['email_hash'];
+        $jtiHash = hash('sha256', (string) $payload['jti']);
+
+        $usedStmt = $this->pdo->prepare(
+            "SELECT id FROM otp_verifications WHERE identifier_hash = ? AND otp_hash = ? AND purpose = 'reset_jti' LIMIT 1"
+        );
+        $usedStmt->execute([$emailHash, $jtiHash]);
+        if ($usedStmt->fetch()) {
+            Response::error('Reset token already used', 'AUTH_FAILED', 401);
+        }
+
+        $stmt = $this->pdo->prepare('SELECT id, password_hash FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$emailHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            Response::error('User not found', 'NOT_FOUND', 404);
+        }
+
+        if (substr((string) $user['password_hash'], 0, 12) !== (string) $payload['pwd_h']) {
+            Response::error('Password was changed recently. Token invalid.', 'AUTH_FAILED', 401);
+        }
+
+        $hash = password_hash($newPassword, PASSWORD_ARGON2ID, [
+            'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
+            'time_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
+            'threads' => 1,
+        ]);
+
+        try {
+            $this->pdo->beginTransaction();
+
+            $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')->execute([$hash, (int) $user['id']]);
+            $this->pdo->prepare('UPDATE user_sessions SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL')->execute([(int) $user['id']]);
+            $this->pdo->prepare(
+                "INSERT INTO otp_verifications (identifier_hash, otp_hash, purpose, expires_at, used_at, attempts, created_at) VALUES (?, ?, 'reset_jti', DATE_ADD(NOW(), INTERVAL 15 MINUTE), NOW(), 0, NOW())"
+            )->execute([$emailHash, $jtiHash]);
+
+            $this->pdo->commit();
+
+            $ip = RateLimitMiddleware::getIpAddress();
+            $this->pdo->prepare(
+                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('password_reset_completed', ?, ?, NOW())"
+            )->execute([(string) $user['id'], $ip]);
+
+            \TGA\CRM\Services\ActivityLogger::log('user.password_reset', 'user', (int) $user['id'], (int) $user['id']);
+
+            Response::json([
+                'success' => true,
+                'message' => 'Password updated. Please log in again.',
+            ]);
+        } catch (\Exception $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    public function me(): void
+    {
+        $payload = AuthMiddleware::user();
+        $user = $this->fetchAuthUser((int) $payload['sub']);
+        $permissions = [];
+
+        if (($user['user_type'] ?? '') === 'admin') {
+            $permissions = RBACMiddleware::loadPermissionsForAdmin((int) $user['id'], $this->pdo);
+        }
+
+        Response::json([
+            'success' => true,
+            'message' => 'Current user',
+            'user' => $this->buildUserResponse($user, $permissions),
+        ]);
+    }
+
+    private function saveSession(int $userId, string $jti, string $refreshToken, string $expiresAt): void
+    {
+        // Enforce max sessions per user (GAP-1)
+        $limitStmt = $this->pdo->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'session_max_per_user'");
+        $limitStmt->execute();
+        $maxSessions = (int)($limitStmt->fetchColumn() ?: 5);
+
+        $countStmt = $this->pdo->prepare('SELECT COUNT(*) FROM user_sessions WHERE user_id = ? AND revoked_at IS NULL');
+        $countStmt->execute([$userId]);
+        $count = (int)$countStmt->fetchColumn();
+
+        if ($count >= $maxSessions) {
+            $oldestStmt = $this->pdo->prepare(
+                'SELECT id FROM user_sessions WHERE user_id = ? AND revoked_at IS NULL ORDER BY created_at ASC LIMIT 1'
+            );
+            $oldestStmt->execute([$userId]);
+            $oldestId = $oldestStmt->fetchColumn();
+            if ($oldestId) {
+                $this->pdo->prepare('UPDATE user_sessions SET revoked_at = NOW() WHERE id = ?')->execute([$oldestId]);
+            }
+        }
+
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+        
+        $stmt = $this->pdo->prepare(
+            'INSERT INTO user_sessions (public_id, user_id, refresh_token_hash, jti_hash, ip_address, user_agent, expires_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            \TGA\CRM\Helpers\UlidGenerator::generate(),
+            $userId,
+            hash('sha256', $refreshToken),
+            hash('sha256', $jti),
+            $ip,
+            $ua,
+            $expiresAt
+        ]);
+    }
+
+    public function listSessions(): void
+    {
+        $payload = AuthMiddleware::user();
+        $userId = (int)$payload['sub'];
+
+        $stmt = $this->pdo->prepare(
+            'SELECT public_id, device_label, ip_address, created_at, last_active_at, expires_at 
+             FROM user_sessions 
+             WHERE user_id = ? AND revoked_at IS NULL 
+             ORDER BY created_at DESC'
+        );
+        $stmt->execute([$userId]);
+        $sessions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        Response::json(['sessions' => $sessions]);
+    }
+
+    public function revokeSession(): void
+    {
+        $payload = AuthMiddleware::user();
+        $userId = (int)$payload['sub'];
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $sessionPublicId = $input['session_public_id'] ?? '';
+
+        if (!$sessionPublicId) {
+            Response::error('Session ID required', 'VALIDATION_ERROR', 400);
+        }
+
+        $stmt = $this->pdo->prepare(
+            'UPDATE user_sessions SET revoked_at = NOW() WHERE public_id = ? AND user_id = ? AND revoked_at IS NULL'
+        );
+        $stmt->execute([$sessionPublicId, $userId]);
+
+        Response::json(['message' => 'Session revoked']);
+    }
+
+    public function verifyOtp(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $email = trim($input['email'] ?? '');
+        $otp = $input['otp_code'] ?? '';
+        $purpose = $input['purpose'] ?? '2fa_login';
+
+        if (!$email || !$otp) {
+            Response::error('Email and OTP code required', 'VALIDATION_ERROR', 400);
+        }
+
+        $otpService = new OTPService($this->pdo);
+        if ($otpService->verify($email, $otp, $purpose) !== \TGA\CRM\Services\OTPResult::Valid) {
+            Response::error('Invalid or expired OTP', 'OTP_INVALID', 400);
+        }
+
+        Response::json(['message' => 'OTP verified successfully']);
+    }
+
+    public function requestOtpLogin(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $email = trim((string) ($input['email'] ?? ''));
+
+        if ($email === '') {
+            Response::error('Email required', 'VALIDATION_ERROR', 400);
+        }
+
+        $ip = RateLimitMiddleware::getIpAddress();
+        RateLimitMiddleware::assertAllowed("otp_login_ip_{$ip}", 'otp_login_request', 3, 3600);
+
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
+        RateLimitMiddleware::assertAllowed("otp_login_email_{$emailHash}", 'otp_login_request_email', 3, 3600);
+
+        $stmt = $this->pdo->prepare('SELECT id, status FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$emailHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($user && ($user['status'] ?? '') === 'active') {
+            $otpService = new OTPService($this->pdo);
+            $otpService->generate($email, 'login');
+        }
+
+        Response::json([
+            'success' => true,
+            'message' => 'If your account exists, an OTP has been sent.',
+        ]);
+    }
+
+    public function verifyOtpLogin(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $email = trim((string) ($input['email'] ?? ''));
+        $otpCode = trim((string) ($input['otp_code'] ?? ''));
+
+        if ($email === '' || $otpCode === '') {
+            Response::error('Email and OTP code required', 'VALIDATION_ERROR', 400);
+        }
+
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
+        RateLimitMiddleware::assertAllowed("otp_login_verify_{$emailHash}", 'otp_login_verify', 5, 900);
+
+        $otpService = new OTPService($this->pdo);
+        if ($otpService->verify($email, $otpCode, 'login') !== \TGA\CRM\Services\OTPResult::Valid) {
+            $ip = RateLimitMiddleware::getIpAddress();
+            $this->pdo->prepare(
+                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
+            )->execute([$emailHash, $ip]);
+            Response::error('Invalid or expired OTP', 'OTP_INVALID', 401);
+        }
+
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$emailHash]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user || ($user['status'] ?? '') !== 'active') {
+            Response::error('Account is inactive or suspended', 'ACCOUNT_INACTIVE', 403);
+        }
+
+        if (($user['user_type'] ?? '') === 'agent') {
+            $agentStmt = $this->pdo->prepare('SELECT status, created_at, rejected_reason FROM agents WHERE user_id = ? LIMIT 1');
+            $agentStmt->execute([(int) $user['id']]);
+            $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($agent) {
+                if ($agent['status'] === 'pending') {
+                    Response::json([
+                        'success' => true,
+                        'data' => [
+                            'account_status' => 'pending_approval',
+                            'submitted_at' => $agent['created_at'],
+                        ],
+                        'message' => 'Your application is under review',
+                    ]);
+                }
+
+                if ($agent['status'] === 'rejected') {
+                    Response::json([
+                        'success' => true,
+                        'data' => [
+                            'account_status' => 'rejected',
+                            'rejection_reason' => $agent['rejected_reason'],
+                        ],
+                        'message' => 'Application not approved',
+                    ]);
+                }
+
+                if ($agent['status'] === 'suspended') {
+                    $ip = RateLimitMiddleware::getIpAddress();
+                    $this->pdo->prepare(
+                        "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
+                    )->execute([(string) $user['id'], $ip]);
+                    Response::error('Account suspended. Contact support.', 'ACCOUNT_SUSPENDED', 403);
+                }
+            }
+        }
+
+        $permissions = [];
+        if (($user['user_type'] ?? '') === 'admin') {
+            $permissions = RBACMiddleware::loadPermissionsForAdmin((int) $user['id'], $this->pdo);
+        }
+
+        $tokens = JWTService::issueTokenPair(
+            (int) $user['id'],
+            (string) $user['public_id'],
+            (string) $user['user_type'],
+            $permissions
+        );
+
+        $this->saveSession((int) $user['id'], $tokens['jti'], $tokens['refresh_token'], $tokens['refresh_expires_at']);
+        $this->setRefreshCookie($tokens['refresh_token'], $tokens['refresh_expires_at']);
+
+        $profile = $this->buildUserResponse($user, $permissions);
+        $ip = RateLimitMiddleware::getIpAddress();
+        $this->pdo->prepare(
+            "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, NOW())"
+        )->execute([(string) $user['id'], $ip]);
+
+        Response::json([
+            'success' => true,
+            'message' => 'Login successful',
+            'accessToken' => $tokens['access_token'],
+            'access_token' => $tokens['access_token'],
+            'user' => $profile,
+        ]);
+    }
+
+    public function impersonate(): void { Response::json(['message' => 'stub']); }
 
     public function changePassword(): void
     {
-        Response::error('Change password flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
+        $payload = AuthMiddleware::user();
+        $userId = (int)$payload['sub'];
+        $jti = $payload['jti'] ?? '';
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $currentPassword = $input['current_password'] ?? '';
+        $newPassword = $input['new_password'] ?? '';
+        $confirmPassword = $input['confirm_password'] ?? '';
+
+        if (!$currentPassword || !$newPassword || !$confirmPassword) {
+            Response::error('Missing required fields', 'VALIDATION_ERROR', 400);
+        }
+
+        if ($newPassword !== $confirmPassword) {
+            Response::error('New passwords do not match', 'VALIDATION_ERROR', 400);
+        }
+
+        if ($newPassword === $currentPassword) {
+            Response::error('New password must be different from current password', 'VALIDATION_ERROR', 400);
+        }
+
+        $stmt = $this->pdo->prepare('SELECT password_hash FROM users WHERE id = ? AND deleted_at IS NULL');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            Response::error('User not found', 'NOT_FOUND', 404);
+        }
+
+        if (!password_verify($currentPassword, $user['password_hash'])) {
+            $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+            $this->pdo->prepare(
+                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
+            )->execute([$userId, $ip]);
+            Response::error('Incorrect current password', 'INCORRECT_CURRENT_PASSWORD', 400);
+        }
+
+        $pwdValidation = \TGA\CRM\Services\PasswordValidator::validate($newPassword);
+        if (!$pwdValidation['valid']) {
+            Response::error(implode(', ', $pwdValidation['errors']), 'VALIDATION_ERROR', 400);
+        }
+
+        $hash = password_hash($newPassword, PASSWORD_ARGON2ID, [
+            'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
+            'time_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
+            'threads' => 1,
+        ]);
+
+        try {
+            $this->pdo->beginTransaction();
+
+            $updateStmt = $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+            $updateStmt->execute([$hash, $userId]);
+
+            // Revoke all OTHER sessions (keep current session active)
+            $jtiHash = hash('sha256', $jti);
+            $revokeStmt = $this->pdo->prepare(
+                'UPDATE user_sessions SET revoked_at = NOW() 
+                 WHERE user_id = ? AND jti_hash != ? AND revoked_at IS NULL'
+            );
+            $revokeStmt->execute([$userId, $jtiHash]);
+
+            $this->pdo->commit();
+
+            \TGA\CRM\Services\SecurityEventLogger::log('password_changed', $userId);
+
+            \TGA\CRM\Services\ActivityLogger::log('user.password_changed', 'user', $userId);
+
+            Response::json(['success' => true, 'message' => 'Password changed successfully']);
+
+        } catch (\Exception $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+    }
+    private function fetchAuthUser(int $userId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            Response::error('User not found', 'NOT_FOUND', 404);
+        }
+
+        return $user;
     }
 
-    public function oauthCallback(): void
+    private function buildUserResponse(array $user, array $permissions = []): array
     {
-        Response::error('OAuth callback flow is scaffolded but not yet implemented', 'NOT_IMPLEMENTED', 501);
+        $userType = (string) ($user['user_type'] ?? $user['utype'] ?? '');
+        $fullName = $this->resolveFullName($userType, (int) $user['id']);
+        [$firstName, $lastName] = $this->splitFullName($fullName);
+
+        return [
+            'id' => (int) $user['id'],
+            'public_id' => (string) ($user['public_id'] ?? ''),
+            'email' => $this->decryptMaybe($user['email'] ?? null),
+            'phone' => $this->decryptMaybe($user['phone'] ?? null),
+            'role' => $userType,
+            'user_type' => $userType,
+            'utype' => $userType,
+            'status' => (string) ($user['status'] ?? 'active'),
+            'emailVerified' => !empty($user['email']),
+            'phoneVerified' => !empty($user['phone']),
+            'firstName' => $firstName,
+            'lastName' => $lastName,
+            'name' => $fullName,
+            'permissions' => $permissions,
+            'account_status' => $this->resolveAccountStatus($userType, (int) $user['id'], (string) ($user['status'] ?? 'active')),
+        ];
     }
 
-    private function setAuthCookies(string $accessToken, string $refreshToken): void
+    private function resolveFullName(string $userType, int $userId): string
     {
-        $cookieOptions = [
-            'expires' => time() + (int) Environment::get('JWT_ACCESS_EXPIRY', '900'),
-            'path' => '/crm-api/',
-            'secure' => Environment::get('APP_ENV', 'development') !== 'development',
-            'httponly' => true,
-            'samesite' => 'Strict',
+        $queryMap = [
+            'student' => ['students', 'full_name'],
+            'agent' => ['agents', 'full_name'],
+            'admin' => ['admins', 'full_name'],
         ];
 
-        setcookie('access_token', $accessToken, $cookieOptions);
+        if (!isset($queryMap[$userType])) {
+            return '';
+        }
 
-        $cookieOptions['expires'] = time() + (int) Environment::get('JWT_REFRESH_EXPIRY', '604800');
-        setcookie('refresh_token', $refreshToken, $cookieOptions);
+        [$table, $column] = $queryMap[$userType];
+        $stmt = $this->pdo->prepare(sprintf('SELECT %s FROM %s WHERE user_id = ? LIMIT 1', $column, $table));
+        $stmt->execute([$userId]);
+        $fullName = $stmt->fetchColumn();
+
+        if (is_string($fullName) && trim($fullName) !== '') {
+            return trim($fullName);
+        }
+
+        return '';
     }
 
-    private function clearAuthCookies(): void
+    private function resolveAccountStatus(string $userType, int $userId, string $fallbackStatus): string
     {
-        $expiredCookie = [
+        if ($userType !== 'agent') {
+            return $fallbackStatus;
+        }
+
+        $stmt = $this->pdo->prepare('SELECT status FROM agents WHERE user_id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $status = $stmt->fetchColumn();
+
+        return is_string($status) && $status !== '' ? $status : $fallbackStatus;
+    }
+
+    private function splitFullName(string $fullName): array
+    {
+        $trimmed = trim($fullName);
+        if ($trimmed === '') {
+            return ['', ''];
+        }
+
+        $parts = preg_split('/\s+/', $trimmed, 2) ?: [];
+        $first = $parts[0] ?? '';
+        $last = $parts[1] ?? '';
+
+        return [$first, $last];
+    }
+
+    private function decryptMaybe(mixed $value): ?string
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return \TGA\CRM\Services\EncryptionService::decrypt($value);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function setRefreshCookie(string $refreshToken, string $expiresAt): void
+    {
+        $expires = strtotime($expiresAt);
+        if ($expires === false) {
+            $expires = time() + 604800;
+        }
+
+        $secure = $this->isRequestSecure();
+        setcookie('refresh_token', $refreshToken, [
+            'expires' => $expires,
+            'path' => '/crm-api',
+            'domain' => '',
+            'secure' => $secure,
+            'httponly' => true,
+            'samesite' => $secure ? 'None' : 'Lax',
+        ]);
+    }
+
+    private function clearRefreshCookie(): void
+    {
+        $secure = $this->isRequestSecure();
+        setcookie('refresh_token', '', [
             'expires' => time() - 3600,
-            'path' => '/crm-api/',
-            'secure' => Environment::get('APP_ENV', 'development') !== 'development',
+            'path' => '/crm-api',
+            'domain' => '',
+            'secure' => $secure,
             'httponly' => true,
-            'samesite' => 'Strict',
-        ];
-
-        setcookie('access_token', '', $expiredCookie);
-        setcookie('refresh_token', '', $expiredCookie);
+            'samesite' => $secure ? 'None' : 'Lax',
+        ]);
     }
+
+    private function isRequestSecure(): bool
+    {
+        return (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    }
+
 }
