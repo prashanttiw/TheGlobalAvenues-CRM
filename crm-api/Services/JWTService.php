@@ -8,30 +8,43 @@ use TGA\CRM\Config\Environment;
 
 final class JWTService
 {
-    public static function issueTokenPair(int $userId, string $role): array
-    {
+    public static function issueTokenPair(
+        int    $userId,
+        string $publicId,
+        string $userType,
+        array  $permissions = []
+    ): array {
         $accessExpiry = (int) Environment::get('JWT_ACCESS_EXPIRY', '900');
         $refreshExpiry = (int) Environment::get('JWT_REFRESH_EXPIRY', '604800');
 
+        $jti = bin2hex(random_bytes(16)); // 32-char hex token ID
+
         $accessToken = self::encode([
-            'sub' => $userId,
-            'role' => $role,
-            'type' => 'access',
-            'iat' => time(),
-            'exp' => time() + $accessExpiry,
+            'sub'   => $userId,
+            'pid'   => $publicId,
+            'utype' => $userType,
+            'user_type' => $userType,
+            'perms' => $permissions,
+            'jti'   => $jti,
+            'type'  => 'access',
+            'iat'   => time(),
+            'exp'   => time() + $accessExpiry,
         ], Environment::getRequired('JWT_ACCESS_SECRET'));
 
         $refreshToken = self::encode([
-            'sub' => $userId,
-            'role' => $role,
-            'type' => 'refresh',
-            'iat' => time(),
-            'exp' => time() + $refreshExpiry,
+            'sub'   => $userId,
+            'pid'   => $publicId,
+            'utype' => $userType,
+            'user_type' => $userType,
+            'type'  => 'refresh',
+            'iat'   => time(),
+            'exp'   => time() + $refreshExpiry,
         ], Environment::getRequired('JWT_REFRESH_SECRET'));
 
         return [
             'access_token' => $accessToken,
             'refresh_token' => $refreshToken,
+            'jti' => $jti,
             'refresh_expires_at' => gmdate('Y-m-d H:i:s', time() + $refreshExpiry),
         ];
     }
@@ -101,5 +114,31 @@ final class JWTService
     private static function base64UrlDecode(string $value): string
     {
         return (string) base64_decode(strtr($value, '-_', '+/'));
+    }
+
+    public static function issueResetToken(string $emailHash, string $pwdFragment): string
+    {
+        $expiry = 900; // 15 minutes
+        $jti = bin2hex(random_bytes(16));
+
+        return self::encode([
+            'email_hash' => $emailHash,
+            'pwd_h' => $pwdFragment,
+            'type' => 'password-reset',
+            'jti' => $jti,
+            'iat' => time(),
+            'exp' => time() + $expiry
+        ], Environment::getRequired('JWT_RESET_SECRET'));
+    }
+
+    public static function verifyResetToken(string $token): array|false
+    {
+        $payload = self::decode($token, Environment::getRequired('JWT_RESET_SECRET'));
+
+        if ($payload === false || ($payload['type'] ?? '') !== 'password-reset') {
+            return false;
+        }
+
+        return $payload;
     }
 }

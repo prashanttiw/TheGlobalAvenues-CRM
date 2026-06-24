@@ -32,6 +32,33 @@ final class AuthMiddleware
             Response::error('Invalid or expired token', Constants::AUTH_ERROR_CODES['invalid'], 401);
         }
 
+        $pdo = \TGA\CRM\Config\Database::getConnection();
+
+        // Validate JTI — strictly required to prevent token rollback attacks
+        if (!isset($payload['jti'])) {
+            Response::error('Invalid token structure', Constants::AUTH_ERROR_CODES['invalid'], 401);
+        }
+
+        $jtiHash = hash('sha256', $payload['jti']);
+        $session = $pdo->prepare(
+            'SELECT id, revoked_at FROM user_sessions WHERE jti_hash = ? LIMIT 1'
+        );
+        $session->execute([$jtiHash]);
+        $sess = $session->fetch();
+        
+        if (!$sess || $sess['revoked_at'] !== null) {
+            Response::error('Session has been revoked', 'SESSION_REVOKED', 401);
+        }
+
+        // Also check user.status = 'active'
+        $userRow = $pdo->prepare("SELECT status FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1");
+        $userRow->execute([$payload['sub']]);
+        $u = $userRow->fetch();
+        
+        if (!$u || $u['status'] !== 'active') {
+            Response::error('Account suspended or not found', 'ACCOUNT_INACTIVE', 401);
+        }
+
         return $payload;
     }
 
