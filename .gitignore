@@ -51,3 +51,12 @@ scratch/
 .tmp-vite.*.log
 *.err.log
 *.out.log
+
+# User uploads
+crm-api/uploads/*
+!crm-api/uploads/.gitkeep
+!crm-api/uploads/.htaccess
+
+# Local test scripts
+test_*.php
+*.pyc
