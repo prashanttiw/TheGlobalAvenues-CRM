@@ -1,21 +1,23 @@
-import { useStore } from './useStore';
+import { useAuth } from '../shared/hooks/useAuth';
 
 export function usePermission(module: string, action: string): boolean {
-  const currentUser = useStore((state) => state.currentUser);
-
-  if (!currentUser) {
+  const { user } = useAuth();
+  
+  if (!user) {
     return false;
   }
 
-  if (currentUser.role === 'super_admin') {
+  // Super admins or wildcard permission holder sees everything
+  if (user.role === 'super_admin' || user.permissions?.includes('*')) {
     return true;
   }
 
-  if (currentUser.role !== 'admin') {
+  // If user is not admin, deny all admin actions
+  if (user.role !== 'admin') {
     return false;
   }
 
-  // Minimal UI gating for the current phase: admin users can render module guards.
-  // The backend remains the source of truth for exact permission enforcement.
-  return true;
+  // Permissions are formatted as 'module.action' (e.g., 'students.view', 'agents.approve')
+  const requiredPermission = `${module}.${action}`;
+  return user.permissions?.includes(requiredPermission) || false;
 }

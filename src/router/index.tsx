@@ -1,9 +1,15 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 
-// Layouts
+// Public Layout
 import { PublicLayout } from '../layouts/PublicLayout';
-import { AgentLayout } from '../layouts/AgentLayout';
-import { AdminLayout } from '../layouts/AdminLayout';
+
+// Phase 3 Portal Layout & Guards
+import { PortalWrapper } from '../shared/components/layout/PortalWrapper';
+import { AuthGuard } from '../shared/components/layout/AuthGuard';
+import { RoleGuard } from '../shared/components/layout/RoleGuard';
+import { ForbiddenPage } from '../shared/components/ui/ForbiddenPage';
+import { NotFoundPage } from '../shared/components/ui/NotFoundPage';
+import { DashboardSkeleton } from '../shared/components/ui/DashboardSkeleton';
 
 // Public Pages
 import { HomePage } from '../pages/HomePage';
@@ -18,12 +24,31 @@ import { ApplyPage } from '../pages/ApplyPage';
 import { ServicesPage } from '../pages/ServicesPage';
 import { LoginPage } from '../pages/LoginPage';
 
-// Dashboard Pages
-import { StudentDashboardPage } from '../pages/StudentDashboardPage';
-import { AgentDashboardPage } from '../pages/AgentDashboardPage';
+// Lazy load portal pages
+import React, { Suspense } from 'react';
+import { Outlet } from 'react-router-dom';
 
-// Admin Pages (Placeholder/Dynamic imports inside App.tsx / Router)
-import { AdminDashboardPage } from '../pages/admin/AdminDashboardPage';
+// Student
+const StudentDashboardPage = React.lazy(() => import('../pages/StudentDashboardPage').then(m => ({ default: m.StudentDashboardPage })));
+const StudentAgentPage = React.lazy(() => import('../pages/student/StudentAgentPage'));
+const StudentNoticesPage = React.lazy(() => import('../pages/student/StudentNoticesPage'));
+const StudentProfile = React.lazy(() => import('../pages/student/StudentProfile'));
+
+// Agent
+const AgentDashboardPage = React.lazy(() => import('../pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
+const AgentDashboard = React.lazy(() => import('../pages/agent/AgentDashboard'));
+const AgentStudents = React.lazy(() => import('../pages/agent/AgentStudents'));
+const AgentTeamPage = React.lazy(() => import('../pages/agent/AgentTeamPage'));
+const AgentCommissionsPage = React.lazy(() => import('../pages/agent/AgentCommissionsPage'));
+const AgentApplicationsPage = React.lazy(() => import('../pages/agent/AgentApplicationsPage'));
+const AgentNoticesPage = React.lazy(() => import('../pages/agent/AgentNoticesPage'));
+const AgentProfilePage = React.lazy(() => import('../pages/agent/AgentProfilePage'));
+
+// Admin
+const AdminDashboardPage = React.lazy(() => import('../pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
+const AdminNoticesPage = React.lazy(() => import('../pages/admin/AdminNoticesPage'));
+const AdminAgentDetailPage = React.lazy(() => import('../pages/admin/AdminAgentDetailPage'));
+const AdminCommissionsPage = React.lazy(() => import('../pages/admin/AdminCommissionsPage'));
 
 export function AppRouter() {
   return (
@@ -45,28 +70,90 @@ export function AppRouter() {
         {/* Auth Entrypoints */}
         <Route path="/portal/login" element={<LoginPage />} />
         <Route path="/portal/register" element={<ApplyPage />} />
+      </Route>
         
-        {/* Student B2C Portal (Nested under Public Header/Footer for cohesive flow) */}
-        <Route path="/portal/student" element={<StudentDashboardPage />} />
-      </Route>
+      {/* ── Phase 3 CRM Portals ── */}
+      <Route
+        path="/portal"
+        element={
+          <AuthGuard>
+            <PortalWrapper />
+          </AuthGuard>
+        }
+      >
+        {/* Student Portal */}
+        <Route
+          path="student"
+          element={
+            <RoleGuard allowedRoles={['student']}>
+              <Suspense fallback={<DashboardSkeleton />}>
+                <Outlet />
+              </Suspense>
+            </RoleGuard>
+          }
+        >
+          <Route index element={<StudentDashboardPage />} />
+          <Route path="applications" element={<StudentDashboardPage />} />
+          <Route path="documents" element={<StudentDashboardPage />} />
+          <Route path="quiz" element={<StudentDashboardPage />} />
+          <Route path="visa" element={<StudentDashboardPage />} />
+          <Route path="agent" element={<StudentAgentPage />} />
+          <Route path="notices" element={<StudentNoticesPage />} />
+          <Route path="profile" element={<StudentProfile />} />
+        </Route>
 
-      {/* ── B2B Agent Portal (Dashboard layout) ── */}
-      <Route element={<AgentLayout />}>
-        <Route path="/portal/agent" element={<AgentDashboardPage />} />
-        {/* We will route subroutes directly to the AgentDashboardPage or custom pages */}
-        <Route path="/portal/agent/leads" element={<AgentDashboardPage />} />
-        <Route path="/portal/agent/pipeline" element={<AgentDashboardPage />} />
-        <Route path="/portal/agent/commissions" element={<AgentDashboardPage />} />
-      </Route>
+        {/* Agent Portal */}
+        <Route
+          path="agent"
+          element={
+            <RoleGuard allowedRoles={['agent']}>
+              <Suspense fallback={<DashboardSkeleton />}>
+                <Outlet />
+              </Suspense>
+            </RoleGuard>
+          }
+        >
+          <Route index element={<AgentDashboard />} />
+          <Route path="team" element={<AgentTeamPage />} />
+          <Route path="students" element={<AgentStudents />} />
+          <Route path="applications" element={<AgentApplicationsPage />} />
+          <Route path="commissions" element={<AgentCommissionsPage />} />
+          <Route path="notices" element={<AgentNoticesPage />} />
+          <Route path="profile" element={<AgentProfilePage />} />
+        </Route>
 
-      {/* ── CRM Admin Panel (Admin layout) ── */}
-      <Route element={<AdminLayout />}>
-        <Route path="/portal/admin" element={<AdminDashboardPage />} />
-        <Route path="/portal/admin/pipeline" element={<AdminDashboardPage />} />
-        <Route path="/portal/admin/users" element={<AdminDashboardPage />} />
-        <Route path="/portal/admin/documents" element={<AdminDashboardPage />} />
-        <Route path="/portal/admin/universities" element={<AdminDashboardPage />} />
-        <Route path="/portal/admin/audit" element={<AdminDashboardPage />} />
+        {/* Admin Portal */}
+        <Route
+          path="admin"
+          element={
+            <RoleGuard allowedRoles={['admin']}>
+              <Suspense fallback={<DashboardSkeleton />}>
+                <Outlet />
+              </Suspense>
+            </RoleGuard>
+          }
+        >
+          <Route index element={<AdminDashboardPage />} />
+          <Route path="universities" element={<AdminDashboardPage />} />
+          <Route path="courses" element={<AdminDashboardPage />} />
+          <Route path="intakes" element={<AdminDashboardPage />} />
+          <Route path="students" element={<AdminDashboardPage />} />
+          <Route path="agents" element={<AdminDashboardPage />} />
+          <Route path="agents/:pid/tree" element={<AdminAgentDetailPage />} />
+          <Route path="applications" element={<AdminDashboardPage />} />
+          <Route path="commissions" element={<AdminCommissionsPage />} />
+          <Route path="leads" element={<AdminDashboardPage />} />
+          <Route path="notices" element={<AdminNoticesPage />} />
+          <Route path="reports" element={<AdminDashboardPage />} />
+          <Route path="users" element={<AdminDashboardPage />} />
+          <Route path="roles" element={<AdminDashboardPage />} />
+          <Route path="settings" element={<AdminDashboardPage />} />
+          <Route path="logs" element={<AdminDashboardPage />} />
+          <Route path="security" element={<AdminDashboardPage />} />
+        </Route>
+
+        {/* 403 Forbidden */}
+        <Route path="403" element={<ForbiddenPage />} />
       </Route>
 
       {/* 404 / Catch-all */}

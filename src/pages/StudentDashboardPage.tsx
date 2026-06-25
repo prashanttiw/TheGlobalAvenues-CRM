@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowRight,
@@ -118,7 +119,32 @@ const DOCUMENT_OPTIONS = [
 
 export function StudentDashboardPage() {
   const currentUser = useStore((state) => state.currentUser);
+  const location = useLocation();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<DashboardTab>('dashboard');
+
+  useEffect(() => {
+    const path = location.pathname;
+    if (path.endsWith('/documents')) {
+      setActiveTab('documents');
+    } else if (path.endsWith('/quiz')) {
+      setActiveTab('quiz');
+    } else if (path.endsWith('/visa')) {
+      setActiveTab('visa');
+    } else {
+      setActiveTab('dashboard');
+    }
+  }, [location.pathname]);
+
+  const handleTabClick = (tabId: DashboardTab) => {
+    setActiveTab(tabId);
+    if (tabId === 'dashboard') {
+      navigate('/portal/student');
+    } else {
+      navigate(`/portal/student/${tabId}`);
+    }
+  };
+
   const [dashboard, setDashboard] = useState<StudentDashboardStats | null>(null);
   const [profile, setProfile] = useState<StudentProfileResponse | null>(null);
   const [applications, setApplications] = useState<StudentApplicationSummary[]>([]);
@@ -448,7 +474,7 @@ export function StudentDashboardPage() {
             return (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as DashboardTab)}
+                onClick={() => handleTabClick(tab.id as DashboardTab)}
                 className={`inline-flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-bold transition-all ${
                   active
                     ? 'bg-[#2D1B69] text-white shadow-[0_16px_30px_rgba(45,27,105,0.18)]'

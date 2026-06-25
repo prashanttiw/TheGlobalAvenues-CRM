@@ -1,0 +1,115 @@
+import * as React from 'react'
+import { PageHeader } from '../../shared/components/layout/PageHeader'
+import { PageWrapper } from '../../shared/components/layout/PageWrapper'
+import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card'
+import { Button } from '../../shared/components/ui/Button'
+import { StatusBadge } from '../../shared/components/ui/Badge'
+import { Bell, Calendar, MapPin } from 'lucide-react'
+
+interface Notice {
+  id: string
+  title: string
+  date: string
+  type: 'notice' | 'event'
+  content: string
+  eventDate?: string
+  location?: string
+}
+
+const MOCK_NOTICES: Notice[] = [
+  {
+    id: 'n-1',
+    title: 'Austrian University Intakes Extended',
+    date: '2026-06-20',
+    type: 'notice',
+    content: 'The deadline for Fall 2026 intakes at partner universities in Austria has been extended to July 31st. Make sure to complete your documents verification.',
+  },
+  {
+    id: 'n-2',
+    title: 'Pre-Departure Briefing Webinar',
+    date: '2026-06-18',
+    type: 'event',
+    content: 'Join our upcoming pre-departure orientation briefing covering visas, accommodation, block accounts, and travel insurance guidelines.',
+    eventDate: '2026-07-05 at 14:00 IST',
+    location: 'Zoom Video Conference',
+  }
+]
+
+export default function StudentNoticesPage() {
+  const [filter, setFilter] = React.useState<'all' | 'notice' | 'event'>('all')
+
+  const filteredNotices = MOCK_NOTICES.filter(n => filter === 'all' || n.type === filter)
+
+  return (
+    <PageWrapper className="space-y-6">
+      <PageHeader 
+        title="Notices & Events" 
+        subtitle="Important updates and upcoming events from The Global Avenues." 
+      />
+
+      <div className="flex gap-2">
+        <Button 
+          variant={filter === 'all' ? 'primary' : 'secondary'} 
+          size="sm"
+          onClick={() => setFilter('all')}
+        >
+          All
+        </Button>
+        <Button 
+          variant={filter === 'notice' ? 'primary' : 'secondary'} 
+          size="sm"
+          onClick={() => setFilter('notice')}
+        >
+          Notices
+        </Button>
+        <Button 
+          variant={filter === 'event' ? 'primary' : 'secondary'} 
+          size="sm"
+          onClick={() => setFilter('event')}
+        >
+          Events
+        </Button>
+      </div>
+
+      <div className="grid gap-6">
+        {filteredNotices.length > 0 ? (
+          filteredNotices.map((notice) => (
+            <Card key={notice.id} className="hover:shadow-card-hover transition-shadow">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border-warm">
+                <div className="space-y-1">
+                  <CardTitle className="text-lg font-semibold text-brand-navy">{notice.title}</CardTitle>
+                  <p className="text-xs text-muted-foreground">Published on {notice.date}</p>
+                </div>
+                <StatusBadge status={notice.type === 'notice' ? 'registered' : 'pending'} />
+              </CardHeader>
+              <CardContent className="mt-4 space-y-4">
+                <p className="text-sm text-brand-navy leading-relaxed">{notice.content}</p>
+                
+                {notice.type === 'event' && (
+                  <div className="rounded-md bg-surface-warm p-4 space-y-2 border border-border-warm">
+                    <div className="flex items-center text-xs text-brand-navy">
+                      <Calendar className="mr-2 h-4 w-4 text-brand-orange-accessible" />
+                      <strong>Time:</strong>&nbsp;{notice.eventDate}
+                    </div>
+                    <div className="flex items-center text-xs text-brand-navy">
+                      <MapPin className="mr-2 h-4 w-4 text-brand-orange-accessible" />
+                      <strong>Location:</strong>&nbsp;{notice.location}
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ))
+        ) : (
+          <Card className="border-dashed border-border-warm py-12">
+            <CardContent className="flex flex-col items-center justify-center text-center">
+              <Bell className="h-10 w-10 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-semibold text-brand-navy">No updates found</h3>
+              <p className="text-sm text-muted-foreground mt-1">There are no updates in this category.</p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </PageWrapper>
+  )
+}

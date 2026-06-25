@@ -906,22 +906,22 @@ export async function fetchAdminAgents(params: {
   q?: string;
   tier?: string;
   status?: string;
-} = {}): Promise<{ agents: AdminAgentSummary[]; meta: PaginationMeta }> {
+} = {}): Promise<{ agents: any[]; meta: PaginationMeta }> {
   const query = buildQuery({
     route: 'admin',
-    action: 'get_agents',
+    action: 'agents',
     page: params.page,
     per_page: params.perPage,
-    q: params.q,
+    search: params.q,
     tier: params.tier,
     status: params.status,
   });
 
-  const response = await request<{ agents: AdminAgentSummary[] }>(`/?${query}`);
+  const response = await request<any>(`/?${query}`);
 
   return {
-    agents: response.data.agents,
-    meta: response.meta as PaginationMeta,
+    agents: response.data.agents || response.data || [],
+    meta: (response.meta || response.data.meta) as PaginationMeta,
   };
 }
 
@@ -1108,3 +1108,248 @@ export async function fetchAdminAuditLog(params: {
     meta: response.meta as PaginationMeta,
   };
 }
+
+// ── PHASE 5 API FUNCTIONS ──────────────────────────────────────────────────
+
+export async function fetchAgentDashboardSummary(): Promise<any> {
+  const response = await request<any>('/?route=agent&action=dashboard/summary');
+  return response.data;
+}
+
+export async function fetchAgentStudents(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  search?: string;
+  agentPid?: string;
+} = {}): Promise<{ students: any[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'agent',
+    action: 'students',
+    page: params.page,
+    per_page: params.perPage,
+    status: params.status,
+    search: params.search,
+    agent_pid: params.agentPid,
+  });
+  const response = await request<any>(`/?${query}`);
+  return {
+    students: response.data.students || response.data || [],
+    meta: (response.meta || response.data.meta) as PaginationMeta,
+  };
+}
+
+export async function fetchAgentStudentDetail(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=agent&action=students/${pid}`);
+  return response.data;
+}
+
+export async function fetchAgentTeam(): Promise<any[]> {
+  const response = await request<any[]>('/?route=agent&action=team');
+  return response.data || [];
+}
+
+export async function fetchSubAgents(parentPid: string): Promise<any[]> {
+  const response = await request<any[]>(`/?route=agent&action=team/${parentPid}/sub-agents`);
+  return response.data || [];
+}
+
+export async function fetchSubAgentStudents(subAgentPid: string): Promise<any[]> {
+  const response = await request<any[]>(`/?route=agent&action=team/${subAgentPid}/students`);
+  return response.data || [];
+}
+
+export async function fetchAgentCommissions(params: {
+  page?: number;
+  status?: string;
+} = {}): Promise<{ commissions: any[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'agent',
+    action: 'commissions',
+    page: params.page,
+    status: params.status,
+  });
+  const response = await request<any>(`/?${query}`);
+  return {
+    commissions: response.data.commissions || response.data || [],
+    meta: (response.meta || response.data.meta) as PaginationMeta,
+  };
+}
+
+export async function fetchAgentCommissionsSummary(): Promise<any> {
+  const response = await request<any>('/?route=agent&action=commissions/summary');
+  return response.data;
+}
+
+export async function fetchStudentAgentInfo(): Promise<any> {
+  const response = await request<any>('/?route=student&action=agent');
+  return response.data;
+}
+
+export async function submitReassignmentRequest(payload: {
+  reason: string;
+  requested_agent_code?: string;
+}): Promise<any> {
+  const response = await request<any>('/?route=student&action=agent/reassignment-request', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function fetchAdminReassignmentRequests(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  studentSearch?: string;
+} = {}): Promise<{ requests: any[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'reassignment-requests',
+    page: params.page,
+    per_page: params.perPage,
+    status: params.status,
+    student_search: params.studentSearch,
+  });
+  const response = await request<any>(`/?${query}`);
+  return {
+    requests: response.data.requests || response.data || [],
+    meta: (response.meta || response.data.meta) as PaginationMeta,
+  };
+}
+
+export async function fetchAdminReassignmentDetail(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=reassignment-requests/${pid}`);
+  return response.data;
+}
+
+export async function approveReassignment(pid: string, payload: {
+  new_agent_code?: string;
+  notes?: string;
+}): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=reassignment-requests/${pid}/approve`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function denyReassignment(pid: string, payload: {
+  notes?: string;
+}): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=reassignment-requests/${pid}/deny`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function fetchStudentReassignmentHistory(studentPid: string): Promise<any[]> {
+  const response = await request<any[]>(`/?route=admin&action=students/${studentPid}/reassignment-history`);
+  return response.data || [];
+}
+
+export async function fetchAdminCommissions(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  agentPid?: string;
+  from?: string;
+  to?: string;
+} = {}): Promise<{ commissions: any[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'commissions',
+    page: params.page,
+    per_page: params.perPage,
+    status: params.status,
+    agent_pid: params.agentPid,
+    from: params.from,
+    to: params.to,
+  });
+  const response = await request<any>(`/?${query}`);
+  return {
+    commissions: response.data.commissions || response.data || [],
+    meta: (response.meta || response.data.meta) as PaginationMeta,
+  };
+}
+
+export async function fetchAdminCommissionsSummary(): Promise<any> {
+  const response = await request<any>('/?route=admin&action=commissions/summary');
+  return response.data;
+}
+
+export async function createCommission(applicationPid: string, payload: {
+  agent_id: number;
+  amount: number;
+  currency: string;
+  percentage?: number;
+  notes?: string;
+}): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=applications/${applicationPid}/commissions`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function fetchApplicationCommissions(applicationPid: string): Promise<any[]> {
+  const response = await request<any[]>(`/?route=admin&action=applications/${applicationPid}/commissions`);
+  return response.data || [];
+}
+
+export async function editCommission(pid: string, payload: {
+  amount?: number;
+  percentage?: number;
+  notes?: string;
+}): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=commissions/${pid}`, {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function confirmCommission(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=commissions/${pid}/confirm`, {
+    method: 'PUT',
+  });
+  return response.data;
+}
+
+export async function payCommission(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=commissions/${pid}/pay`, {
+    method: 'PUT',
+  });
+  return response.data;
+}
+
+export async function deleteCommission(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=commissions/${pid}`, {
+    method: 'DELETE',
+  });
+  return response.data;
+}
+
+export async function fetchAdminAgentTree(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=agents/${pid}/tree`);
+  return response.data;
+}
+
+export async function fetchAdminDashboardSummary(): Promise<any> {
+  const response = await request<any>('/?route=admin&action=dashboard/summary');
+  return response.data;
+}
+
+export async function inviteSubAgent(payload: {
+  name: string;
+  agency_name: string;
+  email: string;
+}): Promise<any> {
+  const response = await request<any>('/?route=agent&action=sub-agents/invite', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+

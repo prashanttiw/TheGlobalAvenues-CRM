@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -78,10 +78,17 @@ const STATUS_OPTIONS = [
 const PRIORITY_OPTIONS = ['normal', 'high', 'urgent'];
 
 function resolveSection(pathname: string): Section {
+  if (pathname === '/portal/admin/applications') return 'pipeline';
   if (pathname === '/portal/admin/pipeline') return 'pipeline';
   if (pathname === '/portal/admin/users') return 'users';
+  if (pathname === '/portal/admin/agents') return 'users';
+  if (pathname === '/portal/admin/students') return 'users';
+  if (pathname === '/portal/admin/roles') return 'users';
   if (pathname === '/portal/admin/documents') return 'documents';
   if (pathname === '/portal/admin/universities') return 'catalog';
+  if (pathname === '/portal/admin/courses') return 'catalog';
+  if (pathname === '/portal/admin/intakes') return 'catalog';
+  if (pathname === '/portal/admin/logs') return 'audit';
   if (pathname === '/portal/admin/audit') return 'audit';
   return 'overview';
 }
@@ -89,6 +96,7 @@ function resolveSection(pathname: string): Section {
 export function AdminDashboardPage() {
   const currentUser = useStore((state) => state.currentUser);
   const location = useLocation();
+  const navigate = useNavigate();
   const section = resolveSection(location.pathname);
 
   const [dashboard, setDashboard] = useState<AdminDashboardStats | null>(null);
@@ -922,6 +930,16 @@ export function AdminDashboardPage() {
                         <DetailRow label="Last login" value={selectedUser.lastLogin ? formatDate(selectedUser.lastLogin) : 'No login yet'} />
                         <DetailRow label="Created" value={formatDate(selectedUser.createdAt)} />
                       </dl>
+                      {selectedUser.role === 'agent' && selectedUser.profile && (
+                        <div className="pt-2">
+                          <button
+                            onClick={() => navigate(`/portal/admin/agents/${selectedUser.profile.public_id || selectedUser.profile.publicId}/tree`)}
+                            className="w-full flex items-center justify-center gap-1.5 rounded-xl bg-[#2D1B69] text-white text-xs font-black py-2.5 hover:opacity-90 transition shadow-sm"
+                          >
+                            View Hierarchy Tree
+                          </button>
+                        </div>
+                      )}
                       {selectedUser.profile && (
                         <pre className="overflow-x-auto rounded-2xl bg-[#0F0B1F] p-4 text-xs text-white/80">
                           {JSON.stringify(selectedUser.profile, null, 2)}

@@ -191,7 +191,7 @@ export function AgentDashboardPage() {
     <div className="space-y-8 max-w-7xl mx-auto">
       
       {/* ── SUB-PAGE 1: LEADS MANAGEMENT WORKSPACE ── */}
-      {activePath === '/portal/agent/leads' && (
+      {activePath === '/portal/agent/students' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
@@ -277,7 +277,7 @@ export function AgentDashboardPage() {
                         </td>
                         <td className="py-4 px-6 text-right">
                           <Link 
-                            to="/portal/agent/pipeline"
+                            to="/portal/agent/applications"
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 bg-white hover:bg-gray-50 rounded-lg text-[#2D1B69] font-bold shadow-sm"
                           >
                             Track Applications <ArrowRight className="w-3.5 h-3.5" />
@@ -300,7 +300,7 @@ export function AgentDashboardPage() {
       )}
 
       {/* ── SUB-PAGE 2: INTERACTIVE KANBAN BOARD ── */}
-      {activePath === '/portal/agent/pipeline' && (
+      {activePath === '/portal/agent/applications' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
@@ -575,7 +575,7 @@ export function AgentDashboardPage() {
                     <h3 className="font-extrabold text-sm text-gray-900">Recent Applications Pipeline</h3>
                     <p className="text-[10px] text-gray-400 font-semibold mt-1">Status changes of leads submitted by your agency.</p>
                   </div>
-                  <Link to="/portal/agent/pipeline" className="text-xs font-bold text-[#2D1B69] hover:underline flex items-center gap-1">
+                  <Link to="/portal/agent/applications" className="text-xs font-bold text-[#2D1B69] hover:underline flex items-center gap-1">
                     Open Kanban <ArrowUpRight className="w-3.5 h-3.5" />
                   </Link>
                 </div>
@@ -619,7 +619,7 @@ export function AgentDashboardPage() {
               </div>
 
               <div className="p-4 border-t border-gray-150 text-center bg-gray-50/50">
-                <Link to="/portal/agent/leads" className="text-xs font-extrabold text-gray-600 hover:text-[#2D1B69] flex items-center justify-center gap-1">
+                <Link to="/portal/agent/students" className="text-xs font-extrabold text-gray-600 hover:text-[#2D1B69] flex items-center justify-center gap-1">
                   View All Student Leads <ArrowRight className="w-3.5 h-3.5" />
                 </Link>
               </div>
