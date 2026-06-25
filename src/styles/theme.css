@@ -125,6 +125,21 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border:          var(--sidebar-border);
   --color-sidebar-ring:            var(--sidebar-ring);
+
+  /* ── Phase 3 Brand Tokens ── */
+  --color-brand-navy: #1E2A4A;
+  --color-brand-orange: #FD7E14;
+  --color-brand-orange-accessible: #D96200;
+  --color-brand-amber: #F59E0B;
+  --color-surface-warm: #FAFAF8;
+  --color-surface-card: #FFFFFF;
+  --color-border-warm: #E8E4DE;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.08);
+  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.10);
+  --radius-card: 12px;
+  --radius-button: 8px;
+  --font-display: 'Plus Jakarta Sans', sans-serif;
+  --font-body: 'Inter', sans-serif;
 }
 
 /* ── Base resets ── */
@@ -144,12 +159,15 @@
 
   body {
     @apply bg-background text-foreground;
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-family: var(--font-body);
     overflow-x: hidden;
   }
 
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+  }
+
   h1, h2, h3 {
-    font-family: 'Syne', 'Plus Jakarta Sans', sans-serif;
     font-weight: 700;
     line-height: 1.15;
     letter-spacing: -0.02em;
