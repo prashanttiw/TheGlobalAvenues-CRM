@@ -11,11 +11,15 @@ final class ApplicationStateManager
 {
     private static array $transitions = [
         'draft' => ['submitted' => ['student', 'agent', 'admin']],
-        'submitted' => ['under_review' => ['admin']],
+        'submitted' => [
+            'under_review' => ['admin'],
+            'withdrawn' => ['student', 'admin']
+        ],
         'under_review' => [
             'offer_received' => ['admin'],
             'rejected' => ['admin'],
             'waitlisted' => ['admin'],
+            'withdrawn' => ['student', 'admin']
         ],
         'offer_received' => [
             'enrolled' => ['admin'],
@@ -24,6 +28,7 @@ final class ApplicationStateManager
         'waitlisted' => [
             'submitted' => ['admin'],
             'rejected' => ['admin'],
+            'withdrawn' => ['student', 'admin']
         ],
     ];
 
@@ -59,7 +64,29 @@ final class ApplicationStateManager
             Response::error("Cannot transition from '$fromStatus' to '$toStatus' as '$userType'", 'FORBIDDEN', 403);
         }
 
+        if ($toStatus === 'enrolled') {
+            // Enrolled per intake limit guard
+            $stmt = $pdo->prepare("SELECT COUNT(*) FROM applications WHERE student_id = ? AND intake_id = ? AND status = 'enrolled' AND deleted_at IS NULL AND id != ?");
+            $stmt->execute([$app['student_id'], $app['intake_id'], $applicationId]);
+            if ((int)$stmt->fetchColumn() > 0) {
+                Response::error('Student is already enrolled in this intake', 'CONFLICT', 409);
+            }
+        }
+
         $pdo->prepare('UPDATE applications SET status = ?, updated_at = NOW() WHERE id = ?')->execute([$toStatus, $applicationId]);
+
+        $statusMap = [
+            'submitted' => 'application_submitted',
+            'offer_received' => 'offer_received',
+            'enrolled' => 'enrolled',
+            'under_review' => 'application_in_progress',
+            'rejected' => 'application_in_progress',
+            'withdrawn' => 'application_in_progress'
+        ];
+
+        if (isset($statusMap[$toStatus])) {
+            $pdo->prepare('UPDATE students SET profile_status = ? WHERE id = ?')->execute([$statusMap[$toStatus], $app['student_id']]);
+        }
 
         if ($toStatus === 'enrolled') {
             $pdo->prepare("UPDATE students SET agent_lock_status = 'locked' WHERE id = ?")->execute([$app['student_id']]);
