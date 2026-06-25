@@ -38,6 +38,7 @@ final class FileUploadService
         'medical_certificate' => ['application/pdf'],
         'insurance' => ['application/pdf'],
         'other' => ['application/pdf', 'image/jpeg', 'image/png'],
+        'logo' => ['image/jpeg', 'image/png'],
     ];
 
     public function upload(
@@ -48,7 +49,11 @@ final class FileUploadService
         int $ownerId,
         string $uploadedByType,
         int $uploadedById,
-        ?string $displayFilename = null
+        ?string $displayFilename = null,
+        bool $isPublic = false,
+        ?string $customStoragePath = null,
+        int $versionNumber = 1,
+        ?int $previousVersionId = null
     ): array {
         $this->assertUploadArray($file);
         $this->assertUploadError((int) $file['error']);
@@ -70,14 +75,23 @@ final class FileUploadService
         if ($displayFilename === null) {
             $displayFilename = basename((string) $file['name']);
         }
+        $displayFilename = preg_replace('/[^\p{L}\p{N}_\-\.]/u', '_', $displayFilename);
+        $displayFilename = substr($displayFilename, 0, 200);
 
-        $uploadRoot = Environment::get('UPLOAD_PATH', 'uploads');
-        $targetDirectory = FileHelper::joinPaths(
-            dirname(__DIR__),
-            $uploadRoot,
-            'documents',
-            $ownerType . '-' . $ownerId
-        );
+        $projectRoot = dirname(__DIR__, 2);
+        if ($isPublic) {
+            $uploadRoot = 'uploads/public';
+        } else {
+            $uploadRoot = 'storage/private';
+        }
+
+        if ($customStoragePath !== null) {
+            $baseSubDir = $customStoragePath;
+        } else {
+            $baseSubDir = FileHelper::joinPaths('documents', $ownerType . '-' . $ownerId);
+        }
+
+        $targetDirectory = FileHelper::joinPaths($projectRoot, $uploadRoot, $baseSubDir);
         FileHelper::ensureDirectory($targetDirectory);
 
         $storedFileName = $uuid . '.' . $extension;
@@ -89,7 +103,7 @@ final class FileUploadService
         }
 
         $relativePath = FileHelper::normalizeRelativePath(
-            FileHelper::joinPaths($uploadRoot, 'documents', $ownerType . '-' . $ownerId, $storedFileName)
+            FileHelper::joinPaths($uploadRoot, $baseSubDir, $storedFileName)
         );
 
         $checksum = hash_file('sha256', $absoluteTarget);
@@ -100,14 +114,14 @@ final class FileUploadService
                 'INSERT INTO files
                  (public_id, owner_type, owner_id, display_filename, stored_filename,
                   storage_path, is_public, mime_type, file_size_bytes, checksum_sha256,
-                  version_number, uploaded_by_type, uploaded_by_id, created_at)
-                 VALUES (?,?,?,?,?,?,0,?,?,?,1,?,?,NOW())'
+                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
             );
             $stmt->execute([
                 $publicId, $ownerType, $ownerId,
                 $displayFilename, $storedFileName, $relativePath,
-                $mimeType, $fileSize, $checksum,
-                $uploadedByType, $uploadedById
+                $isPublic ? 1 : 0, $mimeType, $fileSize, $checksum,
+                $versionNumber, $previousVersionId, $uploadedByType, $uploadedById
             ]);
         } catch (\Exception $e) {
             // Rollback filesystem change

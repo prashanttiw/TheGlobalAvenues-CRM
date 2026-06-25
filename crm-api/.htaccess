@@ -1,21 +1,4 @@
-Options -Indexes
-RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule ^(.*)$ index.php [QSA,L]
-
-Header always set X-Content-Type-Options nosniff
-Header always set X-Frame-Options DENY
-Header always set X-XSS-Protection "1; mode=block"
-Header always set Referrer-Policy "strict-origin-when-cross-origin"
-Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
-
-<FilesMatch "\.(env|log|sql|md|git)$">
-  Order allow,deny
-  Deny from all
-</FilesMatch>
-
-<FilesMatch "^(config|middleware|models|services|database)">
-  Order allow,deny
-  Deny from all
-</FilesMatch>
+php_value upload_max_filesize 16M
+php_value post_max_size 18M
+php_value memory_limit 256M
+php_value max_execution_time 120
