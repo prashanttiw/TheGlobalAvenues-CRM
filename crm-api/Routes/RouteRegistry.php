@@ -41,42 +41,34 @@ final class RouteRegistry
             Response::error("Route '{$method} /?route={$route}&action={$action}' not found", 'NOT_FOUND', 404);
         }
 
-        // Exact match
-        $handler = self::$routes[$method][$route][$action] ?? null;
-        if ($handler !== null) {
-            $handler();
-            exit;
-        }
+        $requestPath = trim($route . '/' . $action, '/');
+        $requestParts = explode('/', $requestPath);
 
-        // Parameterized match
-        $routeParts = explode('/', $route);
         foreach (self::$routes[$method] as $registeredRoute => $actions) {
-            if (!isset($actions[$action])) {
-                continue;
-            }
+            foreach ($actions as $registeredAction => $handler) {
+                $registeredPath = trim($registeredRoute . '/' . $registeredAction, '/');
+                $registeredParts = explode('/', $registeredPath);
 
-            $registeredParts = explode('/', $registeredRoute);
-            if (count($routeParts) !== count($registeredParts)) {
-                continue;
-            }
-
-            $params = [];
-            $match = true;
-
-            for ($i = 0; $i < count($registeredParts); $i++) {
-                if (str_starts_with($registeredParts[$i], ':')) {
-                    // Capture parameter
-                    $params[] = $routeParts[$i];
-                } elseif ($registeredParts[$i] !== $routeParts[$i]) {
-                    $match = false;
-                    break;
+                if (count($requestParts) !== count($registeredParts)) {
+                    continue;
                 }
-            }
 
-            if ($match) {
-                $handler = $actions[$action];
-                $handler(...$params);
-                exit;
+                $params = [];
+                $match = true;
+
+                for ($i = 0; $i < count($registeredParts); $i++) {
+                    if (str_starts_with($registeredParts[$i], ':')) {
+                        $params[] = $requestParts[$i];
+                    } elseif ($registeredParts[$i] !== $requestParts[$i]) {
+                        $match = false;
+                        break;
+                    }
+                }
+
+                if ($match) {
+                    $handler(...$params);
+                    exit;
+                }
             }
         }
 
