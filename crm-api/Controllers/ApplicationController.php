@@ -123,6 +123,13 @@ class ApplicationController
             Response::error('Only students can withdraw applications', 'FORBIDDEN', 403);
         }
 
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $reason = trim($input['withdrawal_reason'] ?? '');
+
+        if (!$reason) {
+            Response::error('Withdrawal reason is required', 'VALIDATION_ERROR', 400);
+        }
+
         $application = $this->model->findByPublicId($pid);
         if (!$application) {
             Response::error('Application not found', 'NOT_FOUND', 404);
@@ -138,13 +145,82 @@ class ApplicationController
         }
 
         try {
-            StateManager::transition($this->pdo, $application['id'], 'withdrawn', 'student', (int)$user['id']);
+            StateManager::transition($this->pdo, $application['id'], 'withdrawn', 'student', (int)$user['id'], ['withdrawal_reason' => $reason]);
         } catch (Exception $e) {
             $code = $e->getCode() === 400 ? 'VALIDATION_ERROR' : ($e->getCode() === 403 ? 'FORBIDDEN' : 'SERVER_ERROR');
             Response::error($e->getMessage(), $code, $e->getCode() ?: 500);
         }
 
         Response::json(['success' => true, 'message' => 'Application withdrawn']);
+    }
+
+    public function agentWithdraw(string $pid): void
+    {
+        $user = AuthMiddleware::user();
+        if (($user['utype'] ?? '') !== 'agent' && ($user['user_type'] ?? '') !== 'agent') {
+            Response::error('Only agents can use this endpoint', 'FORBIDDEN', 403);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $reason = trim($input['withdrawal_reason'] ?? '');
+
+        if (!$reason) {
+            Response::error('Withdrawal reason is required', 'VALIDATION_ERROR', 400);
+        }
+
+        $application = $this->model->findByPublicId($pid);
+        if (!$application) {
+            Response::error('Application not found', 'NOT_FOUND', 404);
+        }
+
+        $stmt = $this->pdo->prepare("SELECT id FROM agents WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt->execute([$user['id']]);
+        $agentId = $stmt->fetchColumn();
+
+        // Verify agent is associated with this student
+        $stmt = $this->pdo->prepare("SELECT agent_id FROM students WHERE id = ?");
+        $stmt->execute([$application['student_id']]);
+        $studentAgentId = $stmt->fetchColumn();
+
+        if ($studentAgentId != $agentId) {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        try {
+            StateManager::transition($this->pdo, $application['id'], 'withdrawn', 'agent', (int)$user['id'], ['withdrawal_reason' => $reason]);
+        } catch (Exception $e) {
+            $code = $e->getCode() === 400 ? 'VALIDATION_ERROR' : ($e->getCode() === 403 ? 'FORBIDDEN' : 'SERVER_ERROR');
+            Response::error($e->getMessage(), $code, $e->getCode() ?: 500);
+        }
+
+        Response::json(['success' => true, 'message' => 'Application withdrawn by agent']);
+    }
+
+    public function adminWithdraw(string $pid): void
+    {
+        RBACMiddleware::requirePermission('applications', 'edit');
+        $user = AuthMiddleware::user();
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $reason = trim($input['withdrawal_reason'] ?? '');
+
+        if (!$reason) {
+            Response::error('Withdrawal reason is required', 'VALIDATION_ERROR', 400);
+        }
+
+        $application = $this->model->findByPublicId($pid);
+        if (!$application) {
+            Response::error('Application not found', 'NOT_FOUND', 404);
+        }
+
+        try {
+            StateManager::transition($this->pdo, $application['id'], 'withdrawn', 'admin', (int)$user['id'], ['withdrawal_reason' => $reason]);
+        } catch (Exception $e) {
+            $code = $e->getCode() === 400 ? 'VALIDATION_ERROR' : 'SERVER_ERROR';
+            Response::error($e->getMessage(), $code, $e->getCode() ?: 500);
+        }
+
+        Response::json(['success' => true, 'message' => 'Application withdrawn by admin']);
     }
 
     public function studentSubmit(string $pid): void
@@ -233,7 +309,7 @@ class ApplicationController
         RBACMiddleware::requirePermission('applications', 'view');
 
         $stmt = $this->pdo->prepare("
-            SELECT a.id, a.public_id, a.reference_number, a.status, a.submitted_at, a.created_at, a.notes,
+            SELECT a.id, a.public_id, a.reference_number, a.status, a.submitted_at, a.created_at, a.notes, a.withdrawal_reason,
                    i.public_id as intake_pid, i.name as intake_name, i.intake_month, i.intake_year,
                    i.tuition_fee_amount, i.tuition_fee_currency,
                    c.name as course_name, c.degree_level as course_level,

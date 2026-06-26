@@ -174,7 +174,7 @@ class UniversityController
             $user['id'] ?? 0,
             null,
             true, // isPublic
-            'public/universities' // customStoragePath
+            'universities' // customStoragePath
         );
 
         $stmt = $this->pdo->prepare("SELECT id FROM files WHERE public_id = ?");

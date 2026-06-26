@@ -37,11 +37,11 @@ final class RouteRegistry
 
     public static function dispatch(string $method, string $route, string $action): void
     {
-        if (!isset(self::$routes[$method])) {
-            Response::error("Route '{$method} /?route={$route}&action={$action}' not found", 'NOT_FOUND', 404);
-        }
+        $requestPath = '/' . ltrim(trim($route . '/' . $action, '/'), '/');
 
-        $requestPath = trim($route . '/' . $action, '/');
+        if (!isset(self::$routes[$method])) {
+            Response::error("Endpoint '{$method} {$requestPath}' not found", 'NOT_FOUND', 404);
+        }
         $requestParts = explode('/', $requestPath);
 
         foreach (self::$routes[$method] as $registeredRoute => $actions) {
@@ -72,6 +72,6 @@ final class RouteRegistry
             }
         }
 
-        Response::error("Route '{$method} /?route={$route}&action={$action}' not found", 'NOT_FOUND', 404);
+        Response::error("Endpoint '{$method} /" . ltrim(trim($route . '/' . $action, '/'), '/') . "' not found", 'NOT_FOUND', 404);
     }
 }
