@@ -15,6 +15,7 @@ import {
   Shield,
   UserCog,
   Users2,
+  Activity,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useStore } from '../../hooks/useStore';
@@ -49,6 +50,10 @@ import {
   updateAdminUniversity,
   updateAdminUser,
 } from '../../lib/api';
+import { useQuery } from '@tanstack/react-query';
+import api from '../../lib/api';
+import { InternalNotesWidget } from '../../shared/components/ui/InternalNotesWidget';
+import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidget';
 
 type Section = 'overview' | 'pipeline' | 'users' | 'documents' | 'catalog' | 'audit';
 
@@ -112,6 +117,12 @@ export function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const { data: activityFeed = [] } = useQuery({
+    queryKey: ['admin', 'activityFeed'],
+    queryFn: () => api.get('/admin/dashboard/activity-feed').then(res => res.data.data),
+    enabled: section === 'overview' && !!currentUser
+  });
 
   const [pipelineQuery, setPipelineQuery] = useState('');
   const [pipelineStatus, setPipelineStatus] = useState('');
@@ -483,6 +494,15 @@ export function AdminDashboardPage() {
             <p className="mt-3 max-w-2xl text-sm text-white/72 leading-relaxed">
               Admissions, compliance, partner control, and shared catalog management now run from one live operational surface.
             </p>
+            <div className="mt-5">
+              <button 
+                onClick={() => navigate('/portal/admin/reports')}
+                className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-5 py-2.5 text-sm font-black text-white shadow-lg transition-transform hover:scale-105"
+              >
+                <Activity className="w-4 h-4" />
+                Open Analytics Console
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatChip label="Applications" value={dashboard?.totalApplications ?? '...'} />
@@ -553,6 +573,13 @@ export function AdminDashboardPage() {
                       </div>
                     ))}
                   </div>
+                </Panel>
+
+                <Panel
+                  title="System Activity Feed"
+                  subtitle="Live roll-up of operational actions across modules."
+                >
+                  <ActivityFeedWidget rolePrefix="admin" />
                 </Panel>
 
                 <Panel
@@ -829,15 +856,8 @@ export function AdminDashboardPage() {
                       ))}
                     </div>
 
-                    <div className="space-y-3">
-                      <h4 className="text-sm font-black text-gray-900">Internal notes</h4>
-                      {selectedApplication.notes.length === 0 && <EmptyState label="No internal notes yet." compact />}
-                      {selectedApplication.notes.map((note) => (
-                        <div key={note.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-3">
-                          <div className="text-xs font-bold text-gray-900">{note.author_email}</div>
-                          <div className="mt-1 text-sm text-gray-700">{note.note}</div>
-                        </div>
-                      ))}
+                    <div className="pt-4">
+                      <InternalNotesWidget moduleName="applications" recordId={selectedApplication.public_id} />
                     </div>
                   </div>
                 )}

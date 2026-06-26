@@ -33,6 +33,7 @@ import {
   type StudentProfileResponse,
 } from '../lib/api';
 import { deriveIntakeMonth, formatMoney } from '../lib/catalog';
+import { ActivityFeedWidget } from '../shared/components/ui/ActivityFeedWidget';
 
 type DashboardTab = 'dashboard' | 'quiz' | 'documents' | 'visa';
 
@@ -631,6 +632,12 @@ export function StudentDashboardPage() {
                       ? 'Use the live course finder to push your first inquiry into the CRM. That unlocks the rest of the journey map.'
                       : 'Keep the document set tight and the visa checklist current so there is no dead time between stages.'}
                   </p>
+                </div>
+                
+                <div className="rounded-[28px] border border-[#2D1B69]/10 bg-white p-6 shadow-sm">
+                  <div className="text-[11px] font-black uppercase tracking-[0.22em] text-[#7B7496]">History</div>
+                  <h2 className="text-2xl font-black text-[#0F0B1F] mt-2 mb-4">Recent Activity</h2>
+                  <ActivityFeedWidget rolePrefix="student" />
                 </div>
               </div>
             </div>

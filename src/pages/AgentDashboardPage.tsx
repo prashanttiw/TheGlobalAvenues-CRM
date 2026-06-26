@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import CountUp from 'react-countup';
+import { ActivityFeedWidget } from '../shared/components/ui/ActivityFeedWidget';
 
 export function AgentDashboardPage() {
   const location = useLocation();
@@ -667,6 +668,13 @@ export function AgentDashboardPage() {
               </div>
             </div>
 
+          </div>
+          
+          {/* Agent Activity Feed */}
+          <div className="bg-white p-6 rounded-3xl border border-gray-150 shadow-sm">
+            <h3 className="font-extrabold text-sm text-gray-900 mb-1">Recent Activity</h3>
+            <p className="text-[10px] text-gray-400 font-semibold mb-4">Roll-up of recent actions in your agency network.</p>
+            <ActivityFeedWidget rolePrefix="agent" />
           </div>
         </div>
       )}

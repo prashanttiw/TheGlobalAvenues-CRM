@@ -221,15 +221,17 @@ final class AuthController
             "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('password_reset_requested', ?, ?, NOW())"
         )->execute([$emailHash, $ip]);
 
+        $code = null;
         if ($user && ($user['status'] ?? '') === 'active') {
             $otpService = new OTPService($this->pdo);
-            $otpService->generate($email, 'password_reset', (int) (\TGA\CRM\Config\Environment::get('OTP_EXPIRY_MINUTES', '10')));
+            $code = $otpService->generate($email, 'password_reset', (int) (\TGA\CRM\Config\Environment::get('OTP_EXPIRY_MINUTES', '10')));
         }
 
-        Response::json([
+        $devOtp = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development' && $code !== null) ? ['otp_code_preview' => $code] : [];
+        Response::json(array_merge([
             'success' => true,
             'message' => 'If an account exists, you will receive an OTP via email',
-        ]);
+        ], $devOtp));
     }
 
     public function resetPasswordVerifyOtp(): void
@@ -483,15 +485,17 @@ final class AuthController
         $stmt->execute([$emailHash]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        $code = null;
         if ($user && ($user['status'] ?? '') === 'active') {
             $otpService = new OTPService($this->pdo);
-            $otpService->generate($email, 'login');
+            $code = $otpService->generate($email, 'login');
         }
 
-        Response::json([
+        $devOtp = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development' && $code !== null) ? ['otp_code_preview' => $code] : [];
+        Response::json(array_merge([
             'success' => true,
             'message' => 'If your account exists, an OTP has been sent.',
-        ]);
+        ], $devOtp));
     }
 
     public function verifyOtpLogin(): void
@@ -671,6 +675,54 @@ final class AuthController
             throw $e;
         }
     }
+
+    public function toggle2FA(): void
+    {
+        $payload = AuthMiddleware::user();
+        $userId = (int)$payload['sub'];
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $enable = isset($input['enable']) ? (bool)$input['enable'] : null;
+        $password = (string)($input['password'] ?? '');
+
+        if ($enable === null || $password === '') {
+            Response::error('Missing enable boolean or password', 'VALIDATION_ERROR', 400);
+        }
+
+        $stmt = $this->pdo->prepare('SELECT password_hash, two_factor_enabled FROM users WHERE id = ? AND deleted_at IS NULL');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user) {
+            Response::error('User not found', 'NOT_FOUND', 404);
+        }
+
+        if (!password_verify($password, $user['password_hash'])) {
+            $ip = RateLimitMiddleware::getIpAddress();
+            $this->pdo->prepare(
+                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('2fa_toggle_failed', ?, ?, NOW())"
+            )->execute([$userId, $ip]);
+            Response::error('Incorrect password', 'INCORRECT_PASSWORD', 400);
+        }
+
+        $newStatus = $enable ? 1 : 0;
+        
+        if ((int)$user['two_factor_enabled'] === $newStatus) {
+            Response::json(['success' => true, 'message' => '2FA is already in the requested state.']);
+        }
+
+        $updateStmt = $this->pdo->prepare('UPDATE users SET two_factor_enabled = ? WHERE id = ?');
+        $updateStmt->execute([$newStatus, $userId]);
+
+        $ip = RateLimitMiddleware::getIpAddress();
+        $this->pdo->prepare(
+            "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES (?, ?, ?, NOW())"
+        )->execute([$enable ? '2fa_enabled' : '2fa_disabled', $userId, $ip]);
+
+        \TGA\CRM\Services\ActivityLogger::log($enable ? 'user.2fa_enabled' : 'user.2fa_disabled', 'user', $userId, $userId);
+
+        Response::json(['success' => true, 'message' => $enable ? '2FA enabled successfully' : '2FA disabled successfully']);
+    }
     private function fetchAuthUser(int $userId): array
     {
         $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1');
@@ -706,6 +758,7 @@ final class AuthController
             'name' => $fullName,
             'permissions' => $permissions,
             'account_status' => $this->resolveAccountStatus($userType, (int) $user['id'], (string) ($user['status'] ?? 'active')),
+            'two_factor_enabled' => (bool) ($user['two_factor_enabled'] ?? false),
         ];
     }
 

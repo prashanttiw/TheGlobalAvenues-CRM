@@ -1280,7 +1280,7 @@ export async function fetchAdminCommissionsSummary(): Promise<any> {
 }
 
 export async function createCommission(applicationPid: string, payload: {
-  agent_id: number;
+  agent_public_id: string;
   amount: number;
   currency: string;
   percentage?: number;
@@ -1291,6 +1291,27 @@ export async function createCommission(applicationPid: string, payload: {
     body: JSON.stringify(payload),
   });
   return response.data;
+}
+
+export async function fetchAdminStudents(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  search?: string;
+} = {}): Promise<{ students: any[]; meta: PaginationMeta }> {
+  const query = buildQuery({
+    route: 'admin',
+    action: 'students',
+    page: params.page,
+    per_page: params.perPage,
+    status: params.status,
+    search: params.search,
+  });
+  const response = await request<any>(`/?${query}`);
+  return {
+    students: response.data.students || response.data || [],
+    meta: (response.meta || response.data?.meta) as PaginationMeta,
+  };
 }
 
 export async function fetchApplicationCommissions(applicationPid: string): Promise<any[]> {
@@ -1352,4 +1373,46 @@ export async function inviteSubAgent(payload: {
   });
   return response.data;
 }
+
+function formatPath(path: string): string {
+  if (path.startsWith('/?')) {
+    return path;
+  }
+  const cleanPath = path.startsWith('/') ? path.slice(1) : path;
+  if (cleanPath === '' || cleanPath.startsWith('?')) {
+    return path;
+  }
+
+  const parts = cleanPath.split('?');
+  const pathPart = parts[0];
+  const queryPart = parts[1] ? '&' + parts[1] : '';
+
+  const segments = pathPart.split('/');
+  const route = segments[0];
+  const action = segments.slice(1).join('/');
+
+  return `/?route=${route}&action=${action}${queryPart}`;
+}
+
+const api = {
+  get: <T = any>(path: string, config?: { params?: Record<string, any>; headers?: Record<string, string> }) => {
+    const formatted = formatPath(path);
+    const query = config?.params ? (formatted.includes('?') ? '&' : '?') + buildQuery(config.params) : '';
+    return request<T>(formatted + query, { method: 'GET', headers: config?.headers });
+  },
+  post: <T = any>(path: string, data?: any, config?: { headers?: Record<string, string> }) => {
+    const formatted = formatPath(path);
+    return request<T>(formatted, { method: 'POST', body: JSON.stringify(data), headers: config?.headers });
+  },
+  put: <T = any>(path: string, data?: any, config?: { headers?: Record<string, string> }) => {
+    const formatted = formatPath(path);
+    return request<T>(formatted, { method: 'PUT', body: JSON.stringify(data), headers: config?.headers });
+  },
+  delete: <T = any>(path: string, config?: { headers?: Record<string, string> }) => {
+    const formatted = formatPath(path);
+    return request<T>(formatted, { method: 'DELETE', headers: config?.headers });
+  }
+};
+
+export default api;
 

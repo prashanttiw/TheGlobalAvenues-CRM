@@ -154,11 +154,12 @@ final class RegistrationController
 
         $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_initiated', ?, ?, NOW())")->execute([$emailHash, $ip]);
 
-        Response::json([
+        $devOtp = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development') ? ['otp_code_preview' => $code] : [];
+        Response::json(array_merge([
             'success' => true,
             'session_token' => $token,
             'expires_in_minutes' => 15
-        ], 202);
+        ], $devOtp), 202);
     }
 
     public function verifyStudentOtp(): void
@@ -331,6 +332,7 @@ final class RegistrationController
         $businessRegNumber = trim($input['business_registration_number'] ?? '');
         $recruitmentDescription = trim($input['recruitment_description'] ?? '');
         $password = $input['password'] ?? '';
+        $referralCode = trim($input['referral_code'] ?? '');
 
         if (!$agencyName || !$country || !$partnershipScope || !$fullName || !$email || !$phone || !$password) {
             Response::error('Missing required fields', 'VALIDATION_ERROR', 400);
@@ -361,6 +363,7 @@ final class RegistrationController
             'phone' => $phone,
             'business_registration_number' => $businessRegNumber,
             'recruitment_description' => $recruitmentDescription,
+            'referral_code' => $referralCode,
             'password_hash' => password_hash($password, PASSWORD_ARGON2ID, [
             'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
             'time_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
@@ -376,11 +379,12 @@ final class RegistrationController
 
         $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_initiated', ?, ?, NOW())")->execute([$emailHash, $ip]);
 
-        Response::json([
+        $devOtp = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development') ? ['otp_code_preview' => $code] : [];
+        Response::json(array_merge([
             'success' => true,
             'session_token' => $token,
             'expires_in_minutes' => 15
-        ], 202);
+        ], $devOtp), 202);
     }
 
     public function verifyAgentOtp(): void
@@ -438,14 +442,37 @@ final class RegistrationController
 
             $userId = (int)$this->pdo->lastInsertId();
 
+            $referralCode = $data['referral_code'] ?? null;
+            $parentAgentId = null;
+            $rootAgentId = null;
+            $tier = 1;
+
+            if ($referralCode) {
+                $agentStmt = $this->pdo->prepare("SELECT id, root_agent_id, tier FROM agents WHERE referral_code = ? AND status = 'approved' LIMIT 1");
+                $agentStmt->execute([$referralCode]);
+                $parentAgent = $agentStmt->fetch(PDO::FETCH_ASSOC);
+
+                if ($parentAgent) {
+                    $parentAgentId = $parentAgent['id'];
+                    $rootAgentId = $parentAgent['root_agent_id'] ?: $parentAgent['id'];
+                    $tier = $parentAgent['tier'] + 1;
+                    if ($tier > 3) {
+                         throw new \Exception("Maximum sub-agent tier depth reached", 400);
+                    }
+                }
+            }
+
             // Insert Agent
             $agentStmt = $this->pdo->prepare(
                 "INSERT INTO agents (public_id, user_id, tier, parent_agent_id, root_agent_id, full_name, agency_name, country, business_reg_number, partnership_scope, referral_code, status, terms_accepted_at)
-                 VALUES (?, ?, 1, NULL, NULL, ?, ?, ?, ?, ?, NULL, 'pending', NOW())"
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'pending', NOW())"
             );
             $agentStmt->execute([
                 $agentPublicId,
                 $userId,
+                $tier,
+                $parentAgentId,
+                $rootAgentId,
                 $data['full_name'],
                 $data['agency_name'],
                 $data['country'],
@@ -454,9 +481,11 @@ final class RegistrationController
             ]);
             $agentId = (int)$this->pdo->lastInsertId();
 
-            // Update root_agent_id
-            $updateRoot = $this->pdo->prepare("UPDATE agents SET root_agent_id = ? WHERE id = ?");
-            $updateRoot->execute([$agentId, $agentId]);
+            if (!$rootAgentId) {
+                // Update root_agent_id for top-level agent
+                $updateRoot = $this->pdo->prepare("UPDATE agents SET root_agent_id = ? WHERE id = ?");
+                $updateRoot->execute([$agentId, $agentId]);
+            }
 
             // Insert Preferences
             $prefStmt = $this->pdo->prepare('INSERT INTO user_preferences (user_id) VALUES (?)');
