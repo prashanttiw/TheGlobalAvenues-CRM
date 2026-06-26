@@ -31,6 +31,7 @@ final class Environment
 
             $_ENV[$key] = $value;
             $_SERVER[$key] = $value;
+            putenv("{$key}={$value}");
         }
 
         self::$loaded = true;

@@ -3,7 +3,9 @@
   "description": "The Global Avenues CRM PHP API",
   "type": "project",
   "require": {
-    "php": "^8.1"
+    "php": "^8.1",
+    "openspout/openspout": "4.0",
+    "dompdf/dompdf": "^3.1"
   },
   "autoload": {
     "psr-4": {

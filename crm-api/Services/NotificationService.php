@@ -6,37 +6,102 @@ namespace TGA\CRM\Services;
 
 use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\UlidGenerator;
+use TGA\CRM\Models\NotificationTemplateModel;
+use PDO;
 
 final class NotificationService
 {
-    /**
-     * Dummy hook for Phase 6 dispatch. 
-     * Enqueues the notification into the database to be processed later by a cron worker.
-     * 
-     * @param string $eventKey E.g. 'agent.approved'
-     * @param array $payload E.g. ['referral_code' => 'TGA-1234']
-     * @param array $userIds Array of user IDs to receive the notification
-     */
-    public static function fire(string $eventKey, array $payload, array $userIds): void
-    {
-        try {
-            $pdo = Database::getConnection();
+    public static function fire(
+        string $eventKey,
+        array  $vars,
+        array  $recipientUserIds
+    ): void {
+        if (empty($recipientUserIds)) return;
 
-            $stmt = $pdo->prepare(
-                'INSERT INTO notifications (public_id, event_key, recipient_user_id, channel, body, status, created_at) 
-                 VALUES (?, ?, ?, \'email,in_app\', ?, \'queued\', NOW())'
-            );
+        $template = NotificationTemplateModel::findByEventKey($eventKey);
+        if (!$template || !$template['is_active']) return;
 
-            foreach ($userIds as $userId) {
+        $subject = self::render($template['subject_template'], $vars);
+        $body    = self::render($template['body_template'], $vars);
+        $channels = array_map('trim', explode(',', $template['channels']));
+
+        $pdo = Database::getConnection();
+        $stmt = $pdo->prepare("
+            INSERT INTO notifications
+              (public_id, event_key, recipient_user_id, channel, category,
+               subject, body, status, related_entity_type, related_entity_id, created_at)
+            VALUES (?,?,?,?,?,?,?,'queued',?,?,NOW())
+        ");
+
+        foreach ($recipientUserIds as $userId) {
+            if (!$userId) continue;
+            foreach ($channels as $channel) {
                 $stmt->execute([
                     UlidGenerator::generate(),
-                    $eventKey,
-                    $userId,
-                    json_encode($payload, JSON_UNESCAPED_SLASHES)
+                    $eventKey, $userId, $channel,
+                    $template['category'] ?? null,
+                    $subject, $body,
+                    $vars['entity_type'] ?? null,
+                    $vars['entity_id']   ?? null,
                 ]);
             }
-        } catch (\Exception $e) {
-            error_log('[NotificationService Error] Failed to queue notification: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Walk up parent_agent_id chain from a student's attached agent.
+     * Returns user_ids of all agents in the chain (agent + parents up to root).
+     */
+    public static function resolveAgentChain(int $studentId): array {
+        $pdo = Database::getConnection();
+        $studentStmt = $pdo->prepare(
+            "SELECT agent_id FROM students WHERE id = ? AND deleted_at IS NULL"
+        );
+        $studentStmt->execute([$studentId]);
+        $row = $studentStmt->fetch();
+        if (!$row || !$row['agent_id']) return [];
+
+        $userIds = [];
+        $agentId = $row['agent_id'];
+
+        while ($agentId) {
+            $a = $pdo->prepare(
+                "SELECT user_id, parent_agent_id FROM agents WHERE id = ? AND deleted_at IS NULL"
+            );
+            $a->execute([$agentId]);
+            $agent = $a->fetch();
+            if (!$agent) break;
+
+            $userStmt = $pdo->prepare(
+                "SELECT id FROM users WHERE id = ? AND status = 'active'"
+            );
+            $userStmt->execute([$agent['user_id']]);
+            $u = $userStmt->fetch();
+            if ($u) $userIds[] = $u['id'];
+
+            $agentId = $agent['parent_agent_id'];
+        }
+
+        return array_unique($userIds);
+    }
+
+    public static function getSuperAdminUserIds(): array {
+        $pdo = Database::getConnection();
+        return $pdo->query("
+            SELECT u.id FROM users u
+            JOIN admins a ON a.user_id = u.id
+            WHERE a.is_super_admin = 1 AND u.status = 'active'
+              AND u.deleted_at IS NULL
+        ")->fetchAll(PDO::FETCH_COLUMN);
+    }
+
+    private static function render(string $template, array $vars): string {
+        foreach ($vars as $key => $value) {
+            if (is_scalar($value)) {
+                $safeValue = (string)$value;
+                $template = str_replace('{{' . $key . '}}', $safeValue, $template);
+            }
+        }
+        return $template;
     }
 }
