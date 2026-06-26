@@ -97,16 +97,16 @@ class FileController
         }
 
         // Determine actual disk path.
-        // FileUploadService stored it usually in `storage/private/...` or `storage/public/...` but let's assume `file_path` is the absolute path or relative to project root.
+        // FileUploadService stored it usually in `storage/private/...` or `storage/public/...` but let's assume `storage_path` is the absolute path or relative to project root.
         $baseDir = dirname(__DIR__, 2); // Assuming crm-api is root, and storage is at project root. Wait.
-        // Actually, let's just use the stored file_path directly. If it's absolute, it works.
-        // Let's assume file_path is relative to project root, e.g. "storage/private/..."
-        $absolutePath = $baseDir . DIRECTORY_SEPARATOR . $fileRecord['file_path'];
+        // Actually, let's just use the stored storage_path directly. If it's absolute, it works.
+        // Let's assume storage_path is relative to project root, e.g. "storage/private/..."
+        $absolutePath = $baseDir . DIRECTORY_SEPARATOR . $fileRecord['storage_path'];
 
         if (!file_exists($absolutePath)) {
-            // Fallback in case file_path was stored absolute already
-            if (file_exists($fileRecord['file_path'])) {
-                $absolutePath = $fileRecord['file_path'];
+            // Fallback in case storage_path was stored absolute already
+            if (file_exists($fileRecord['storage_path'])) {
+                $absolutePath = $fileRecord['storage_path'];
             } else {
                 Response::error('Physical file is missing from storage', 'NOT_FOUND', 404);
             }
@@ -126,7 +126,7 @@ class FileController
                     json_encode([
                         'expected' => $fileRecord['checksum_sha256'],
                         'computed' => $computedChecksum,
-                        'file_path' => $fileRecord['file_path']
+                        'storage_path' => $fileRecord['storage_path']
                     ], JSON_UNESCAPED_SLASHES)
                 ]);
                 Response::error('File integrity verification failed', 'SERVER_ERROR', 500);

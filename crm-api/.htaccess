@@ -1,4 +1,41 @@
+# Route all API traffic to index.php
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^(.*)$ index.php [QSA,L]
+</IfModule>
+
+# Disable directory listing
+Options -Indexes
+
+# Hide Apache version and OS
+ServerSignature Off
+
+# Security Headers
+<IfModule mod_headers.c>
+    Header set X-XSS-Protection "1; mode=block"
+    Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Content-Security-Policy "default-src 'self'; connect-src 'self' https://api.theglobalavenues.com https://portal.theglobalavenues.com https://www.googleapis.com; frame-ancestors 'none'; upgrade-insecure-requests"
+    Header set Permissions-Policy "geolocation=(), camera=(), microphone=()"
+</IfModule>
+
+# Protect sensitive files
+<FilesMatch "^\.env|composer\.json|composer\.lock|php_errors\.log$">
+    Require all denied
+</FilesMatch>
+
+# PHP Values
 php_value upload_max_filesize 16M
 php_value post_max_size 18M
 php_value memory_limit 256M
 php_value max_execution_time 120
+php_flag display_errors off
+
+# Enable GZIP Compression for performance
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE application/json application/javascript text/plain text/html text/css
+</IfModule>

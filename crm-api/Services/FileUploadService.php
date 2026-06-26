@@ -64,6 +64,7 @@ final class FileUploadService
         $fileSize = (int) $file['size'];
         $this->assertFileSize($fileSize, $mimeType);
         $this->assertSafeImagePayload((string) $file['tmp_name'], $mimeType);
+        $this->assertDiskSpace($fileSize);
 
         $uuid = $this->generateUuidV4();
         $extension = self::MIME_EXTENSION_MAP[$mimeType] ?? null;
@@ -72,11 +73,15 @@ final class FileUploadService
             throw new \RuntimeException('Unsupported file type.');
         }
 
-        if ($displayFilename === null) {
-            $displayFilename = basename((string) $file['name']);
-        }
-        $displayFilename = preg_replace('/[^\p{L}\p{N}_\-\.]/u', '_', $displayFilename);
-        $displayFilename = substr($displayFilename, 0, 200);
+        $ownerPublicId = self::fetchOwnerPublicId($pdo, $ownerType, $ownerId);
+        $slugifiedLabel = self::slugify($documentType !== 'other' ? $documentType : pathinfo((string) $file['name'], PATTERN_FILENAME ?? PATHINFO_FILENAME));
+        $displayFilename = sprintf('%s_%s_%s_%s.%s',
+            $ownerType,
+            substr($ownerPublicId, -8),
+            $slugifiedLabel,
+            date('Y-m-d'),
+            $extension
+        );
 
         $projectRoot = dirname(__DIR__, 2);
         if ($isPublic) {
@@ -109,19 +114,23 @@ final class FileUploadService
         $checksum = hash_file('sha256', $absoluteTarget);
         $publicId = UlidGenerator::generate();
 
+        $driveFolderPath = self::buildDriveFolderPath($ownerType, $ownerPublicId);
+
         try {
             $stmt = $pdo->prepare(
                 'INSERT INTO files
                  (public_id, owner_type, owner_id, display_filename, stored_filename,
                   storage_path, is_public, mime_type, file_size_bytes, checksum_sha256,
-                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
+                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id, 
+                  drive_sync_status, drive_folder_path, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
             );
             $stmt->execute([
                 $publicId, $ownerType, $ownerId,
                 $displayFilename, $storedFileName, $relativePath,
                 $isPublic ? 1 : 0, $mimeType, $fileSize, $checksum,
-                $versionNumber, $previousVersionId, $uploadedByType, $uploadedById
+                $versionNumber, $previousVersionId, $uploadedByType, $uploadedById,
+                'pending', $driveFolderPath
             ]);
         } catch (\Exception $e) {
             // Rollback filesystem change
@@ -200,7 +209,7 @@ final class FileUploadService
     private function assertFileSize(int $size, string $mimeType): void
     {
         $imageLimitBytes = 2 * 1024 * 1024;
-        $documentLimitBytes = ((int) Environment::get('UPLOAD_MAX_SIZE_MB', '10')) * 1024 * 1024;
+        $documentLimitBytes = ((int) SystemSettings::get('upload_max_size_mb', '10')) * 1024 * 1024;
         $maxSize = str_starts_with($mimeType, 'image/') ? $imageLimitBytes : $documentLimitBytes;
 
         if ($size <= 0 || $size > $maxSize) {
@@ -225,6 +234,17 @@ final class FileUploadService
         }
     }
 
+    private function assertDiskSpace(int $fileSize): void
+    {
+        $projectRoot = dirname(__DIR__, 2);
+        $minFreeSpace = 50 * 1024 * 1024;
+        $freeSpace = @disk_free_space($projectRoot);
+
+        if ($freeSpace !== false && $freeSpace < ($fileSize + $minFreeSpace)) {
+            throw new \RuntimeException('Server disk space is critically low. Upload rejected.');
+        }
+    }
+
     private function generateUuidV4(): string
     {
         $bytes = random_bytes(16);
@@ -232,5 +252,38 @@ final class FileUploadService
         $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
 
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
+    }
+
+    private static function fetchOwnerPublicId(PDO $pdo, string $ownerType, int $ownerId): string
+    {
+        $tableMap = [
+            'student'     => 'students',
+            'application' => 'applications',
+            'university'  => 'universities',
+            'agent'       => 'agents',
+        ];
+        $table = $tableMap[$ownerType] ?? null;
+        if (!$table) {
+            return 'UNKNOWN';
+        }
+        $stmt = $pdo->prepare("SELECT public_id FROM {$table} WHERE id = ?");
+        $stmt->execute([$ownerId]);
+        return (string) $stmt->fetchColumn() ?: 'UNKNOWN';
+    }
+
+    private static function buildDriveFolderPath(string $ownerType, string $ownerPublicId): string
+    {
+        $map = [
+            'student'     => "TGA-CRM/Students/{$ownerPublicId}/Documents",
+            'application' => "TGA-CRM/Applications/{$ownerPublicId}",
+            'university'  => "TGA-CRM/Universities/{$ownerPublicId}",
+            'notice'      => "TGA-CRM/Notices",
+        ];
+        return $map[$ownerType] ?? 'TGA-CRM/Misc';
+    }
+
+    private static function slugify(string $text): string
+    {
+        return strtolower(preg_replace('/[^a-z0-9]+/i', '_', trim($text)));
     }
 }
