@@ -6,52 +6,29 @@ import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge'
 import { Button } from '../../shared/components/ui/Button'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
-import { Plus, Megaphone, Trash, Edit, Bell } from 'lucide-react'
+import { Plus, Trash, Edit, ExternalLink, Paperclip } from 'lucide-react'
 import { toast } from 'sonner'
 import { usePermission } from '../../hooks/usePermission'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import api from '../../lib/api'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
 
 interface Notice {
-  id: string
+  public_id: string
   title: string
-  type: 'notice' | 'event'
-  audiences: ('student' | 'agent' | 'admin')[]
+  notice_type: 'notice' | 'event'
   status: StatusType
-  publishedDate: string
-  content: string
+  published_at: string | null
+  expires_at: string | null
+  visible_to_students: number
+  visible_to_agents: number
+  visible_to_admins: number
+  content?: string
 }
 
-const MOCK_NOTICES: Notice[] = [
-  {
-    id: 'notice-1',
-    title: 'Autumn Intake Deadlines Extended',
-    type: 'notice',
-    audiences: ['student', 'agent'],
-    status: 'approved',
-    publishedDate: '2026-06-20',
-    content: 'The deadline for applying to UK university partners has been extended to August 15th, 2026.',
-  },
-  {
-    id: 'notice-2',
-    title: 'Partner Agent Training Seminar',
-    type: 'event',
-    audiences: ['agent'],
-    status: 'approved',
-    publishedDate: '2026-06-18',
-    content: 'Join our annual training seminar to learn about new visa processing rules. Located on Zoom.',
-  },
-  {
-    id: 'notice-3',
-    title: 'Scheduled System Maintenance',
-    type: 'notice',
-    audiences: ['student', 'agent', 'admin'],
-    status: 'pending',
-    publishedDate: '2026-06-25',
-    content: 'The student and agent portals will undergo maintenance on Saturday from 2 AM to 4 AM IST.',
-  },
-]
-
 export default function AdminNoticesPage() {
-  const [notices, setNotices] = React.useState<Notice[]>(MOCK_NOTICES)
+  const queryClient = useQueryClient()
   const [typeFilter, setTypeFilter] = React.useState<'all' | 'notice' | 'event'>('all')
   const [isAddOpen, setIsAddOpen] = React.useState(false)
 
@@ -59,77 +36,133 @@ export default function AdminNoticesPage() {
   const canEdit = usePermission('notices', 'edit')
   const canDelete = usePermission('notices', 'delete')
 
+  const { data: noticesData, isLoading } = useQuery({
+    queryKey: ['admin', 'notices'],
+    queryFn: () => api.get('/admin/notices').then(r => r.data.data),
+  })
+
+  const notices: Notice[] = noticesData || []
+
+  const editor = useEditor({
+    extensions: [StarterKit],
+    content: '',
+  })
+
   const [form, setForm] = React.useState({
     title: '',
     type: 'notice' as 'notice' | 'event',
-    content: '',
+    expires_at: '',
     audiences: {
       student: true,
       agent: true,
       admin: false,
     },
-    status: 'approved' as StatusType,
+    publish_now: true,
   })
+
+  const createMutation = useMutation({
+    mutationFn: (payload: any) => api.post('/admin/notices', payload),
+    onSuccess: (res) => {
+      if (form.publish_now) {
+        publishMutation.mutate(res.data.notice.public_id)
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['admin', 'notices'] })
+        toast.success('Draft notice saved successfully!')
+      }
+      setIsAddOpen(false)
+      setForm({
+        title: '',
+        type: 'notice',
+        expires_at: '',
+        audiences: { student: true, agent: true, admin: false },
+        publish_now: true,
+      })
+      editor?.commands.setContent('')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to create notice')
+  })
+
+  const publishMutation = useMutation({
+    mutationFn: (pid: string) => api.put(`/admin/notices/${pid}/publish`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'notices'] })
+      toast.success('Notice published and dispatched!')
+    },
+    onError: (err: any) => toast.error(err.response?.data?.message || 'Failed to publish notice')
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: (pid: string) => api.delete(`/admin/notices/${pid}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'notices'] })
+      toast.success('Notice deleted')
+    },
+  })
+
+  const handleFileUpload = async (pid: string, file: File) => {
+    const formData = new FormData()
+    formData.append('attachment', file)
+    
+    try {
+      await api.post(`/admin/notices/${pid}/attachment`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      queryClient.invalidateQueries({ queryKey: ['admin', 'notices'] })
+      toast.success('Attachment uploaded successfully')
+    } catch (err: any) {
+      toast.error(err.response?.data?.message || 'Failed to upload attachment')
+    }
+  }
 
   const handleAddNotice = (e: React.FormEvent) => {
     e.preventDefault()
-    const selectedAudiences: ('student' | 'agent' | 'admin')[] = []
-    if (form.audiences.student) selectedAudiences.push('student')
-    if (form.audiences.agent) selectedAudiences.push('agent')
-    if (form.audiences.admin) selectedAudiences.push('admin')
 
-    if (selectedAudiences.length === 0) {
+    if (!form.audiences.student && !form.audiences.agent && !form.audiences.admin) {
       toast.error('Please select at least one target audience.')
       return
     }
 
-    const newNotice: Notice = {
-      id: `notice-${Date.now()}`,
-      title: form.title,
-      type: form.type,
-      audiences: selectedAudiences,
-      status: form.status,
-      publishedDate: new Date().toISOString().split('T')[0],
-      content: form.content,
+    const htmlContent = editor?.getHTML()
+    if (!htmlContent || htmlContent === '<p></p>') {
+      toast.error('Content cannot be empty.')
+      return
     }
 
-    setNotices([...notices, newNotice])
-    setIsAddOpen(false)
-    setForm({
-      title: '',
-      type: 'notice',
-      content: '',
-      audiences: {
-        student: true,
-        agent: true,
-        admin: false,
-      },
-      status: 'approved',
+    createMutation.mutate({
+      title: form.title,
+      notice_type: form.type,
+      content: htmlContent,
+      visible_to_students: form.audiences.student,
+      visible_to_agents: form.audiences.agent,
+      visible_to_admins: form.audiences.admin,
+      expires_at: form.expires_at || null
     })
-    toast.success('Notice published successfully!')
   }
 
   const handleDelete = (id: string, title: string) => {
-    setNotices(notices.filter(n => n.id !== id))
-    toast.success(`Deleted notice: ${title}`)
+    if (confirm(`Delete notice: ${title}?`)) {
+      deleteMutation.mutate(id)
+    }
   }
 
   const filteredNotices = notices.filter(n => {
     if (typeFilter === 'all') return true
-    return n.type === typeFilter
+    return n.notice_type === typeFilter
   })
 
   const columns: ColumnDef<Notice>[] = [
     {
       key: 'notice',
-      header: 'Notice & Content',
+      header: 'Notice',
       cell: (row) => (
         <div className="max-w-md">
           <p className="font-semibold text-brand-navy flex items-center gap-1.5">
-            <span className={`inline-block w-2.5 h-2.5 rounded-full ${row.type === 'event' ? 'bg-amber-500' : 'bg-brand-orange-accessible'}`} />
+            <span className={`inline-block w-2.5 h-2.5 rounded-full ${row.notice_type === 'event' ? 'bg-amber-500' : 'bg-brand-orange-accessible'}`} />
             {row.title}
           </p>
-          <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{row.content}</p>
+          {row.expires_at && (
+            <p className="text-xs text-red-500 mt-0.5 font-medium">Expires: {new Date(row.expires_at).toLocaleDateString()}</p>
+          )}
         </div>
       ),
     },
@@ -138,11 +171,11 @@ export default function AdminNoticesPage() {
       header: 'Type',
       cell: (row) => (
         <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${
-          row.type === 'event' 
+          row.notice_type === 'event' 
             ? 'bg-amber-100 text-amber-800' 
             : 'bg-orange-100 text-orange-800'
         }`}>
-          {row.type}
+          {row.notice_type}
         </span>
       ),
     },
@@ -151,18 +184,16 @@ export default function AdminNoticesPage() {
       header: 'Target Audiences',
       cell: (row) => (
         <div className="flex gap-1 flex-wrap">
-          {row.audiences.map(aud => (
-            <span key={aud} className="text-[10px] uppercase font-semibold text-brand-navy bg-surface-warm px-1.5 py-0.5 rounded border border-border-warm">
-              {aud}
-            </span>
-          ))}
+          {row.visible_to_students === 1 && <span className="text-[10px] uppercase font-semibold text-brand-navy bg-surface-warm px-1.5 py-0.5 rounded border border-border-warm">STUDENT</span>}
+          {row.visible_to_agents === 1 && <span className="text-[10px] uppercase font-semibold text-brand-navy bg-surface-warm px-1.5 py-0.5 rounded border border-border-warm">AGENT</span>}
+          {row.visible_to_admins === 1 && <span className="text-[10px] uppercase font-semibold text-brand-navy bg-surface-warm px-1.5 py-0.5 rounded border border-border-warm">ADMIN</span>}
         </div>
       ),
     },
     {
       key: 'date',
       header: 'Published',
-      cell: (row) => <span className="text-xs text-muted-foreground">{row.publishedDate}</span>,
+      cell: (row) => <span className="text-xs text-muted-foreground">{row.published_at ? new Date(row.published_at).toLocaleDateString() : 'Draft'}</span>,
     },
     {
       key: 'status',
@@ -177,15 +208,29 @@ export default function AdminNoticesPage() {
           <InlineActions 
             actions={[
               { 
-                label: 'Edit Notice', 
-                icon: Edit, 
-                onClick: () => toast.info(`Editing notice: ${row.title}`),
-                hidden: !canEdit 
+                label: 'Publish', 
+                icon: ExternalLink, 
+                onClick: () => publishMutation.mutate(row.public_id),
+                hidden: !canEdit || row.status === 'published' 
+              },
+              {
+                label: 'Upload Attachment',
+                icon: Paperclip,
+                onClick: () => {
+                  const input = document.createElement('input')
+                  input.type = 'file'
+                  input.onchange = (e) => {
+                    const file = (e.target as HTMLInputElement).files?.[0]
+                    if (file) handleFileUpload(row.public_id, file)
+                  }
+                  input.click()
+                },
+                hidden: !canEdit
               },
               { 
                 label: 'Delete Notice', 
                 icon: Trash, 
-                onClick: () => handleDelete(row.id, row.title), 
+                onClick: () => handleDelete(row.public_id, row.title), 
                 variant: 'danger', 
                 hidden: !canDelete 
               },
@@ -249,16 +294,27 @@ export default function AdminNoticesPage() {
               />
             </div>
 
-            <div>
-              <label className="text-xs font-semibold text-brand-navy block mb-1">Bulletin Type</label>
-              <select
-                value={form.type}
-                onChange={(e) => setForm({ ...form, type: e.target.value as 'notice' | 'event' })}
-                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
-              >
-                <option value="notice">Notice Announcement</option>
-                <option value="event">Event Scheduling</option>
-              </select>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Bulletin Type</label>
+                <select
+                  value={form.type}
+                  onChange={(e) => setForm({ ...form, type: e.target.value as 'notice' | 'event' })}
+                  className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+                >
+                  <option value="notice">Notice Announcement</option>
+                  <option value="event">Event Scheduling</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Expiry Date (Optional)</label>
+                <input 
+                  type="date"
+                  value={form.expires_at}
+                  onChange={(e) => setForm({ ...form, expires_at: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+                />
+              </div>
             </div>
 
             <div>
@@ -304,33 +360,30 @@ export default function AdminNoticesPage() {
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-brand-navy block mb-1">Detailed Message Content</label>
-              <textarea 
-                required
-                rows={4}
-                placeholder="Write the announcement description..."
-                value={form.content}
-                onChange={(e) => setForm({ ...form, content: e.target.value })}
-                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
-              />
+              <label className="text-xs font-semibold text-brand-navy block mb-1">Message Content</label>
+              <div className="border border-border-warm rounded-md bg-white p-2 min-h-[150px] prose prose-sm max-w-none focus-within:ring-1 focus-within:ring-brand-orange-accessible">
+                <EditorContent editor={editor} className="outline-none min-h-[130px]" />
+              </div>
             </div>
 
             <div>
-              <label className="text-xs font-semibold text-brand-navy block mb-1">Announcement Status</label>
-              <select
-                value={form.status}
-                onChange={(e) => setForm({ ...form, status: e.target.value as StatusType })}
-                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
-              >
-                <option value="approved">Approved & Active</option>
-                <option value="pending">Draft Pending Review</option>
-              </select>
+              <label className="flex items-center gap-2.5 text-sm text-brand-navy font-medium p-2 bg-surface-warm rounded-md border border-border-warm">
+                <input
+                  type="checkbox"
+                  checked={form.publish_now}
+                  onChange={(e) => setForm({ ...form, publish_now: e.target.checked })}
+                  className="rounded border-border-warm text-brand-orange-accessible focus:ring-brand-orange-accessible"
+                />
+                Publish and notify immediately
+              </label>
             </div>
           </div>
 
           <div className="pt-6 border-t border-border-warm flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setIsAddOpen(false)}>Cancel</Button>
-            <Button variant="primary" type="submit">Publish</Button>
+            <Button variant="primary" type="submit" isLoading={createMutation.isPending || publishMutation.isPending}>
+              {form.publish_now ? 'Publish Now' : 'Save Draft'}
+            </Button>
           </div>
         </form>
       </SlideOverPanel>
