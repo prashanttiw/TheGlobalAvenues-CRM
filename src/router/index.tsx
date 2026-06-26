@@ -49,6 +49,7 @@ const AdminDashboardPage = React.lazy(() => import('../pages/admin/AdminDashboar
 const AdminNoticesPage = React.lazy(() => import('../pages/admin/AdminNoticesPage'));
 const AdminAgentDetailPage = React.lazy(() => import('../pages/admin/AdminAgentDetailPage'));
 const AdminCommissionsPage = React.lazy(() => import('../pages/admin/AdminCommissionsPage'));
+const AdminReportsPage = React.lazy(() => import('../pages/admin/AdminReportsPage'));
 
 export function AppRouter() {
   return (
@@ -144,7 +145,7 @@ export function AppRouter() {
           <Route path="commissions" element={<AdminCommissionsPage />} />
           <Route path="leads" element={<AdminDashboardPage />} />
           <Route path="notices" element={<AdminNoticesPage />} />
-          <Route path="reports" element={<AdminDashboardPage />} />
+          <Route path="reports" element={<AdminReportsPage />} />
           <Route path="users" element={<AdminDashboardPage />} />
           <Route path="roles" element={<AdminDashboardPage />} />
           <Route path="settings" element={<AdminDashboardPage />} />
