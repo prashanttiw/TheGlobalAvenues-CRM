@@ -46,18 +46,36 @@ final class AgentController
     }
 
     /**
-     * Assert that a given agent (by id) is within the requesting agent's subtree.
-     * Uses O(1) root_agent_id check. Never use recursive query for this.
+     * Resolve target agent public_id to internal ID, enforcing strict tier subtree isolation.
+     * Tier 3 agents cannot have sub-agents.
+     * Tier 2 agents can only access direct sub-agents (parent_agent_id = tier 2 ID).
+     * Tier 1 agents can access any descendant in their root subtree (root_agent_id = tier 1 ID).
      */
-    private function assertInSubtree(int $targetAgentId, int $myRootAgentId): void
+    private function resolveTargetAgent(array $myAgent, string $targetPid): ?int
     {
-        $stmt = $this->pdo->prepare(
-            "SELECT id FROM agents WHERE id = ? AND root_agent_id = ? AND deleted_at IS NULL"
-        );
-        $stmt->execute([$targetAgentId, $myRootAgentId]);
-        if (!$stmt->fetchColumn()) {
-            Response::error('Access denied.', 'FORBIDDEN', 403);
+        $myId   = (int) $myAgent['id'];
+        $myTier = (int) $myAgent['tier'];
+
+        if ($myTier === 3) {
+            return null; // L3 has no sub-agents
         }
+
+        if ($myTier === 2) {
+            $stmt = $this->pdo->prepare(
+                "SELECT id FROM agents WHERE public_id = ? AND parent_agent_id = ? AND deleted_at IS NULL"
+            );
+            $stmt->execute([$targetPid, $myId]);
+            $val = $stmt->fetchColumn();
+            return $val ? (int)$val : null;
+        }
+
+        // Tier 1
+        $stmt = $this->pdo->prepare(
+            "SELECT id FROM agents WHERE public_id = ? AND root_agent_id = ? AND deleted_at IS NULL"
+        );
+        $stmt->execute([$targetPid, $myId]);
+        $val = $stmt->fetchColumn();
+        return $val ? (int)$val : null;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -165,22 +183,34 @@ final class AgentController
         // Resolve optional agent_pid filter (must be in this agent's subtree)
         $filterAgentId = null;
         if ($agentPid) {
-            $stmt = $this->pdo->prepare(
-                "SELECT id FROM agents WHERE public_id = ? AND root_agent_id = ? AND deleted_at IS NULL"
-            );
-            $stmt->execute([$agentPid, $root]);
-            $filterAgentId = $stmt->fetchColumn();
-            if (!$filterAgentId) {
-                Response::error('Agent not found in your team.', 'NOT_FOUND', 404);
+            if ($agentPid === $agent['public_id']) {
+                $filterAgentId = (int)$agent['id'];
+            } else {
+                $filterAgentId = $this->resolveTargetAgent($agent, $agentPid);
+                if (!$filterAgentId) {
+                    Response::error('Agent not found in your team.', 'NOT_FOUND', 404);
+                }
             }
         }
 
-        $conditions = ["a.root_agent_id = :root", "s.deleted_at IS NULL"];
-        $params     = ['root' => $root];
+        $conditions = ["s.deleted_at IS NULL"];
+        $params     = [];
 
         if ($filterAgentId) {
             $conditions[] = "s.agent_id = :filter_agent_id";
             $params['filter_agent_id'] = $filterAgentId;
+        } else {
+            // General scoping conditions based on tier
+            if ((int)$agent['tier'] === 3) {
+                $conditions[] = "s.agent_id = :my_agent_id";
+                $params['my_agent_id'] = (int)$agent['id'];
+            } elseif ((int)$agent['tier'] === 2) {
+                $conditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)";
+                $params['my_agent_id'] = (int)$agent['id'];
+            } else {
+                $conditions[] = "a.root_agent_id = :root";
+                $params['root'] = $root;
+            }
         }
         if ($status) {
             $conditions[] = "s.profile_status = :status";
@@ -250,6 +280,19 @@ final class AgentController
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
 
+        $checkSql = '';
+        $checkParams = [];
+        if ((int)$agent['tier'] === 3) {
+            $checkSql = "s.agent_id = :my_agent_id";
+            $checkParams['my_agent_id'] = (int)$agent['id'];
+        } elseif ((int)$agent['tier'] === 2) {
+            $checkSql = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)";
+            $checkParams['my_agent_id'] = (int)$agent['id'];
+        } else {
+            $checkSql = "a.root_agent_id = :root";
+            $checkParams['root'] = $root;
+        }
+
         // SECURITY: subtree check is mandatory — no PII columns exposed
         $stmt = $this->pdo->prepare(
             "SELECT s.public_id, s.full_name, s.nationality, s.profile_status,
@@ -257,11 +300,11 @@ final class AgentController
                     a.full_name AS agent_name, a.public_id AS agent_public_id, a.tier AS agent_tier
              FROM students s
              JOIN agents a ON a.id = s.agent_id
-             WHERE s.public_id = ?
-               AND a.root_agent_id = ?
+             WHERE s.public_id = :pid
+               AND {$checkSql}
                AND s.deleted_at IS NULL"
         );
-        $stmt->execute([$pid, $root]);
+        $stmt->execute(array_merge(['pid' => $pid], $checkParams));
         $student = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$student) {
@@ -394,11 +437,7 @@ final class AgentController
         $root  = (int) $agent['root_agent_id'];
 
         // Resolve target sub-agent — must be in our subtree
-        $targetStmt = $this->pdo->prepare(
-            "SELECT id FROM agents WHERE public_id = ? AND root_agent_id = ? AND deleted_at IS NULL"
-        );
-        $targetStmt->execute([$pid, $root]);
-        $targetId = $targetStmt->fetchColumn();
+        $targetId = $this->resolveTargetAgent($agent, $pid);
 
         if (!$targetId) {
             Response::error('Sub-agent not found in your team.', 'NOT_FOUND', 404);
@@ -434,11 +473,8 @@ final class AgentController
         $root  = (int) $agent['root_agent_id'];
         $pager = Paginator::fromQuery($_GET);
 
-        $targetStmt = $this->pdo->prepare(
-            "SELECT id FROM agents WHERE public_id = ? AND root_agent_id = ? AND deleted_at IS NULL"
-        );
-        $targetStmt->execute([$pid, $root]);
-        $targetId = $targetStmt->fetchColumn();
+        // Resolve target sub-agent — must be in our subtree
+        $targetId = $this->resolveTargetAgent($agent, $pid);
 
         if (!$targetId) {
             Response::error('Sub-agent not found in your team.', 'NOT_FOUND', 404);
@@ -557,21 +593,41 @@ final class AgentController
         $ownStmt->execute([$agent['id']]);
         $own = $ownStmt->fetch(PDO::FETCH_ASSOC);
 
-        // Sub-agent breakdown — grouped per sub-agent, never merged with own
-        $subStmt = $this->pdo->prepare(
-            "SELECT a.public_id, a.full_name, a.agency_name, a.tier,
-                    COALESCE(SUM(CASE WHEN c.status = 'pending'   THEN c.amount ELSE 0 END), 0) AS pending,
-                    COALESCE(SUM(CASE WHEN c.status = 'confirmed' THEN c.amount ELSE 0 END), 0) AS confirmed,
-                    COALESCE(SUM(CASE WHEN c.status = 'paid'      THEN c.amount ELSE 0 END), 0) AS paid,
-                    COUNT(c.id)                                                                   AS total_records
-             FROM agents a
-             LEFT JOIN commissions c ON c.agent_id = a.id AND c.deleted_at IS NULL AND c.currency = 'INR'
-             WHERE a.root_agent_id = ? AND a.id != ? AND a.deleted_at IS NULL
-             GROUP BY a.id
-             ORDER BY a.tier, a.full_name"
-        );
-        $subStmt->execute([$root, $agent['id']]);
-        $subAgents = $subStmt->fetchAll(PDO::FETCH_ASSOC);
+        // Sub-agent breakdown — grouped per sub-agent, never merged with own, restricted by tier
+        $subAgents = [];
+        if ((int)$agent['tier'] === 2) {
+            // L2 can only see their direct L3 children
+            $subStmt = $this->pdo->prepare(
+                "SELECT a.public_id, a.full_name, a.agency_name, a.tier,
+                        COALESCE(SUM(CASE WHEN c.status = 'pending'   THEN c.amount ELSE 0 END), 0) AS pending,
+                        COALESCE(SUM(CASE WHEN c.status = 'confirmed' THEN c.amount ELSE 0 END), 0) AS confirmed,
+                        COALESCE(SUM(CASE WHEN c.status = 'paid'      THEN c.amount ELSE 0 END), 0) AS paid,
+                        COUNT(c.id)                                                                   AS total_records
+                 FROM agents a
+                 LEFT JOIN commissions c ON c.agent_id = a.id AND c.deleted_at IS NULL AND c.currency = 'INR'
+                 WHERE a.parent_agent_id = ? AND a.deleted_at IS NULL
+                 GROUP BY a.id
+                 ORDER BY a.full_name"
+            );
+            $subStmt->execute([$agent['id']]);
+            $subAgents = $subStmt->fetchAll(PDO::FETCH_ASSOC);
+        } elseif ((int)$agent['tier'] === 1) {
+            // L1 can see all descendants
+            $subStmt = $this->pdo->prepare(
+                "SELECT a.public_id, a.full_name, a.agency_name, a.tier,
+                        COALESCE(SUM(CASE WHEN c.status = 'pending'   THEN c.amount ELSE 0 END), 0) AS pending,
+                        COALESCE(SUM(CASE WHEN c.status = 'confirmed' THEN c.amount ELSE 0 END), 0) AS confirmed,
+                        COALESCE(SUM(CASE WHEN c.status = 'paid'      THEN c.amount ELSE 0 END), 0) AS paid,
+                        COUNT(c.id)                                                                   AS total_records
+                 FROM agents a
+                 LEFT JOIN commissions c ON c.agent_id = a.id AND c.deleted_at IS NULL AND c.currency = 'INR'
+                 WHERE a.root_agent_id = ? AND a.id != ? AND a.deleted_at IS NULL
+                 GROUP BY a.id
+                 ORDER BY a.tier, a.full_name"
+            );
+            $subStmt->execute([$root, $agent['id']]);
+            $subAgents = $subStmt->fetchAll(PDO::FETCH_ASSOC);
+        }
 
         Response::json([
             'data' => [
@@ -672,5 +728,31 @@ final class AgentController
 
         unset($application['id']);
         Response::json(['application' => $application]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // REFERRAL LINKS  GET /agent/referral-links
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function getReferralLinks(): void
+    {
+        AuthMiddleware::requireAuth();
+        $user  = AuthMiddleware::user();
+        $agent = $this->resolveAgent($user['id']);
+
+        $code = $agent['referral_code'];
+
+        if (!$code) {
+            Response::error('Agent not approved or referral code not generated', 'BAD_REQUEST', 400);
+        }
+
+        $baseUrl = \TGA\CRM\Config\Environment::get('FRONTEND_URL', 'https://portal.theglobalavenues.com');
+        
+        Response::json([
+            'data' => [
+                'student_referral_link' => "{$baseUrl}/register/student?ref={$code}",
+                'sub_agent_referral_link' => "{$baseUrl}/register/agent?ref={$code}"
+            ]
+        ]);
     }
 }
