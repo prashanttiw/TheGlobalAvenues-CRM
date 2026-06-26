@@ -24,6 +24,7 @@ final class AuthRoutes
         RouteRegistry::post('auth', 'otp-login/verify', [$controller, 'verifyOtpLogin']);
 
         RouteRegistry::post('auth', 'change-password', [$controller, 'changePassword']);
+        RouteRegistry::post('auth', '2fa/toggle', [$controller, 'toggle2FA']);
 
         RouteRegistry::get('auth', 'me', [$controller, 'me']);
         RouteRegistry::get('auth', 'sessions', [$controller, 'listSessions']);

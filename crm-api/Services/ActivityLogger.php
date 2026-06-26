@@ -24,9 +24,9 @@ final class ActivityLogger
         if ($userId === null) {
             try {
                 $payload = AuthMiddleware::user();
-                $userId = isset($payload['sub']) ? (int) $payload['sub'] : null;
-                $actorUserType = (string) ($payload['utype'] ?? $payload['user_type'] ?? '');
-                $actorDisplayName = isset($payload['name']) ? (string) $payload['name'] : null;
+                $userId = isset($payload['id']) ? (int) $payload['id'] : (isset($payload['sub']) ? (int) $payload['sub'] : null);
+                $actorUserType = (string) ($payload['user_type'] ?? $payload['utype'] ?? 'system');
+                $actorDisplayName = isset($payload['display_name']) ? (string) $payload['display_name'] : (isset($payload['name']) ? (string) $payload['name'] : 'System');
             } catch (\Throwable $e) {
                 // Unauthenticated activity remains loggable; leave actor fields null.
             }
@@ -49,8 +49,8 @@ final class ActivityLogger
                 $action,
                 $targetType,
                 $targetId,
-                null,
-                null,
+                $afterValue['public_id'] ?? null,
+                $afterValue['display'] ?? $afterValue['name'] ?? $afterValue['full_name'] ?? null,
                 self::sanitizeSnapshot($beforeValue),
                 self::sanitizeSnapshot($afterValue),
                 $ip,

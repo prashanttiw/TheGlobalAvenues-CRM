@@ -32,6 +32,12 @@ final class AuthMiddleware
             Response::error('Invalid or expired token', Constants::AUTH_ERROR_CODES['invalid'], 401);
         }
 
+        // Fast global revocation check (JWT compromise recovery)
+        $minIat = (int) \TGA\CRM\Services\SystemSettings::get('jwt_min_iat', '0');
+        if (isset($payload['iat']) && (int) $payload['iat'] < $minIat) {
+            Response::error('Session has been revoked due to security updates', 'SESSION_REVOKED', 401);
+        }
+
         $pdo = \TGA\CRM\Config\Database::getConnection();
 
         // Validate JTI — strictly required to prevent token rollback attacks
@@ -59,7 +65,13 @@ final class AuthMiddleware
             Response::error('Account suspended or not found', 'ACCOUNT_INACTIVE', 401);
         }
 
+        $payload['id'] = $payload['sub'];
         return $payload;
+    }
+
+    public static function requireAuth(): array
+    {
+        return self::user();
     }
 
     private static function resolveAuthorizationHeader(): string

@@ -80,4 +80,9 @@ final class RateLimitMiddleware
             Response::error('Too many requests', 'RATE_LIMIT_EXCEEDED', 429);
         }
     }
+
+    public static function enforce(string $key, int $maxRequests, int $windowSeconds): void
+    {
+        self::assertAllowed($key, 'enforced_action', $maxRequests, $windowSeconds);
+    }
 }

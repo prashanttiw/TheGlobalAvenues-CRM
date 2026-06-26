@@ -24,11 +24,13 @@ final class ApplicationRoutes
         RouteRegistry::post('agent', 'applications/:pid/timeline', [$timelineController, 'agentAddNote']);
         RouteRegistry::post('agent', 'document-requests/:pid/submit', [$docController, 'agentSubmit']);
         RouteRegistry::post('agent', 'payment-requests/:pid/submit', [$paymentController, 'agentSubmit']);
+        RouteRegistry::put('agent', 'applications/:pid/withdraw', [$controller, 'agentWithdraw']);
 
         // Admin Endpoints
         RouteRegistry::get('admin', 'applications', [$controller, 'listApplications']);
         RouteRegistry::get('admin', 'applications/:pid', [$controller, 'getApplication']);
         RouteRegistry::post('admin', 'applications/:pid/status', [$controller, 'updateStatus']);
+        RouteRegistry::put('admin', 'applications/:pid/withdraw', [$controller, 'adminWithdraw']);
         RouteRegistry::get('admin', 'applications/:pid/timeline', [$timelineController, 'adminList']);
         RouteRegistry::post('admin', 'applications/:pid/timeline', [$timelineController, 'adminAddNote']);
         RouteRegistry::delete('admin', 'applications/:pid/timeline/:notePid', [$timelineController, 'adminDeleteNote']);
