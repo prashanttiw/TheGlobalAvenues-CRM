@@ -2,12 +2,13 @@
 -- Shared hosting requires lower memory limits to avoid timeouts.
 -- These settings allow admin tuning without code deploys.
 
-INSERT INTO system_settings (setting_key, setting_value, field_type, group_name, description, is_public) VALUES
-('argon2_memory_cost', '19456', 'number', 'security', 'Argon2id memory cost in KiB. Default: 19456 (19MB) for shared hosting.', 0),
-('argon2_time_cost', '2', 'number', 'security', 'Argon2id time cost (iterations). Default: 2 for shared hosting.', 0)
+INSERT INTO system_settings (setting_key, setting_value, value_type, label, description, group_name) VALUES
+('argon2_memory_cost', '19456', 'integer', 'Argon2 Memory Cost', 'Argon2id memory cost in KiB. Default: 19456 (19MB) for shared hosting.', 'security'),
+('argon2_time_cost', '2', 'integer', 'Argon2 Time Cost', 'Argon2id time cost (iterations). Default: 2 for shared hosting.', 'security')
 
 ON DUPLICATE KEY UPDATE 
   setting_value = VALUES(setting_value),
-  field_type = VALUES(field_type),
-  group_name = VALUES(group_name),
-  description = VALUES(description);
+  value_type = VALUES(value_type),
+  label = VALUES(label),
+  description = VALUES(description),
+  group_name = VALUES(group_name);

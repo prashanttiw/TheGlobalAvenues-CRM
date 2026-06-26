@@ -2,8 +2,6 @@
 -- Prevents any UPDATE to paid commissions' financial fields
 -- even if PHP application layer is bypassed (direct DB access, bug, etc.)
 
-DELIMITER $$
-
 CREATE TRIGGER trg_commission_immutability
 BEFORE UPDATE ON commissions
 FOR EACH ROW
@@ -39,6 +37,4 @@ BEGIN
     SIGNAL SQLSTATE '45000'
     SET MESSAGE_TEXT = 'COMMISSION_IMMUTABLE: Financial fields on confirmed commissions are locked';
   END IF;
-END$$
-
-DELIMITER ;
+END;
