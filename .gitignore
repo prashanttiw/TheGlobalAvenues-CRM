@@ -60,3 +60,6 @@ crm-api/uploads/*
 # Local test scripts
 test_*.php
 *.pyc
+
+# Cron runtime lock file (generated at execution time, not source)
+cron/scheduler.lock
