@@ -15,5 +15,6 @@ final class FileRoutes
         // This route bypasses standard module prefix guards because 
         // the controller manually handles AuthMiddleware based on the database record 'is_public' flag.
         RouteRegistry::get('files', ':pid/download', [$controller, 'download']);
+        RouteRegistry::delete('admin', 'files/:pid/erase', [$controller, 'permanentErase']);
     }
 }

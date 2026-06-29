@@ -39,6 +39,9 @@ final class FileUploadService
         'insurance' => ['application/pdf'],
         'other' => ['application/pdf', 'image/jpeg', 'image/png'],
         'logo' => ['image/jpeg', 'image/png'],
+        'business_registration' => ['application/pdf', 'image/jpeg', 'image/png'],
+        'agency_logo' => ['image/jpeg', 'image/png'],
+        'partnership_scope_doc' => ['application/pdf'],
     ];
 
     public function upload(
@@ -74,7 +77,7 @@ final class FileUploadService
         }
 
         $ownerPublicId = self::fetchOwnerPublicId($pdo, $ownerType, $ownerId);
-        $slugifiedLabel = self::slugify($documentType !== 'other' ? $documentType : pathinfo((string) $file['name'], PATTERN_FILENAME ?? PATHINFO_FILENAME));
+        $slugifiedLabel = self::slugify($documentType !== 'other' ? $documentType : pathinfo((string) $file['name'], PATHINFO_FILENAME));
         $displayFilename = sprintf('%s_%s_%s_%s.%s',
             $ownerType,
             substr($ownerPublicId, -8),
@@ -134,7 +137,11 @@ final class FileUploadService
             ]);
         } catch (\Exception $e) {
             // Rollback filesystem change
-            @unlink($absoluteTarget);
+            if (file_exists($absoluteTarget)) {
+                if (!@unlink($absoluteTarget)) {
+                    error_log("CRITICAL: Failed to clean up orphaned file on disk after database insert failure. Path: " . $absoluteTarget);
+                }
+            }
             throw $e;
         }
 

@@ -21,15 +21,22 @@ final class ActivityLogger
         $actorUserType = null;
         $actorDisplayName = null;
 
-        if ($userId === null) {
-            try {
-                $payload = AuthMiddleware::user();
-                $userId = isset($payload['id']) ? (int) $payload['id'] : (isset($payload['sub']) ? (int) $payload['sub'] : null);
+        try {
+            $payload = AuthMiddleware::user();
+            $currentUserId = isset($payload['id']) ? (int) $payload['id'] : (isset($payload['sub']) ? (int) $payload['sub'] : null);
+            
+            if ($userId === null || $userId === $currentUserId) {
+                $userId = $currentUserId;
                 $actorUserType = (string) ($payload['user_type'] ?? $payload['utype'] ?? 'system');
                 $actorDisplayName = isset($payload['display_name']) ? (string) $payload['display_name'] : (isset($payload['name']) ? (string) $payload['name'] : 'System');
-            } catch (\Throwable $e) {
-                // Unauthenticated activity remains loggable; leave actor fields null.
             }
+        } catch (\Throwable $e) {
+            // Unauthenticated activity remains loggable; leave actor fields null unless it's a cron/system script explicitly passing userId.
+        }
+
+        if ($userId !== null && $actorUserType === null && PHP_SAPI === 'cli') {
+            $actorUserType = 'system';
+            $actorDisplayName = 'System / Cron';
         }
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';

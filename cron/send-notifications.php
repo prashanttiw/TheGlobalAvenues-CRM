@@ -10,6 +10,7 @@ use PHPMailer\PHPMailer\PHPMailer;
 use TGA\CRM\Services\CronHealth;
 use TGA\CRM\Config\Database;
 use TGA\CRM\Services\EncryptionService;
+use TGA\CRM\Services\MailService;
 
 Environment::load(__DIR__ . '/../crm-api/.env');
 
@@ -20,7 +21,7 @@ try {
     $pdo = Database::getConnection();
     // Atomically lock and mark as processing to prevent duplicate dispatch by concurrent crons
     $pdo->beginTransaction();
-    $notifications = $pdo->query("
+    $sql = "
         SELECT n.*, u.email AS email_enc
         FROM notifications n
         JOIN users u ON u.id = n.recipient_user_id
@@ -31,7 +32,11 @@ try {
         ORDER BY n.created_at ASC
         LIMIT 50
         FOR UPDATE SKIP LOCKED
-    ")->fetchAll(PDO::FETCH_ASSOC);
+    ";
+    if (!Database::supportsSkipLocked($pdo)) {
+        $sql = str_replace('SKIP LOCKED', '', $sql);
+    }
+    $notifications = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($notifications)) {
         $pdo->commit();
@@ -48,48 +53,23 @@ try {
         try {
             $email = EncryptionService::decrypt($notif['email_enc']);
 
-            $mail = new PHPMailer(true);
-            $mail->isSMTP();
-            $mail->Timeout    = 10; // Prevent hanging on SMTP server issues
-            $mail->Host       = Environment::get('MAIL_HOST') ?? Environment::get('SMTP_HOST') ?? '';
-            $mail->SMTPAuth   = true;
-            $mail->Username   = Environment::get('MAIL_USERNAME') ?? Environment::get('SMTP_USER') ?? '';
-            $mail->Password   = Environment::get('MAIL_PASSWORD') ?? Environment::get('SMTP_PASS') ?? '';
-            $mail->SMTPSecure = Environment::get('MAIL_ENCRYPTION') ?? Environment::get('SMTP_ENCRYPTION') ?? PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = (int) (Environment::get('MAIL_PORT') ?? Environment::get('SMTP_PORT') ?? 587);
-            $mail->setFrom(
-                Environment::get('MAIL_FROM_EMAIL') ?? Environment::get('SMTP_FROM_ADDRESS') ?? 'noreply@theglobalavenues.com',
-                Environment::get('MAIL_FROM_NAME') ?? Environment::get('SMTP_FROM_NAME') ?? 'The Global Avenues'
-            );
+            $mail = MailService::createMailer();
             $mail->addAddress($email);
             $mail->isHTML(true);
             $mail->Subject = $notif['subject'] ?? '(No Subject)';
             $body = $notif['body'] ?? '';
-            $mail->Body    = nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'));
+            $mail->Body    = MailService::buildHtmlBody($body);
             $mail->AltBody = $body;
             try {
                 $mail->send();
             } catch (\Throwable $primaryEx) {
-                $fallbackHost = Environment::get('MAIL_FALLBACK_HOST');
-                if (!empty($fallbackHost)) {
+                $mailFallback = MailService::createFallbackMailer();
+                if ($mailFallback !== null) {
                     error_log("[SMTP Fallback] Primary failed. Retrying with fallback server: " . $primaryEx->getMessage());
-                    $mailFallback = new PHPMailer(true);
-                    $mailFallback->isSMTP();
-                    $mailFallback->Timeout    = 10;
-                    $mailFallback->Host       = $fallbackHost;
-                    $mailFallback->SMTPAuth   = true;
-                    $mailFallback->Username   = Environment::get('MAIL_FALLBACK_USERNAME') ?? '';
-                    $mailFallback->Password   = Environment::get('MAIL_FALLBACK_PASSWORD') ?? '';
-                    $mailFallback->SMTPSecure = Environment::get('MAIL_FALLBACK_ENCRYPTION') ?? PHPMailer::ENCRYPTION_STARTTLS;
-                    $mailFallback->Port       = (int) (Environment::get('MAIL_FALLBACK_PORT') ?? 587);
-                    $mailFallback->setFrom(
-                        Environment::get('MAIL_FROM_EMAIL') ?? 'noreply@theglobalavenues.com',
-                        Environment::get('MAIL_FROM_NAME') ?? 'The Global Avenues'
-                    );
                     $mailFallback->addAddress($email);
                     $mailFallback->isHTML(true);
                     $mailFallback->Subject = $notif['subject'] ?? '(No Subject)';
-                    $mailFallback->Body    = nl2br(htmlspecialchars($body, ENT_QUOTES, 'UTF-8'));
+                    $mailFallback->Body    = MailService::buildHtmlBody($body);
                     $mailFallback->AltBody = $body;
                     $mailFallback->send();
                 } else {

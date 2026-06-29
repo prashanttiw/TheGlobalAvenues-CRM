@@ -19,7 +19,7 @@ $startTime = microtime(true);
 try {
     $pdo = Database::getConnection();
     $pdo->beginTransaction();
-    $stmt = $pdo->query("
+    $sql = "
         SELECT se.*, sr.rule_name, sr.entity_type
         FROM sla_events se
         JOIN sla_rules sr ON sr.id = se.sla_rule_id
@@ -27,7 +27,11 @@ try {
           AND se.target_at < NOW()
           AND se.breach_notified = 0
         FOR UPDATE SKIP LOCKED
-    ");
+    ";
+    if (!Database::supportsSkipLocked($pdo)) {
+        $sql = str_replace('SKIP LOCKED', '', $sql);
+    }
+    $stmt = $pdo->query($sql);
     $breached = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $processedCount = 0;

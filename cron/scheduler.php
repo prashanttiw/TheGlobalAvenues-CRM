@@ -22,6 +22,7 @@ $jobs = [
     'process-reminders.php' => 5,
     'check-sla-breaches.php' => 15,
     'sync-drive.php' => 60,
+    'retry-pending-erasures.php' => 60,
     'backup-db.php' => 1440, // 24 hours
     'verify-backups.php' => 1440,
     'generate-snapshots.php' => 1440,

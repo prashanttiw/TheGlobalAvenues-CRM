@@ -25,7 +25,12 @@ final class NotificationController
         $user = AuthMiddleware::user();
         $userId = (int) $user['id'];
 
-        $pager = Paginator::fromQuery($_GET, 20); // default limit 20
+        $query = $_GET;
+        if (!isset($query['per_page']) && isset($query['limit'])) {
+            $query['per_page'] = $query['limit'];
+        }
+
+        $pager = Paginator::fromQuery($query);
         $status = trim($_GET['status'] ?? 'all');
         $category = trim($_GET['category'] ?? '');
 
@@ -36,7 +41,7 @@ final class NotificationController
             $conditions[] = "read_at IS NULL";
         }
 
-        if ($category) {
+        if ($category !== '') {
             $conditions[] = "category = :category";
             $params['category'] = $category;
         }
@@ -47,32 +52,32 @@ final class NotificationController
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
-        $dataStmt = $this->pdo->prepare("
-            SELECT public_id, event_key, category, subject, body, read_at, 
-                   related_entity_type, related_entity_id, created_at
-            FROM notifications 
-            WHERE {$where}
-            ORDER BY created_at DESC 
-            LIMIT :limit OFFSET :offset
-        ");
+        $dataStmt = $this->pdo->prepare(
+            "SELECT public_id, event_key, category, subject, body, read_at,
+                    related_entity_type, related_entity_id, created_at
+             FROM notifications
+             WHERE {$where}
+             ORDER BY created_at DESC
+             LIMIT :limit OFFSET :offset"
+        );
 
-        foreach ($params as $k => $v) {
-            $dataStmt->bindValue(":{$k}", $v);
+        foreach ($params as $key => $value) {
+            $dataStmt->bindValue(":{$key}", $value);
         }
-        $dataStmt->bindValue(':limit',  $pager['per_page'], PDO::PARAM_INT);
-        $dataStmt->bindValue(':offset', $pager['offset'],   PDO::PARAM_INT);
+        $dataStmt->bindValue(':limit', $pager['per_page'], PDO::PARAM_INT);
+        $dataStmt->bindValue(':offset', $pager['offset'], PDO::PARAM_INT);
         $dataStmt->execute();
         $notifications = $dataStmt->fetchAll(PDO::FETCH_ASSOC);
 
         Response::json([
             'data' => $notifications,
             'meta' => [
-                'total'       => $total,
-                'page'        => $pager['page'],
-                'per_page'    => $pager['per_page'],
+                'total' => $total,
+                'page' => $pager['page'],
+                'per_page' => $pager['per_page'],
                 'total_pages' => (int) ceil($total / $pager['per_page']),
-                'has_next'    => ($pager['offset'] + $pager['per_page']) < $total,
-                'has_prev'    => $pager['page'] > 1,
+                'has_next' => ($pager['offset'] + $pager['per_page']) < $total,
+                'has_prev' => $pager['page'] > 1,
             ],
         ]);
     }
@@ -83,32 +88,31 @@ final class NotificationController
         $user = AuthMiddleware::user();
         $userId = (int) $user['id'];
 
-        // Get total unread count and grouping by category
-        $stmt = $this->pdo->prepare("
-            SELECT category, COUNT(*) as cat_count 
-            FROM notifications 
-            WHERE recipient_user_id = ? 
-              AND FIND_IN_SET('in_app', channel) > 0 
-              AND read_at IS NULL
-            GROUP BY category
-        ");
+        $stmt = $this->pdo->prepare(
+            "SELECT category, COUNT(*) AS cat_count
+             FROM notifications
+             WHERE recipient_user_id = ?
+               AND FIND_IN_SET('in_app', channel) > 0
+               AND read_at IS NULL
+             GROUP BY category"
+        );
         $stmt->execute([$userId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $totalCount = 0;
         $byCategory = [];
         foreach ($rows as $row) {
-            $cat = $row['category'] ?: 'general';
-            $cnt = (int) $row['cat_count'];
-            $byCategory[$cat] = $cnt;
-            $totalCount += $cnt;
+            $category = $row['category'] ?: 'general';
+            $count = (int) $row['cat_count'];
+            $byCategory[$category] = $count;
+            $totalCount += $count;
         }
 
         Response::json([
             'data' => [
                 'count' => $totalCount,
-                'by_category' => $byCategory
-            ]
+                'by_category' => $byCategory,
+            ],
         ]);
     }
 
@@ -118,11 +122,14 @@ final class NotificationController
         $user = AuthMiddleware::user();
         $userId = (int) $user['id'];
 
-        $stmt = $this->pdo->prepare("
-            UPDATE notifications 
-            SET read_at = NOW() 
-            WHERE public_id = ? AND recipient_user_id = ? AND read_at IS NULL
-        ");
+        $stmt = $this->pdo->prepare(
+            "UPDATE notifications
+             SET read_at = NOW()
+             WHERE public_id = ?
+               AND recipient_user_id = ?
+               AND FIND_IN_SET('in_app', channel) > 0
+               AND read_at IS NULL"
+        );
         $stmt->execute([$publicId, $userId]);
 
         Response::json(['data' => ['success' => true]]);
@@ -137,7 +144,11 @@ final class NotificationController
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $category = trim((string) ($input['category'] ?? $_GET['category'] ?? ''));
 
-        $sql = "UPDATE notifications SET read_at = NOW() WHERE recipient_user_id = ? AND read_at IS NULL";
+        $sql = "UPDATE notifications
+                SET read_at = NOW()
+                WHERE recipient_user_id = ?
+                  AND FIND_IN_SET('in_app', channel) > 0
+                  AND read_at IS NULL";
         $params = [$userId];
 
         if ($category !== '') {

@@ -22,12 +22,16 @@ try {
     $pdo->beginTransaction();
 
     // Pull pending reminders that are due
-    $stmt = $pdo->query("
+    $sql = "
         SELECT * FROM reminders
         WHERE status = 'pending' AND remind_at <= NOW()
         LIMIT 100
         FOR UPDATE SKIP LOCKED
-    ");
+    ";
+    if (!Database::supportsSkipLocked($pdo)) {
+        $sql = str_replace('SKIP LOCKED', '', $sql);
+    }
+    $stmt = $pdo->query($sql);
     $due = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     if (empty($due)) {

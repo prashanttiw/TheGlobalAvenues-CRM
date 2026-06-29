@@ -14,6 +14,7 @@ use TGA\CRM\Config\Environment;
 use TGA\CRM\Services\CronHealth;
 use TGA\CRM\Services\DriveFolderManager;
 use TGA\CRM\Services\ActivityLogger;
+use TGA\CRM\Services\DriveService;
 
 Environment::load(__DIR__ . '/../crm-api/.env');
 
@@ -24,16 +25,8 @@ $startTime = microtime(true);
 try {
     $pdo = Database::getConnection();
 
-    // Check if drive service account is configured
-    $driveConfigPath = Environment::get('DRIVE_SERVICE_ACCOUNT_JSON', '');
-    if (empty($driveConfigPath) || !file_exists($driveConfigPath)) {
-        throw new \RuntimeException('Missing or invalid DRIVE_SERVICE_ACCOUNT_JSON configuration');
-    }
-
-    $client = new \Google\Client();
-    $client->setAuthConfig($driveConfigPath);
-    $client->addScope(\Google\Service\Drive::DRIVE);
-    $drive = new \Google\Service\Drive($client);
+    $drive = DriveService::getDrive();
+    $client = $drive->getClient();
 
     // Batch of 20 to avoid API rate limits and execution timeouts
     $stmt = $pdo->query("

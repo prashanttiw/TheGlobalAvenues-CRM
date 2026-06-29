@@ -37,13 +37,22 @@ final class ReminderService
                 continue;
             }
 
-            $stmt->execute([
-                $entityType,
-                $entityId,
-                $reminderType,
-                $remindAt,
-                $recipientsJson
-            ]);
+            // Guard: Check if a pending reminder of this exact type already exists for this entity
+            $existing = $pdo->prepare("
+                SELECT id FROM reminders
+                WHERE entity_type = ? AND entity_id = ? AND reminder_type = ? AND status = 'pending'
+            ");
+            $existing->execute([$entityType, $entityId, $reminderType]);
+
+            if (!$existing->fetch()) {
+                $stmt->execute([
+                    $entityType,
+                    $entityId,
+                    $reminderType,
+                    $remindAt,
+                    $recipientsJson
+                ]);
+            }
         }
     }
 

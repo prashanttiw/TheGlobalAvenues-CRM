@@ -95,7 +95,7 @@ final class NotificationService
         ")->fetchAll(PDO::FETCH_COLUMN);
     }
 
-    private static function render(string $template, array $vars): string {
+    public static function render(string $template, array $vars): string {
         foreach ($vars as $key => $value) {
             if (is_scalar($value)) {
                 $safeValue = (string)$value;

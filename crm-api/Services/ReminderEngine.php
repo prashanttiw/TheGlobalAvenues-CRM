@@ -28,7 +28,7 @@ class ReminderEngine
         $pdo = Database::getConnection();
         return match ($entityType) {
             'document_request' => self::buildDocRequestVars($pdo, $entityId),
-            'application_payment' => self::buildPaymentVars($pdo, $entityId),
+            'application_payment', 'payment' => self::buildPaymentVars($pdo, $entityId),
             'intake' => self::buildIntakeVars($pdo, $entityId),
             'commission' => self::buildCommissionVars($pdo, $entityId),
             default => [],

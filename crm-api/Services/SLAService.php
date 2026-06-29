@@ -35,31 +35,36 @@ final class SLAService
     }
 
     /**
-     * Resolves the current active SLA for the entity.
+     * Resolves the current active or breached (but unresolved) SLA for the entity.
      */
     public static function resolveEvent(PDO $pdo, string $entityType, int $entityId): void
     {
         $stmt = $pdo->prepare("
             UPDATE sla_events 
             SET status = CASE 
+                WHEN status = 'breached' THEN 'breached'
                 WHEN NOW() <= target_at THEN 'met' 
                 ELSE 'breached' 
             END,
             resolved_at = NOW()
-            WHERE entity_type = ? AND entity_id = ? AND status = 'active'
+            WHERE entity_type = ? AND entity_id = ? AND status IN ('active', 'breached') AND resolved_at IS NULL
         ");
         $stmt->execute([$entityType, $entityId]);
     }
 
     /**
-     * Cancels an active SLA (e.g. if request is withdrawn or cancelled).
+     * Cancels an active or breached (but unresolved) SLA (e.g. if request is withdrawn or cancelled).
      */
     public static function cancelEvent(PDO $pdo, string $entityType, int $entityId): void
     {
         $stmt = $pdo->prepare("
             UPDATE sla_events 
-            SET status = 'met', resolved_at = NOW() 
-            WHERE entity_type = ? AND entity_id = ? AND status = 'active'
+            SET status = CASE
+                WHEN status = 'breached' THEN 'breached'
+                ELSE 'met'
+            END,
+            resolved_at = NOW() 
+            WHERE entity_type = ? AND entity_id = ? AND status IN ('active', 'breached') AND resolved_at IS NULL
         ");
         $stmt->execute([$entityType, $entityId]);
     }
