@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace TGA\CRM\Routes;
 
 use TGA\CRM\Controllers\AdminAgentController;
+use TGA\CRM\Controllers\AdminStudentController;
 use TGA\CRM\Controllers\RoleController;
 use TGA\CRM\Controllers\ReassignmentController;
 use TGA\CRM\Controllers\CommissionController;
 use TGA\CRM\Controllers\AdminDashboardController;
 use TGA\CRM\Controllers\SystemSettingsController;
-use TGA\CRM\Controllers\SettingController;
 use TGA\CRM\Controllers\ActivityLogController;
 use TGA\CRM\Controllers\NoticeController;
 use TGA\CRM\Controllers\InternalNotesController;
@@ -18,28 +18,38 @@ use TGA\CRM\Controllers\LeadsController;
 use TGA\CRM\Controllers\SearchController;
 use TGA\CRM\Controllers\AdminReportsController;
 use TGA\CRM\Controllers\ExportController;
+use TGA\CRM\Controllers\SecurityEventController;
 
 final class AdminRoutes
 {
     public static function register(): void
     {
         $agentController = new AdminAgentController();
+        $studentController = new AdminStudentController();
         $roleController  = new RoleController();
         $reassignCtrl    = new ReassignmentController();
         $commCtrl        = new CommissionController();
         $dashCtrl        = new AdminDashboardController();
         $sysSettings     = new SystemSettingsController();
-        $settings        = new SettingController();
         $logs            = new ActivityLogController();
         $notices         = new NoticeController();
         $internalNotes   = new InternalNotesController();
         $leads           = new LeadsController();
         $search          = new SearchController();
+        $securityEvents  = new SecurityEventController();
         $feedCtrl        = new \TGA\CRM\Controllers\ActivityFeedController();
 
         // ── Dashboard ────────────────────────────────────────────────────────
         RouteRegistry::get('admin', 'dashboard/summary', [$dashCtrl, 'summary']);
         RouteRegistry::get('admin', 'get_dashboard_stats', [$dashCtrl, 'summary']);
+        RouteRegistry::get('admin', 'get_users', [$dashCtrl, 'getUsers']);
+        RouteRegistry::get('admin', 'get_user_detail', [$dashCtrl, 'getUserDetail']);
+        RouteRegistry::put('admin', 'update_user', [$dashCtrl, 'updateUser']);
+        
+        $docControllerForAdmin = new \TGA\CRM\Controllers\DocumentRequestController();
+        RouteRegistry::get('admin', 'get_document_queue', [$docControllerForAdmin, 'getDocumentQueue']);
+        RouteRegistry::post('admin', 'review_document', [$docControllerForAdmin, 'adminReview']);
+        
         RouteRegistry::get('admin', 'dashboard/activity-feed', [$feedCtrl, 'getFeed']);
 
         // ── Reports & Analytics ──────────────────────────────────────────────
@@ -61,6 +71,7 @@ final class AdminRoutes
         RouteRegistry::post('admin', 'agents/:publicId/suspend', [$agentController, 'suspend']);
         RouteRegistry::get('admin', 'agents', [$agentController, 'listAll']);
         RouteRegistry::get('admin', 'agents/:pid/tree', [$agentController, 'getTree']);
+        RouteRegistry::get('admin', 'students', [$studentController, 'listAll']);
 
         // ── Reassignment Requests ────────────────────────────────────────────
         RouteRegistry::get('admin', 'reassignment-requests',                   [$reassignCtrl, 'adminList']);
@@ -89,6 +100,7 @@ final class AdminRoutes
 
         // ── Activity Logs ────────────────────────────────────────────────────
         RouteRegistry::get('admin', 'activity-logs', [$logs, 'adminList']);
+        RouteRegistry::get('admin', 'security-events', [$securityEvents, 'adminList']);
 
         // ── Notices ──────────────────────────────────────────────────────────
         RouteRegistry::get('admin',    'notices',            [$notices, 'adminList']);
@@ -126,3 +138,7 @@ final class AdminRoutes
         RouteRegistry::delete('admin', 'roles/:publicId', [$roleController, 'delete']);
     }
 }
+
+
+
+

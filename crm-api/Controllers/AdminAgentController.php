@@ -8,6 +8,7 @@ use PDO;
 use Exception;
 use RuntimeException;
 use TGA\CRM\Config\Database;
+use TGA\CRM\Helpers\Paginator;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RBACMiddleware;
@@ -256,11 +257,14 @@ final class AdminAgentController
         $total = (int) $countStmt->fetchColumn();
 
         $dataStmt = $this->pdo->prepare(
-            "SELECT a.id, a.public_id, a.parent_agent_id, a.root_agent_id, a.tier,
+            "SELECT a.public_id, a.tier,
                     a.full_name, a.agency_name, a.country, a.referral_code, a.status,
-                    a.created_at, u.email AS encrypted_email
+                    a.created_at, u.email AS encrypted_email,
+                    ap.public_id AS parent_public_id, ar.public_id AS root_public_id
              FROM agents a
              JOIN users u ON u.id = a.user_id
+             LEFT JOIN agents ap ON ap.id = a.parent_agent_id
+             LEFT JOIN agents ar ON ar.id = a.root_agent_id
              WHERE {$where}
              ORDER BY a.created_at DESC
              LIMIT :limit OFFSET :offset"
@@ -284,9 +288,6 @@ final class AdminAgentController
             }
             unset($agent['encrypted_email']);
             
-            $agent['id'] = (int)$agent['id'];
-            $agent['parent_agent_id'] = $agent['parent_agent_id'] ? (int)$agent['parent_agent_id'] : null;
-            $agent['root_agent_id'] = $agent['root_agent_id'] ? (int)$agent['root_agent_id'] : null;
             $agent['tier'] = (int)$agent['tier'];
         }
 
@@ -327,9 +328,12 @@ final class AdminAgentController
                     JOIN agent_tree t ON a.parent_agent_id = t.id
                     WHERE a.deleted_at IS NULL
                 )
-                SELECT t.*, u.email AS encrypted_email
+                SELECT t.*, u.email AS encrypted_email,
+                       ap.public_id AS parent_public_id, ar.public_id AS root_public_id
                 FROM agent_tree t
-                JOIN users u ON u.id = t.user_id";
+                JOIN users u ON u.id = t.user_id
+                LEFT JOIN agents ap ON ap.id = t.parent_agent_id
+                LEFT JOIN agents ar ON ar.id = t.root_agent_id";
 
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute([$rootId]);
@@ -353,6 +357,7 @@ final class AdminAgentController
         }
 
         $tree = $this->buildTree($flatAgents);
+        $this->sanitizeTreeNodes($tree);
 
         Response::json([
             'data' => !empty($tree) ? $tree[0] : null
@@ -383,4 +388,18 @@ final class AdminAgentController
 
         return $tree;
     }
+
+    private function sanitizeTreeNodes(array &$nodes): void
+    {
+        foreach ($nodes as &$node) {
+            unset($node['id']);
+            unset($node['parent_agent_id']);
+            unset($node['root_agent_id']);
+            if (isset($node['children']) && is_array($node['children'])) {
+                $this->sanitizeTreeNodes($node['children']);
+            }
+        }
+    }
 }
+
+

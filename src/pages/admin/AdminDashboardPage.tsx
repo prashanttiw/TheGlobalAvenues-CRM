@@ -16,9 +16,15 @@ import {
   UserCog,
   Users2,
   Activity,
+  Mail,
+  Phone,
+  Calendar,
+  User,
+  Globe,
+  FileText,
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
-import { useStore } from '../../hooks/useStore';
+import { useAuth } from '../../shared/hooks/useAuth';
 import {
   AdminApplicationDetail,
   AdminDashboardStats,
@@ -30,10 +36,12 @@ import {
   AdminUserSummary,
   AuditLogEntry,
   approveAdminAgent,
+  rejectAdminAgent,
   createAdminProgram,
   createAdminUniversity,
   deleteAdminProgram,
   deleteAdminUniversity,
+  eraseAdminFile,
   fetchAdminAgents,
   fetchAdminApplicationDetail,
   fetchAdminAuditLog,
@@ -99,10 +107,12 @@ function resolveSection(pathname: string): Section {
 }
 
 export function AdminDashboardPage() {
-  const currentUser = useStore((state) => state.currentUser);
   const location = useLocation();
   const navigate = useNavigate();
   const section = resolveSection(location.pathname);
+  
+  const { user } = useAuth();
+  const isSuperAdmin = user?.permissions?.includes('*') || user?.role === 'super_admin';
 
   const [dashboard, setDashboard] = useState<AdminDashboardStats | null>(null);
   const [pipeline, setPipeline] = useState<AdminPipelineItem[]>([]);
@@ -121,7 +131,7 @@ export function AdminDashboardPage() {
   const { data: activityFeed = [] } = useQuery({
     queryKey: ['admin', 'activityFeed'],
     queryFn: () => api.get('/admin/dashboard/activity-feed').then(res => res.data.data),
-    enabled: section === 'overview' && !!currentUser
+    enabled: section === 'overview' && !!user
   });
 
   const [pipelineQuery, setPipelineQuery] = useState('');
@@ -131,7 +141,7 @@ export function AdminDashboardPage() {
   const [selectedApplicationNote, setSelectedApplicationNote] = useState('');
   const [selectedApplicationStatus, setSelectedApplicationStatus] = useState('inquiry');
   const [selectedApplicationPriority, setSelectedApplicationPriority] = useState('normal');
-  const [selectedApplicationAssignee, setSelectedApplicationAssignee] = useState<number | ''>('');
+  const [selectedApplicationAssignee, setSelectedApplicationAssignee] = useState<string>('');
   const [selectedApplicationFlagged, setSelectedApplicationFlagged] = useState(false);
   const [selectedApplicationFlagReason, setSelectedApplicationFlagReason] = useState('');
 
@@ -154,6 +164,13 @@ export function AdminDashboardPage() {
 
   useEffect(() => {
     void loadSectionData();
+
+    // Auto-refresh every 30 seconds to prevent stale admin queues (Finding 14)
+    const interval = setInterval(() => {
+      void loadSectionData(true);
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, [section]);
 
   useEffect(() => {
@@ -169,8 +186,10 @@ export function AdminDashboardPage() {
     setSelectedApplicationNote('');
   }, [selectedApplication]);
 
-  async function loadSectionData() {
-    setLoading(true);
+  async function loadSectionData(silent = false) {
+    if (!silent) {
+      setLoading(true);
+    }
     setError(null);
 
     try {
@@ -221,7 +240,9 @@ export function AdminDashboardPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load admin data.');
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   }
 
@@ -243,6 +264,38 @@ export function AdminDashboardPage() {
     }
   }
 
+  async function handleEraseFile(filePublicId: string, docLabel: string) {
+    const reason = window.prompt(
+      `CRITICAL: You are about to permanently erase the document "${docLabel}" from both the local server and all Google Drive backups.\n\nThis action CANNOT be undone.\n\nPlease enter the required deletion reason to proceed:`
+    );
+    if (!reason || !reason.trim()) {
+      toast.error('Permanent erase aborted: A valid deletion reason is required.');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      const res = await eraseAdminFile(filePublicId, reason);
+      toast.success(res.message || 'File permanently erased successfully.');
+      if (selectedApplication) {
+        await openApplication(selectedApplication.id);
+      }
+    } catch (err: any) {
+      // If it returned Drive delete failed (which is a warning/pending status), we show a warning toast
+      const msg = err.message || '';
+      if (msg.includes('Google Drive deletion failed') || msg.includes('marked pending')) {
+        toast.warning(msg);
+      } else {
+        toast.error(msg || 'An error occurred during file erasure.');
+      }
+      if (selectedApplication) {
+        await openApplication(selectedApplication.id);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitApplicationUpdate() {
     if (!selectedApplication) {
       return;
@@ -255,7 +308,7 @@ export function AdminDashboardPage() {
         application_id: selectedApplication.id,
         status: selectedApplicationStatus,
         priority: selectedApplicationPriority,
-        assigned_to: selectedApplicationAssignee === '' ? null : Number(selectedApplicationAssignee),
+        assigned_to: selectedApplicationAssignee || null,
         note: selectedApplicationNote,
         is_flagged: selectedApplicationFlagged,
         flag_reason: selectedApplicationFlagReason,
@@ -270,24 +323,24 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function inspectUser(id: number) {
+  async function inspectUser(publicId: string) {
     try {
-      const detail = await fetchAdminUserDetail(id);
+      const detail = await fetchAdminUserDetail(publicId);
       setSelectedUser(detail);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load user detail.');
     }
   }
 
-  async function changeUserStatus(userId: number, status: string) {
+  async function changeUserStatus(publicId: string, status: string) {
     setBusy(true);
 
     try {
-      await updateAdminUser({ user_id: userId, status });
+      await updateAdminUser({ public_id: publicId, status });
       toast.success('User updated.');
       await loadSectionData();
-      if (selectedUser?.id === userId) {
-        await inspectUser(userId);
+      if (selectedUser?.public_id === publicId) {
+        await inspectUser(publicId);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update user.');
@@ -296,15 +349,15 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function changeUserRole(userId: number, role: string) {
+  async function changeUserRole(publicId: string, role: string) {
     setBusy(true);
 
     try {
-      await updateAdminUser({ user_id: userId, role });
+      await updateAdminUser({ public_id: publicId, role });
       toast.success('Internal role updated.');
       await loadSectionData();
-      if (selectedUser?.id === userId) {
-        await inspectUser(userId);
+      if (selectedUser?.public_id === publicId) {
+        await inspectUser(publicId);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to update role.');
@@ -313,12 +366,21 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function decideAgent(agentId: number, decision: 'approved' | 'rejected') {
+  async function decideAgent(publicId: string, decision: 'approved' | 'rejected') {
     setBusy(true);
 
     try {
-      const note = decision === 'rejected' ? window.prompt('Rejection note', 'Incomplete compliance details.') ?? '' : '';
-      await approveAdminAgent({ agent_id: agentId, decision, note });
+      if (decision === 'rejected') {
+        const reason = window.prompt('Rejection reason (required)', 'Incomplete compliance details.') ?? '';
+        if (!reason.trim()) {
+          toast.error('Rejection reason is required.');
+          setBusy(false);
+          return;
+        }
+        await rejectAdminAgent(publicId, reason);
+      } else {
+        await approveAdminAgent(publicId);
+      }
       toast.success(`Agent ${decision}.`);
       await loadSectionData();
       await refreshDashboardOnly();
@@ -329,7 +391,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function decideDocument(documentId: number, decision: 'verified' | 'rejected') {
+  async function decideDocument(documentId: string, decision: 'verified' | 'rejected') {
     setBusy(true);
 
     try {
@@ -543,6 +605,35 @@ export function AdminDashboardPage() {
         <>
           {section === 'overview' && canUseSection && dashboard && (
             <div className="space-y-6">
+              {dashboard.file_sync_health && (dashboard.file_sync_health.failed_count > 0 || dashboard.file_sync_health.stuck_pending_count > 0) && (
+                <div className="rounded-[22px] border border-red-200 bg-red-50 p-5 shadow-sm">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-600">
+                      <AlertTriangle className="h-5 w-5 animate-bounce" />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="text-sm font-black text-red-950">Drive Backup Synchronization Warning</h4>
+                      <p className="mt-1 text-sm text-red-800 leading-relaxed">
+                        {dashboard.file_sync_health.failed_count > 0 && (
+                          <span>• {dashboard.file_sync_health.failed_count} file(s) failed to back up to Google Drive (terminal failure). </span>
+                        )}
+                        {dashboard.file_sync_health.stuck_pending_count > 0 && (
+                          <span>• {dashboard.file_sync_health.stuck_pending_count} file(s) have been waiting to sync for over 30 minutes. </span>
+                        )}
+                      </p>
+                      <div className="mt-3">
+                        <button
+                          onClick={() => navigate('/portal/admin/documents')}
+                          className="text-xs font-bold text-red-700 hover:text-red-800 underline"
+                        >
+                          View Document Review Queue to investigate
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard icon={FileSearch} label="Pipeline Cases" value={dashboard.totalApplications} tone="purple" detail="All applications in CRM" />
                 <MetricCard icon={Users2} label="Student Accounts" value={dashboard.activeStudents} tone="gold" detail="Active student records" />
@@ -557,7 +648,7 @@ export function AdminDashboardPage() {
                 >
                   <div className="space-y-3">
                     {dashboard.recentStageMovement.map((item) => (
-                      <div key={item.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
+                      <div key={item.reference_number} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
                         <div className="flex items-center justify-between gap-4">
                           <div>
                             <div className="text-sm font-black text-gray-900">{item.student_name}</div>
@@ -604,25 +695,25 @@ export function AdminDashboardPage() {
                   <div className="space-y-3">
                     {agents.length === 0 && <EmptyState label="No pending agent approvals." />}
                     {agents.map((agent) => (
-                      <div key={agent.id} className="rounded-2xl border border-gray-100 p-4">
+                      <div key={agent.public_id ?? agent.id} className="rounded-2xl border border-gray-100 p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                           <div>
                             <div className="text-sm font-black text-gray-900">{agent.agency_name}</div>
                             <div className="mt-1 text-xs text-gray-500">
-                              {agent.agency_country} · {agent.email} · {agent.tier}
+                              {agent.agency_country ?? agent.country} · {agent.email} · {agent.tier}
                             </div>
                           </div>
                           <div className="flex gap-2">
                             <button
                               disabled={busy || !permissions?.canApproveAgents}
-                              onClick={() => void decideAgent(agent.id, 'approved')}
+                              onClick={() => void decideAgent(agent.public_id, 'approved')}
                               className="rounded-xl bg-[#2D1B69] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
                             >
                               Approve
                             </button>
                             <button
                               disabled={busy || !permissions?.canApproveAgents}
-                              onClick={() => void decideAgent(agent.id, 'rejected')}
+                              onClick={() => void decideAgent(agent.public_id, 'rejected')}
                               className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
                             >
                               Reject
@@ -649,14 +740,14 @@ export function AdminDashboardPage() {
                           <div className="flex gap-2">
                             <button
                               disabled={busy || !permissions?.canReviewDocuments}
-                              onClick={() => void decideDocument(document.id, 'verified')}
+                              onClick={() => void decideDocument(document.public_id, 'verified')}
                               className="rounded-xl bg-green-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
                             >
                               Verify
                             </button>
                             <button
                               disabled={busy || !permissions?.canReviewDocuments}
-                              onClick={() => void decideDocument(document.id, 'rejected')}
+                              onClick={() => void decideDocument(document.public_id, 'rejected')}
                               className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
                             >
                               Reject
@@ -787,12 +878,12 @@ export function AdminDashboardPage() {
                       <Field label="Assignee">
                         <select
                           value={selectedApplicationAssignee}
-                          onChange={(event) => setSelectedApplicationAssignee(event.target.value === '' ? '' : Number(event.target.value))}
+                          onChange={(event) => setSelectedApplicationAssignee(event.target.value)}
                           className="w-full rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2.5 text-sm outline-none"
                         >
                           <option value="">Unassigned</option>
                           {dashboard?.assignees.map((assignee) => (
-                            <option key={assignee.id} value={assignee.id}>
+                            <option key={assignee.public_id} value={assignee.public_id}>
                               {assignee.email} · {formatStage(assignee.role)}
                             </option>
                           ))}
@@ -845,11 +936,45 @@ export function AdminDashboardPage() {
                             <div>
                               <div className="text-sm font-bold text-gray-800">{formatStage(document.document_type)}</div>
                               <div className="text-xs text-gray-500">{document.file_name}</div>
+                              {document.erasure_status === 'erase_pending_remote_delete' && (
+                                <div className="mt-1 text-[11px] font-semibold text-[#C94D1B]">
+                                  Erase pending (Drive delete in queue)
+                                </div>
+                              )}
+                              {document.erasure_status === 'erased' && (
+                                <div className="mt-1 text-[11px] font-semibold text-gray-400 italic">
+                                  Permanently Erased
+                                </div>
+                              )}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                               <span className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
                                 {formatStage(document.status)}
                               </span>
+                              {document.drive_sync_status === 'synced' && (
+                                <span className="rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-[10px] font-bold text-green-700">
+                                  Drive Synced
+                                </span>
+                              )}
+                              {document.drive_sync_status === 'pending' && (
+                                <span className="rounded-full bg-yellow-50 border border-yellow-200 px-2 py-0.5 text-[10px] font-bold text-yellow-700">
+                                  Drive Syncing
+                                </span>
+                              )}
+                              {document.drive_sync_status === 'failed' && (
+                                <span className="rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] font-bold text-red-700 animate-pulse">
+                                  Drive Sync Failed
+                                </span>
+                              )}
+                              {isSuperAdmin && document.erasure_status !== 'erased' && (
+                                <button
+                                  disabled={busy}
+                                  onClick={() => void handleEraseFile(document.public_id, document.document_type || document.file_name)}
+                                  className="rounded-lg bg-red-50 hover:bg-red-100 text-red-600 px-2 py-1 text-[11px] font-bold transition-colors disabled:opacity-50"
+                                >
+                                  Erase
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -888,9 +1013,9 @@ export function AdminDashboardPage() {
                 </div>
                 <div className="space-y-3">
                   {users.map((user) => (
-                    <div key={user.id} className="rounded-[22px] border border-gray-100 p-4">
+                    <div key={user.public_id} className="rounded-[22px] border border-gray-100 p-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                        <button onClick={() => void inspectUser(user.id)} className="text-left">
+                        <button onClick={() => void inspectUser(user.public_id)} className="text-left">
                           <div className="text-sm font-black text-gray-900">
                             {user.firstName ?? 'Portal'} {user.lastName ?? 'User'}
                           </div>
@@ -902,7 +1027,7 @@ export function AdminDashboardPage() {
                         <div className="flex flex-wrap gap-2">
                           <select
                             value={user.status}
-                            onChange={(event) => void changeUserStatus(user.id, event.target.value)}
+                            onChange={(event) => void changeUserStatus(user.public_id, event.target.value)}
                             disabled={busy || !permissions?.canManageUsers}
                             className="rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2 text-xs font-bold outline-none disabled:opacity-50"
                           >
@@ -914,7 +1039,7 @@ export function AdminDashboardPage() {
                           {permissions?.canChangeInternalRoles && ['counsellor', 'visa_officer', 'admin', 'super_admin'].includes(user.role) && (
                             <select
                               value={user.role}
-                              onChange={(event) => void changeUserRole(user.id, event.target.value)}
+                              onChange={(event) => void changeUserRole(user.public_id, event.target.value)}
                               disabled={busy}
                               className="rounded-xl border border-gray-200 bg-[#F8F7FF] px-3 py-2 text-xs font-bold outline-none disabled:opacity-50"
                             >
@@ -960,10 +1085,165 @@ export function AdminDashboardPage() {
                           </button>
                         </div>
                       )}
-                      {selectedUser.profile && (
-                        <pre className="overflow-x-auto rounded-2xl bg-[#0F0B1F] p-4 text-xs text-white/80">
-                          {JSON.stringify(selectedUser.profile, null, 2)}
-                        </pre>
+                      {selectedUser.profile && selectedUser.role === 'student' && (
+                        <div className="mt-4 border-t border-gray-100 pt-4 space-y-4">
+                          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">Student Profile</h4>
+                          <div className="rounded-2xl border border-gray-100 bg-[#FBFBFE] p-4 space-y-3">
+                            <div className="flex items-center gap-3">
+                              <User className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Full Name</div>
+                                <div className="text-sm font-black text-gray-900">{selectedUser.profile.full_name}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Calendar className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Date of Birth</div>
+                                <div className="text-sm font-bold text-gray-800">
+                                  {selectedUser.profile.date_of_birth ? formatDate(selectedUser.profile.date_of_birth) : 'Not provided'}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Globe className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Nationality</div>
+                                <div className="text-sm font-bold text-gray-800">{selectedUser.profile.nationality ?? 'Not provided'}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <FileText className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Passport Number</div>
+                                <div className="text-sm font-mono font-bold text-[#D96200]">
+                                  {selectedUser.profile.passport_number ?? 'Not provided'}
+                                </div>
+                              </div>
+                            </div>
+                            {selectedUser.profile.passport_expiry && (
+                              <div className="flex items-center gap-3">
+                                <Calendar className="h-4 w-4 text-[#2D1B69]" />
+                                <div>
+                                  <div className="text-xs text-gray-500 font-semibold">Passport Expiry</div>
+                                  <div className="text-sm font-bold text-gray-800">{formatDate(selectedUser.profile.passport_expiry)}</div>
+                                </div>
+                              </div>
+                            )}
+                            {selectedUser.profile.phone_in_profile && (
+                              <div className="flex items-center gap-3">
+                                <Phone className="h-4 w-4 text-[#2D1B69]" />
+                                <div>
+                                  <div className="text-xs text-gray-500 font-semibold">Profile Contact Phone</div>
+                                  <div className="text-sm font-bold text-gray-800">{selectedUser.profile.phone_in_profile}</div>
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-3">
+                              <UserCog className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Assigned Agent</div>
+                                <div className="text-sm font-bold text-gray-800">{selectedUser.profile.agent_name ?? 'Direct (No Agent)'}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Activity className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Profile Status</div>
+                                <div className="mt-1">
+                                  <span className="inline-flex items-center rounded-md bg-purple-50 px-2.5 py-1 text-xs font-black text-purple-700 ring-1 ring-inset ring-purple-700/10">
+                                    {formatStage(selectedUser.profile.profile_status)}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedUser.profile && selectedUser.role === 'agent' && (
+                        <div className="mt-4 border-t border-gray-100 pt-4 space-y-4">
+                          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">Agent Profile</h4>
+                          <div className="rounded-2xl border border-gray-100 bg-[#FBFBFE] p-4 space-y-3">
+                            <div className="flex items-center gap-3">
+                              <Building2 className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Agency Name</div>
+                                <div className="text-sm font-black text-gray-900">{selectedUser.profile.agency_name}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <User className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Contact Person</div>
+                                <div className="text-sm font-bold text-gray-800">{selectedUser.profile.full_name}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Globe className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Country</div>
+                                <div className="text-sm font-bold text-gray-800">{selectedUser.profile.country ?? 'Not provided'}</div>
+                              </div>
+                            </div>
+                            {selectedUser.profile.business_reg_number && (
+                              <div className="flex items-center gap-3">
+                                <FileText className="h-4 w-4 text-[#2D1B69]" />
+                                <div>
+                                  <div className="text-xs text-gray-500 font-semibold">Business Registration</div>
+                                  <div className="text-sm font-bold text-gray-800">{selectedUser.profile.business_reg_number}</div>
+                                </div>
+                              </div>
+                            )}
+                            <div className="flex items-center gap-3">
+                              <FileCheck2 className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Referral Code</div>
+                                <div className="text-sm font-mono font-bold text-[#D96200]">{selectedUser.profile.referral_code}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <BadgeCheck className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Tier</div>
+                                <div className="text-sm font-bold text-gray-800 capitalize">{selectedUser.profile.tier}</div>
+                              </div>
+                            </div>
+                            {selectedUser.profile.parent_agent_name && (
+                              <div className="flex items-center gap-3">
+                                <Users2 className="h-4 w-4 text-[#2D1B69]" />
+                                <div>
+                                  <div className="text-xs text-gray-500 font-semibold">Master Agency</div>
+                                  <div className="text-sm font-bold text-gray-800">{selectedUser.profile.parent_agent_name}</div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedUser.profile && selectedUser.role !== 'student' && selectedUser.role !== 'agent' && (
+                        <div className="mt-4 border-t border-gray-100 pt-4 space-y-4">
+                          <h4 className="text-xs font-bold text-gray-400 uppercase tracking-[0.18em]">Staff Profile</h4>
+                          <div className="rounded-2xl border border-gray-100 bg-[#FBFBFE] p-4 space-y-3">
+                            <div className="flex items-center gap-3">
+                              <User className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Full Name</div>
+                                <div className="text-sm font-black text-gray-900">{selectedUser.profile.full_name}</div>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <Shield className="h-4 w-4 text-[#2D1B69]" />
+                              <div>
+                                <div className="text-xs text-gray-500 font-semibold">Role Type</div>
+                                <div className="text-sm font-bold text-gray-800">
+                                  {selectedUser.profile.is_super_admin ? 'Super Administrator' : 'Staff / Member'}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
                       )}
                     </div>
                   )}
@@ -975,20 +1255,20 @@ export function AdminDashboardPage() {
                     {agents
                       .filter((agent) => agent.status === 'pending')
                       .map((agent) => (
-                        <div key={agent.id} className="rounded-2xl border border-gray-100 p-4">
+                        <div key={agent.public_id ?? agent.id} className="rounded-2xl border border-gray-100 p-4">
                           <div className="text-sm font-black text-gray-900">{agent.agency_name}</div>
                           <div className="mt-1 text-xs text-gray-500">{agent.email}</div>
                           <div className="mt-3 flex gap-2">
                             <button
                               disabled={busy || !permissions?.canApproveAgents}
-                              onClick={() => void decideAgent(agent.id, 'approved')}
+                              onClick={() => void decideAgent(agent.public_id, 'approved')}
                               className="rounded-xl bg-[#2D1B69] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
                             >
                               Approve
                             </button>
                             <button
                               disabled={busy || !permissions?.canApproveAgents}
-                              onClick={() => void decideAgent(agent.id, 'rejected')}
+                              onClick={() => void decideAgent(agent.public_id, 'rejected')}
                               className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
                             >
                               Reject
@@ -1038,16 +1318,31 @@ export function AdminDashboardPage() {
                         <span className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
                           {formatStage(document.status)}
                         </span>
+                        {document.drive_sync_status === 'synced' && (
+                          <span className="rounded-full bg-green-50 border border-green-200 px-3 py-1 text-[11px] font-bold text-green-700">
+                            Drive Synced
+                          </span>
+                        )}
+                        {document.drive_sync_status === 'pending' && (
+                          <span className="rounded-full bg-yellow-50 border border-yellow-200 px-3 py-1 text-[11px] font-bold text-yellow-700">
+                            Drive Syncing
+                          </span>
+                        )}
+                        {document.drive_sync_status === 'failed' && (
+                          <span className="rounded-full bg-red-50 border border-red-200 px-3 py-1 text-[11px] font-bold text-red-700 animate-pulse">
+                            Drive Sync Failed
+                          </span>
+                        )}
                         <button
                           disabled={busy || document.status === 'verified'}
-                          onClick={() => void decideDocument(document.id, 'verified')}
+                          onClick={() => void decideDocument(document.public_id, 'verified')}
                           className="rounded-xl bg-green-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
                         >
                           Verify
                         </button>
                         <button
                           disabled={busy}
-                          onClick={() => void decideDocument(document.id, 'rejected')}
+                          onClick={() => void decideDocument(document.public_id, 'rejected')}
                           className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
                         >
                           Reject

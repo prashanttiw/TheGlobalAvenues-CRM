@@ -36,6 +36,10 @@ final class RoleController
              ORDER BY r.name ASC'
         );
         $roles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($roles as &$role) {
+            $role['permissions'] = $this->loadPermissionsForRole((int) $role['id']);
+        }
+        unset($role);
 
         Response::json(['roles' => $roles]);
     }
@@ -219,3 +223,6 @@ final class RoleController
         return $stmt->fetchAll(PDO::FETCH_COLUMN);
     }
 }
+
+
+

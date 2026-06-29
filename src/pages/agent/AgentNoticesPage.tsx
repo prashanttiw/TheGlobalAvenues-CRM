@@ -1,115 +1,136 @@
 import * as React from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { AlertTriangle, Bell, Calendar, MapPin } from 'lucide-react'
+import { fetchAgentNoticesFeed } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
-import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card'
 import { Button } from '../../shared/components/ui/Button'
-import { StatusBadge } from '../../shared/components/ui/Badge'
-import { Bell, Calendar, MapPin } from 'lucide-react'
+import { Card, CardContent, CardHeader, CardTitle } from '../../shared/components/ui/Card'
+import { EmptyState } from '../../shared/components/ui/EmptyState'
 
-interface B2BNotice {
-  id: string
+interface NoticeRecord {
+  public_id: string
   title: string
-  date: string
-  type: 'notice' | 'event'
   content: string
-  eventDate?: string
-  location?: string
+  notice_type: 'notice' | 'event'
+  published_at?: string | null
+  created_at: string
+  event_date?: string | null
+  event_location?: string | null
 }
 
-const MOCK_NOTICES: B2BNotice[] = [
-  {
-    id: 'an-1',
-    title: 'New Commissions Payout Structure',
-    date: '2026-06-22',
-    type: 'notice',
-    content: 'We have updated our commission slabs for Fall 2026. Partners with > 10 enrolled students will receive a bonus tier override. Please review the updated handbook.',
-  },
-  {
-    id: 'an-2',
-    title: 'Schengen Visa Procedures Webinar',
-    date: '2026-06-15',
-    type: 'event',
-    content: 'A B2B webinar detailing the recent Schengen visa slot booking changes and block account requirements for Canada and Austria.',
-    eventDate: '2026-06-28 at 16:00 IST',
-    location: 'Zoom Webinar',
-  }
-]
+function formatDate(value?: string | null): string {
+  return new Date(value || Date.now()).toLocaleDateString()
+}
+
+function NoticeTypeBadge({ type }: { type: NoticeRecord['notice_type'] }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+        type === 'event'
+          ? 'bg-amber-100 text-amber-700'
+          : 'bg-brand-orange-accessible/10 text-brand-orange-accessible'
+      }`}
+    >
+      {type === 'event' ? 'Event' : 'Notice'}
+    </span>
+  )
+}
 
 export default function AgentNoticesPage() {
   const [filter, setFilter] = React.useState<'all' | 'notice' | 'event'>('all')
 
-  const filteredNotices = MOCK_NOTICES.filter(n => filter === 'all' || n.type === filter)
+  const noticesQuery = useQuery({
+    queryKey: ['agent', 'notices'],
+    queryFn: fetchAgentNoticesFeed,
+    staleTime: 30_000,
+  })
+
+  const notices = (noticesQuery.data ?? []).filter((notice: NoticeRecord) => filter === 'all' || notice.notice_type === filter)
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader 
-        title="Agent Notices & Events" 
-        subtitle="Stay updated with the latest university partner news, commission slab updates, and events." 
+      <PageHeader
+        title="Agent Notices & Events"
+        subtitle="Live partner notices and events targeted to agent users."
       />
 
       <div className="flex gap-2">
-        <Button 
-          variant={filter === 'all' ? 'primary' : 'secondary'} 
-          size="sm"
-          onClick={() => setFilter('all')}
-        >
+        <Button variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>
           All
         </Button>
-        <Button 
-          variant={filter === 'notice' ? 'primary' : 'secondary'} 
-          size="sm"
-          onClick={() => setFilter('notice')}
-        >
+        <Button variant={filter === 'notice' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('notice')}>
           Notices
         </Button>
-        <Button 
-          variant={filter === 'event' ? 'primary' : 'secondary'} 
-          size="sm"
-          onClick={() => setFilter('event')}
-        >
+        <Button variant={filter === 'event' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('event')}>
           Events
         </Button>
       </div>
 
-      <div className="grid gap-6">
-        {filteredNotices.length > 0 ? (
-          filteredNotices.map((notice) => (
-            <Card key={notice.id} className="hover:shadow-card-hover transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border-warm">
+      {noticesQuery.isError ? (
+        <EmptyState
+          icon={AlertTriangle}
+          heading="Notices could not be loaded"
+          description={noticesQuery.error instanceof Error ? noticesQuery.error.message : 'The backend request failed.'}
+          action={<Button onClick={() => noticesQuery.refetch()}>Retry</Button>}
+        />
+      ) : noticesQuery.isLoading ? (
+        <div className="grid gap-6">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="rounded-card border border-border-warm bg-surface-card p-6 animate-pulse">
+              <div className="h-6 w-1/2 rounded bg-surface-warm" />
+              <div className="mt-2 h-3 w-1/3 rounded bg-surface-warm" />
+              <div className="mt-5 space-y-2">
+                <div className="h-3 rounded bg-surface-warm" />
+                <div className="h-3 rounded bg-surface-warm" />
+                <div className="h-3 w-4/5 rounded bg-surface-warm" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : notices.length > 0 ? (
+        <div className="grid gap-6">
+          {notices.map((notice: NoticeRecord) => (
+            <Card key={notice.public_id} className="hover:shadow-card-hover transition-shadow">
+              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border-warm gap-4">
                 <div className="space-y-1">
                   <CardTitle className="text-lg font-semibold text-brand-navy">{notice.title}</CardTitle>
-                  <p className="text-xs text-muted-foreground">Published on {notice.date}</p>
+                  <p className="text-xs text-muted-foreground">Published on {formatDate(notice.published_at || notice.created_at)}</p>
                 </div>
-                <StatusBadge status={notice.type === 'notice' ? 'registered' : 'pending'} />
+                <NoticeTypeBadge type={notice.notice_type} />
               </CardHeader>
               <CardContent className="mt-4 space-y-4">
-                <p className="text-sm text-brand-navy leading-relaxed">{notice.content}</p>
-                
-                {notice.type === 'event' && (
+                <div className="prose prose-sm max-w-none text-brand-navy" dangerouslySetInnerHTML={{ __html: notice.content }} />
+
+                {notice.notice_type === 'event' ? (
                   <div className="rounded-md bg-surface-warm p-4 space-y-2 border border-border-warm">
-                    <div className="flex items-center text-xs text-brand-navy">
-                      <Calendar className="mr-2 h-4 w-4 text-brand-orange-accessible" />
-                      <strong>Time:</strong>&nbsp;{notice.eventDate}
-                    </div>
-                    <div className="flex items-center text-xs text-brand-navy">
-                      <MapPin className="mr-2 h-4 w-4 text-brand-orange-accessible" />
-                      <strong>Location:</strong>&nbsp;{notice.location}
-                    </div>
+                    {notice.event_date ? (
+                      <div className="flex items-center text-xs text-brand-navy">
+                        <Calendar className="mr-2 h-4 w-4 text-brand-orange-accessible" />
+                        <strong>Time:</strong>&nbsp;{notice.event_date}
+                      </div>
+                    ) : null}
+                    {notice.event_location ? (
+                      <div className="flex items-center text-xs text-brand-navy">
+                        <MapPin className="mr-2 h-4 w-4 text-brand-orange-accessible" />
+                        <strong>Location:</strong>&nbsp;{notice.event_location}
+                      </div>
+                    ) : null}
                   </div>
-                )}
+                ) : null}
               </CardContent>
             </Card>
-          ))
-        ) : (
-          <Card className="border-dashed border-border-warm py-12">
-            <CardContent className="flex flex-col items-center justify-center text-center">
-              <Bell className="h-10 w-10 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold text-brand-navy">No updates found</h3>
-              <p className="text-sm text-muted-foreground mt-1">No notices found in this filter.</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <Card className="border-dashed border-border-warm py-12">
+          <CardContent className="flex flex-col items-center justify-center text-center">
+            <Bell className="h-10 w-10 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-semibold text-brand-navy">No updates found</h3>
+            <p className="text-sm text-muted-foreground mt-1">No agent notices match this filter.</p>
+          </CardContent>
+        </Card>
+      )}
     </PageWrapper>
   )
 }
