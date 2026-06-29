@@ -16,6 +16,10 @@ final class AdminReportsController
     public function __construct()
     {
         $this->pdo = Database::getConnection();
+    }
+    
+    private function enforceAuthAndPermissions(): void
+    {
         AuthMiddleware::requireAuth();
         
         $payload = AuthMiddleware::user();
@@ -60,6 +64,7 @@ final class AdminReportsController
 
     public function overview(): void
     {
+        $this->enforceAuthAndPermissions();
         $metrics = ['total_students','total_applications','total_offers','total_enrollments','total_leads'];
         $result = [];
         foreach ($metrics as $m) {
@@ -90,6 +95,7 @@ final class AdminReportsController
 
     public function funnel(): void
     {
+        $this->enforceAuthAndPermissions();
         $leads       = $this->fetchGlobal('total_leads');
         $students    = $this->fetchGlobal('total_students');
         $applications= $this->fetchGlobal('total_applications');
@@ -110,6 +116,7 @@ final class AdminReportsController
 
     public function agents(): void
     {
+        $this->enforceAuthAndPermissions();
         $sort_by = $_GET['sort_by'] ?? 'conversion_rate';
         $order_param = $_GET['order'] ?? 'DESC';
 
@@ -164,6 +171,7 @@ final class AdminReportsController
 
     public function universities(): void
     {
+        $this->enforceAuthAndPermissions();
         $latestDate = $this->pdo->query("
             SELECT MAX(snapshot_date) FROM report_snapshots WHERE dimension_type='university'
         ")->fetchColumn();
@@ -197,6 +205,7 @@ final class AdminReportsController
 
     public function leadSources(): void
     {
+        $this->enforceAuthAndPermissions();
         $latestDate = $this->pdo->query("
             SELECT MAX(snapshot_date) FROM report_snapshots WHERE dimension_type='lead_source'
         ")->fetchColumn();
@@ -223,6 +232,7 @@ final class AdminReportsController
 
     public function trends(): void
     {
+        $this->enforceAuthAndPermissions();
         $metric    = $_GET['metric']    ?? 'total_students';
         $dimType   = $_GET['dim_type']  ?? 'global';
         $dimId     = $_GET['dim_id']    ?? ($dimType === 'global' ? '_global' : null);

@@ -25,6 +25,10 @@ final class ExportController
     public function __construct()
     {
         $this->pdo = Database::getConnection();
+    }
+    
+    private function enforceAuthAndPermissions(): void
+    {
         AuthMiddleware::requireAuth();
         $payload = AuthMiddleware::user();
         if (($payload['utype'] ?? '') !== 'admin' && ($payload['user_type'] ?? '') !== 'admin') {
@@ -40,6 +44,8 @@ final class ExportController
 
     public function export(): void
     {
+        $this->enforceAuthAndPermissions();
+
         $type   = $_GET['type']   ?? 'students';
         $format = $_GET['format'] ?? 'xlsx'; // Default to Excel
 

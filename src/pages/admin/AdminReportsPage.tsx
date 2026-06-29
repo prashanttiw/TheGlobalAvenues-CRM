@@ -15,6 +15,7 @@ import {
   useReportLeadSources,
   useReportTrends
 } from '../../data/reports';
+import { getAccessToken } from '../../lib/api';
 
 type ReportTab = 'overview' | 'funnel' | 'agents' | 'universities' | 'sources' | 'trends';
 
@@ -47,7 +48,10 @@ export default function AdminReportsPage() {
     toast.success(`Starting ${format.toUpperCase()} export for ${type}...`);
     
     try {
-      const token = localStorage.getItem('tga_auth_token');
+      const token = getAccessToken();
+      if (!token) {
+        throw new Error('Your session has expired. Please sign in again.');
+      }
       const url = `${import.meta.env.VITE_API_BASE_URL ?? 'http://localhost/crm-api'}/?route=admin&action=reports/export&type=${type}&format=${format}`;
       
       const response = await fetch(url, {
@@ -270,7 +274,7 @@ export default function AdminReportsPage() {
                 <p className="text-sm text-brand-navy/60 max-w-sm mt-1">Check back after the first snapshot processes agent metrics.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border-warm">
+              <div className="overflow-x-auto w-full rounded-lg border border-border-warm">
                 <table className="w-full text-sm text-left whitespace-nowrap">
                   <thead className="bg-brand-navy text-white">
                     <tr>
@@ -333,7 +337,7 @@ export default function AdminReportsPage() {
                 <p className="text-sm text-brand-navy/60 max-w-sm mt-1">Check back after the snapshot engine has compiled institutional data.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto rounded-lg border border-border-warm">
+              <div className="overflow-x-auto w-full rounded-lg border border-border-warm">
                 <table className="w-full text-sm text-left whitespace-nowrap">
                   <thead className="bg-brand-navy text-white">
                     <tr>
