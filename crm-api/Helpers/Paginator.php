@@ -6,10 +6,10 @@ namespace TGA\CRM\Helpers;
 
 final class Paginator
 {
-    public static function fromQuery(array $query): array
+    public static function fromQuery(array $query, int $defaultPerPage = 20): array
     {
         $page = max(1, (int) ($query['page'] ?? 1));
-        $perPage = min(100, max(1, (int) ($query['per_page'] ?? 20)));
+        $perPage = min(100, max(1, (int) ($query['per_page'] ?? $defaultPerPage)));
 
         return [
             'page' => $page,

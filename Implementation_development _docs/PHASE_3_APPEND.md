@@ -353,3 +353,256 @@ We performed a complete, item-by-item verification and audit of the entire Phase
 * **Phase 3 Completion Score**: 100% (All 16 admin pages, student pages, agent pages, components, and permissions mapping fully complete)
 
 **READY FOR PHASE 4**: YES
+
+
+---
+
+### 2026-06-28 - Frontend Auth Boundary Remediation
+
+**Primary Phase**: Phase 3 - Frontend Shell  
+**Cross-Reference Phase**: Phase 2 - Auth / Login / Registration  
+**Status**: Implemented, pending live backend session validation.
+
+**Problem**:
+The frontend shell treated users as authenticated before backend confirmation. `useAuth` defaulted to a super-admin user with `dummy_token`, persisted auth state in `localStorage`, exposed a production role switcher in `TopBar`, and was separate from the login page's legacy `useStore` auth path. The API client also held the access token only in module memory, while the UI could appear authenticated from `localStorage` after refresh.
+
+**Solution**:
+Replaced the prototype auth state with a backend-confirmed auth lifecycle. `useAuth` now starts in `loading`, restores only through the backend refresh endpoint, accepts only backend-issued users/tokens after login, and clears memory state on logout or 401. The login page now writes successful password, OTP, or 2FA-authenticated sessions into the same `useAuth` store read by `AuthGuard` and `RoleGuard`. The production `TopBar` role switcher was removed. Access tokens remain memory-only; refresh remains an HttpOnly cookie owned by the backend.
+
+**Files Changed**:
+- `src/shared/hooks/useAuth.ts`
+- `src/lib/api.ts`
+- `src/pages/LoginPage.tsx`
+- `src/shared/components/layout/AuthGuard.tsx`
+- `src/shared/components/layout/RoleGuard.tsx`
+- `src/shared/components/layout/PortalWrapper.tsx`
+- `src/shared/components/layout/TopBar.tsx`
+- `src/pages/admin/AdminReportsPage.tsx`
+- `Implementation_development _docs/PHASE_3_APPEND.md`
+- `Implementation_development _docs/PHASE_2_APPEND.md`
+
+**Tests Run**:
+- Static auth-boundary grep confirmed no `tga_auth_token`, `dummy_token`, auth `localStorage`, or production shell `setRole` usage remains in the touched auth boundary files.
+- `npm run build` passed after rerunning outside the sandbox; the first sandboxed attempt failed with Windows `spawn EPERM` from Vite/esbuild.
+
+**Regression Risk**:
+Medium. The guarded portal now depends on the backend refresh cookie being valid and CORS credentials being configured correctly. Any user without a valid refresh cookie will be redirected to `/portal/login`, which is the intended security posture but can reveal deployment cookie/CORS issues that the prototype store previously hid.
+
+**Result**:
+Frontend route access is no longer unlocked by client-side defaults. Guards and login now share one backend-confirmed auth source, and role/permission checks use only backend-returned role and permissions.
+
+
+---
+
+### 2026-06-28 - Cross-Reference: Public Agent Status Routes Added
+
+Phase 2 pending/rejected agent status pages were added as public routes so the hardened frontend auth boundary does not trap non-approved agents on the login screen. Login now redirects backend `pending_approval` and `rejected` responses to dedicated unauthenticated status pages instead of leaving the user with only a toast.
+
+---
+
+### 2026-06-28 - Notification UI Backend Wiring Completed
+
+**Primary Phase**: Phase 3 - Frontend Shell  
+**Cross-Reference Phase**: Phase 6 - Infrastructure Notifications  
+**Status**: Implemented, build and syntax verified.
+
+**Problem Found**:
+The authenticated shell was still mounting `src/shared/components/utilities/NotificationCenter.tsx`, which used hard-coded mock notification data and local read-state toggles. A newer API-backed notification center and hook layer already existed, but it was disconnected from `TopBar` and still lacked production-grade cache behavior, error handling, and design-system alignment.
+
+**Why It Was Serious**:
+This made the shell look finished while ignoring the backend notification system entirely. Unread counts, mark-read actions, and category filtering in the live portal were not coming from the backend. Users could interact with a polished fake instead of their actual in-app notification queue.
+
+**Files Changed**:
+- `src/shared/components/layout/TopBar.tsx`
+- `src/shared/components/NotificationCenter.tsx`
+- `src/shared/hooks/useNotifications.ts`
+- `crm-api/Controllers/NotificationController.php`
+- `Implementation_development _docs/PHASE_3_APPEND.md`
+- `Implementation_development _docs/PHASE_6_APPEND.md`
+
+**Behavior Before**:
+- `TopBar` mounted the mock notification popover.
+- Read/unread state was local-only and reset with component state.
+- Notification hooks used backend data but were not driving the active shell UI.
+- The notification list requested `limit`, while the backend paginator read `per_page` only.
+- Bulk mark-read updated all notification rows for the user, not just in-app rows.
+
+**Behavior After**:
+- `TopBar` now mounts the API-backed `NotificationCenter` used by the authenticated shell.
+- Unread count comes from `GET /notifications/unread-count`.
+- Notification list comes from `GET /notifications` and refetches when the drawer opens.
+- Single-item and bulk mark-read actions call the backend and update TanStack Query caches optimistically before revalidation.
+- The drawer now has explicit loading, error, empty, unread-count, and per-category states using the existing portal design tokens.
+- The backend notification controller now accepts `limit` as an alias for `per_page` and restricts mark-read operations to in-app notification rows only.
+
+**Tests Run**:
+- `npm run build`
+- `php -l crm-api/Controllers/NotificationController.php`
+
+**Tests Not Run**:
+- Live backend notification fetch/read tests were not run in this turn because no local PHP server session or authenticated browser flow was provided.
+
+**Regression Risk**:
+Low to medium. The shell now depends on the real notification API responses and authenticated session state. If notification rows or templates are missing in the database, the UI will correctly surface an empty or error state instead of falling back to mock data.
+
+**Result**:
+The authenticated shell now uses the real backend notification surface end to end. Static notification arrays are no longer mounted in the live portal boundary.
+
+---
+
+### 2026-06-28 - Auth Restore Bridge and Admin Permission-Key Alignment
+
+**Status**: Implemented, build-verified.
+
+**Problem**:
+After the frontend auth-boundary hardening, useAuth correctly restored backend-confirmed sessions from the refresh cookie, but several existing portal pages still read currentUser from the older Zustand portal store. That meant a browser refresh could restore the protected shell while some inner pages still behaved as signed out or skipped their data loads. The admin sidebar also used outdated permission keys (users.view, oles.view, settings.view, logs.view, security.view) that no longer matched the documented/backend permission contract.
+
+**Files Changed**:
+- src/shared/hooks/useAuth.ts
+- src/shared/components/layout/PortalWrapper.tsx
+- Implementation_development _docs/PHASE_3_APPEND.md
+
+**Behavior After**:
+- estoreSession() now mirrors the authenticated user into the legacy portal store and hydrates student/agent profile cache records after backend-confirmed session restore, preventing refresh-time false sign-out states inside existing portal pages.
+- clearSession() now clears the legacy portal store as well, keeping logout and 401 cleanup consistent.
+- Admin navigation permission gates now use the Phase 3 documented keys: user_management.view, system_settings.view, ctivity_logs.view, and security_events.view.
+
+**Tests Run**:
+- 
+pm run build
+
+### 2026-06-28 - Auth Session Establishment Consolidated
+
+**Status**: Implemented, build-verified.
+
+**Problem**:
+After the initial auth-boundary hardening, `LoginPage` still duplicated legacy profile-cache hydration by importing the old Zustand portal store and calling profile APIs directly after `useAuth` accepted a session. That left login as a second session-establishment path instead of a thin client of the shared auth store.
+
+**Files Changed**:
+- `src/shared/hooks/useAuth.ts`
+- `src/pages/LoginPage.tsx`
+- `src/pages/agent/AgentPendingPage.tsx`
+- `src/pages/agent/AgentRejectedPage.tsx`
+
+**Behavior After**:
+- `useAuth.establishSession()` is now the single frontend path that applies authenticated state and hydrates legacy student/agent cache data needed by older portal pages.
+- `restoreSession()` reuses the same shared session-establishment path instead of duplicating its own cache-sync flow.
+- `LoginPage` no longer imports the legacy store or direct profile APIs to establish a user session.
+- Public pending/rejected agent status pages now use the shared logout flow so any refresh cookie is revoked before returning to the login route.
+
+**Tests Run**:
+- `npm run build`
+- `php -l crm-api/Middleware/AuthMiddleware.php`
+
+---
+
+### 2026-06-28 - Shared API Client Legacy Response And Multipart Compatibility Fix
+
+**Primary Phase**: Phase 3 - Shared frontend shell and API plumbing  
+**Cross-Reference Phases**: Phase 4 applications, Phase 7 notices  
+**Status**: Implemented.
+
+**Problem Found**:
+Multiple routed portal pages were still blocked behind two shared client issues even when backend endpoints already existed:
+1. `src/lib/api.ts` treated flat legacy payloads like `{ data, meta }` as failures because they did not include `success: true`.
+2. The default `api.post()` / `api.put()` helpers always `JSON.stringify`'d the body, which broke any multipart `FormData` request path.
+
+**Fix Applied**:
+- Normalized flat `{ data, meta }` responses as successful API payloads without changing the higher-level page calling convention.
+- Updated the shared `api.post()` and `api.put()` helpers to pass `FormData` through unchanged while still JSON-encoding ordinary objects.
+- Added shared frontend helpers for student applications, student notices, agent notices, and agent applications so routed portal pages can follow the same client conventions.
+
+**Why It Matters**:
+This was the common integration fault line behind several routed mock pages. Without this client fix, wiring individual pages to live endpoints would still leave legacy response contracts and multipart uploads behaving inconsistently across the shell.
+
+### 2026-06-28 - Registration Flow And Profile Bridge Compatibility Alignment
+
+**Status**: Implemented, build-verified.
+
+**Problem**:
+The first auth-boundary pass still left two active compatibility gaps in production paths. `ApplyPage` completed student registration by writing directly into the legacy Zustand auth store instead of going through the shared auth store, and the new legacy-profile bridge in `useAuth` assumed older student/agent profile payloads that did not match the active backend route map.
+
+**Files Changed**:
+- `src/pages/ApplyPage.tsx`
+- `src/shared/hooks/useAuth.ts`
+- `src/lib/api.ts`
+
+**Behavior After**:
+- Student registration OTP completion now establishes the authenticated session through `useAuth.establishSession()` instead of directly mutating the legacy auth store.
+- The student registration flow no longer fails hard if the legacy student preference update endpoint is unavailable; the authenticated session still completes and the local profile store is enriched for continuity.
+- The legacy student cache bridge now derives IDs from the authenticated user and the active student profile payload instead of assuming `id` and `user_id` fields that the backend does not return.
+- The legacy agent cache bridge now uses the active `/agent/profile` endpoint and maps its numeric tier payload into the older store shape without breaking the session restore flow.
+- Login, OTP login, 2FA verification, refresh, and logout now bypass the global unauthorized handler so expected auth failures do not incorrectly trigger session-expired behavior while the auth flow is still in progress.
+
+**Tests Run**:
+- `npm run build`
+- `php -l crm-api/Middleware/AuthMiddleware.php`
+- `php -l crm-api/Controllers/NotificationController.php`
+- `php -l crm-api/Routes/AuthRoutes.php`
+- `php -l crm-api/Routes/NotificationRoutes.php`
+
+---
+
+### 2026-06-29 — Portal Shell: Pending Agent Routing (Agent Onboarding, Part 2)
+
+**Trigger**: With pending agents now receiving a JWT on login (see Phase 2 APPEND 2026-06-29), the portal shell needed to intercept them and route them to an onboarding page instead of the normal dashboard.
+
+#### Change 1 — `useAuth.ts`: `agentStatus` on the `User` type
+
+`mapAuthUser` already mapped `apiUser.status` (users.status) but did not surface `apiUser.account_status` (agents.status). Added `agentStatus?: string` to the `User` interface and mapped it from `apiUser.account_status`:
+
+```ts
+// User interface
+agentStatus?: string
+
+// mapAuthUser
+agentStatus: apiUser.account_status,
+```
+
+Also added a guard in `syncLegacyProfileCache` to skip the `fetchAgentProfile()` call for pending agents (which would hit `AgentController::resolveAgent()` → 403 since it requires `agents.status = 'approved'`):
+
+```ts
+if (apiUser.account_status === 'pending') {
+  return  // skip — approved check in getProfile() would 403
+}
+const profile = await fetchAgentProfile()
+```
+The existing `catch` in `establishSession` already handled this failure gracefully, but the guard avoids the unnecessary 403 roundtrip.
+
+#### Change 2 — `RoleGuard.tsx`: redirect pending agents to onboarding
+
+Added `useLocation` import and a check after the role check:
+
+```tsx
+if (
+  user.role === 'agent' &&
+  user.agentStatus === 'pending' &&
+  !location.pathname.includes('/onboarding')
+) {
+  return <Navigate to="/portal/agent/onboarding" replace />
+}
+```
+
+Effect: Any pending agent who navigates to any agent portal URL (including the dashboard index `/portal/agent`) is transparently redirected to `/portal/agent/onboarding`. Once the admin approves (`agents.status = 'approved'`), the next session refresh populates `agentStatus = 'approved'` and the guard no longer fires.
+
+The check is path-exclusive (`!location.pathname.includes('/onboarding')`) so the onboarding page itself is not redirect-looped.
+
+#### Change 3 — `router/index.tsx`: `onboarding` route inside agent portal
+
+Added lazy import and route registration:
+```tsx
+const AgentOnboardingPage = React.lazy(() => import('../pages/agent/AgentOnboardingPage'));
+
+// Inside agent RoleGuard routes:
+<Route path="onboarding" element={<AgentOnboardingPage />} />
+```
+
+The route sits inside `AuthGuard` + `RoleGuard allowedRoles={['agent']}`, so it requires a valid agent JWT. Pending agents have a JWT (per Phase 2 fix), so they can reach it. The `RoleGuard` pending-redirect check excludes `/onboarding` paths, so the page itself renders correctly.
+
+**Files Changed**:
+- `src/shared/hooks/useAuth.ts` — added `agentStatus` to `User`; mapped from `account_status`; pending agent profile sync guard
+- `src/shared/components/layout/RoleGuard.tsx` — pending agent redirect to `/portal/agent/onboarding`
+- `src/router/index.tsx` — lazy import + `onboarding` route inside agent portal
+
+**Tests Run**:
+- `npx vite build`: PASS (0 errors)

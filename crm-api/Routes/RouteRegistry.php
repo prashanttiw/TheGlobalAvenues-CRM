@@ -25,6 +25,11 @@ final class RouteRegistry
         self::$routes['POST'][$route][$action] = $handler;
     }
 
+    public static function options(string $route, string $action, callable $handler): void
+    {
+        self::$routes['OPTIONS'][$route][$action] = $handler;
+    }
+
     public static function put(string $route, string $action, callable $handler): void
     {
         self::$routes['PUT'][$route][$action] = $handler;
@@ -42,7 +47,7 @@ final class RouteRegistry
         if (!isset(self::$routes[$method])) {
             Response::error("Endpoint '{$method} {$requestPath}' not found", 'NOT_FOUND', 404);
         }
-        $requestParts = explode('/', $requestPath);
+        $requestParts = explode('/', ltrim($requestPath, '/'));
 
         foreach (self::$routes[$method] as $registeredRoute => $actions) {
             foreach ($actions as $registeredAction => $handler) {

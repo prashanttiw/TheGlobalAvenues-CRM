@@ -1,24 +1,28 @@
-import { ReactNode } from 'react';
-import { Navigate } from 'react-router-dom';
-import { useStore } from '../hooks/useStore';
+import { ReactNode } from 'react'
+import { Navigate } from 'react-router-dom'
+import { useAuth } from '../shared/hooks/useAuth'
 
 interface ProtectedRouteProps {
-  children: ReactNode;
-  allowedRoles?: string[];
+  children: ReactNode
+  allowedRoles?: string[]
 }
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
-  const currentUser = useStore((state) => state.currentUser);
+  const { user, isAuthenticated, isLoading, status } = useAuth()
 
-  if (!currentUser) {
-    return <Navigate to="/portal/login" replace />;
+  if (isLoading || status === 'loading') {
+    return null
   }
 
-  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(currentUser.role)) {
-    if (currentUser.role === 'admin' || currentUser.role === 'super_admin') return <Navigate to="/portal/admin" replace />;
-    if (currentUser.role === 'agent' || currentUser.role === 'sub_agent') return <Navigate to="/portal/agent" replace />;
-    return <Navigate to="/portal/student" replace />;
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/portal/login" replace />
   }
 
-  return <>{children}</>;
+  if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
+    if (user.role === 'admin') return <Navigate to="/portal/admin" replace />
+    if (user.role === 'agent') return <Navigate to="/portal/agent" replace />
+    return <Navigate to="/portal/student" replace />
+  }
+
+  return <>{children}</>
 }

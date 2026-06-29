@@ -279,13 +279,12 @@ export const useStore = create<CRMState>((set, get) => ({
 
   setCurrentUser: (user) => set({ currentUser: user }),
 
-  sendOTP: async (email) => {
-    console.log(`[OTP Engine] Simulated email code trigger sent to ${email}: 123456`);
-    return '123456';
+  sendOTP: async (_email) => {
+    throw new Error('Not implemented — use api.ts OTP functions');
   },
 
   verifyOTP: async (email, code) => {
-    return code === '123456';
+    throw new Error('Not implemented — use api.ts OTP functions');
   },
 
   upsertStudentRecord: (profile) => {

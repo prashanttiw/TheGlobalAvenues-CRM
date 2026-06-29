@@ -40,11 +40,11 @@ const ADMIN_NAV_BASE: (NavItem & { permission?: string })[] = [
   { label: 'Leads', icon: Target, path: '/portal/admin/leads', permission: 'leads.view' },
   { label: 'Notices', icon: Megaphone, path: '/portal/admin/notices', permission: 'notices.view' },
   { label: 'Reports', icon: BarChart2, path: '/portal/admin/reports', permission: 'reports.view' },
-  { label: 'Users', icon: Users, path: '/portal/admin/users', permission: 'users.view' },
-  { label: 'Roles', icon: Key, path: '/portal/admin/roles', permission: 'roles.view' },
-  { label: 'Settings', icon: Settings, path: '/portal/admin/settings', permission: 'settings.view' },
-  { label: 'Logs', icon: Activity, path: '/portal/admin/logs', permission: 'logs.view' },
-  { label: 'Security', icon: Lock, path: '/portal/admin/security', permission: 'security.view' },
+  { label: 'Users', icon: Users, path: '/portal/admin/users', permission: 'user_management.view' },
+  { label: 'Roles', icon: Key, path: '/portal/admin/roles', permission: 'user_management.view' },
+  { label: 'Settings', icon: Settings, path: '/portal/admin/settings', permission: 'system_settings.view' },
+  { label: 'Logs', icon: Activity, path: '/portal/admin/logs', permission: 'activity_logs.view' },
+  { label: 'Security', icon: Lock, path: '/portal/admin/security', permission: 'security_events.view' },
 ]
 
 export function PortalWrapper() {
@@ -66,15 +66,14 @@ export function PortalWrapper() {
   }
 
   const handleLogout = () => {
-    logout()
-    navigate('/')
+    void logout().finally(() => navigate('/portal/login'))
   }
 
   // Inject agent-specific props if the user is an agent
   const agentProps = user.role === 'agent' ? {
-    tier: 'Level 1 Agent',
-    referralCode: 'TGA-AG-2026'
-  } : {};
+    tier: user.tier,
+    referralCode: user.referralCode,
+  } : {}
 
   return (
     <DashboardLayout
@@ -86,3 +85,4 @@ export function PortalWrapper() {
     />
   )
 }
+

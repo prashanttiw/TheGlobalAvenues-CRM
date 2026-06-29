@@ -23,16 +23,20 @@ import { ContactPage } from '../pages/ContactPage';
 import { ApplyPage } from '../pages/ApplyPage';
 import { ServicesPage } from '../pages/ServicesPage';
 import { LoginPage } from '../pages/LoginPage';
+import AgentPendingPage from '../pages/agent/AgentPendingPage';
+import AgentRejectedPage from '../pages/agent/AgentRejectedPage';
 
 // Lazy load portal pages
 import React, { Suspense } from 'react';
 import { Outlet } from 'react-router-dom';
 
 // Student
-const StudentDashboardPage = React.lazy(() => import('../pages/StudentDashboardPage').then(m => ({ default: m.StudentDashboardPage })));
+const StudentDashboardPage = React.lazy(() => import('../pages/StudentDashboardPage'));
 const StudentAgentPage = React.lazy(() => import('../pages/student/StudentAgentPage'));
 const StudentNoticesPage = React.lazy(() => import('../pages/student/StudentNoticesPage'));
 const StudentProfile = React.lazy(() => import('../pages/student/StudentProfile'));
+const StudentApplications = React.lazy(() => import('../pages/student/StudentApplications'));
+const StudentDocuments = React.lazy(() => import('../pages/student/StudentDocuments'));
 
 // Agent
 const AgentDashboardPage = React.lazy(() => import('../pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
@@ -43,6 +47,7 @@ const AgentCommissionsPage = React.lazy(() => import('../pages/agent/AgentCommis
 const AgentApplicationsPage = React.lazy(() => import('../pages/agent/AgentApplicationsPage'));
 const AgentNoticesPage = React.lazy(() => import('../pages/agent/AgentNoticesPage'));
 const AgentProfilePage = React.lazy(() => import('../pages/agent/AgentProfilePage'));
+const AgentOnboardingPage = React.lazy(() => import('../pages/agent/AgentOnboardingPage'));
 
 // Admin
 const AdminDashboardPage = React.lazy(() => import('../pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
@@ -50,6 +55,10 @@ const AdminNoticesPage = React.lazy(() => import('../pages/admin/AdminNoticesPag
 const AdminAgentDetailPage = React.lazy(() => import('../pages/admin/AdminAgentDetailPage'));
 const AdminCommissionsPage = React.lazy(() => import('../pages/admin/AdminCommissionsPage'));
 const AdminReportsPage = React.lazy(() => import('../pages/admin/AdminReportsPage'));
+const AdminUniversitiesPage = React.lazy(() => import('../pages/admin/AdminUniversitiesPage'));
+const AdminCoursesPage = React.lazy(() => import('../pages/admin/AdminCoursesPage'));
+const AdminIntakesPage = React.lazy(() => import('../pages/admin/AdminIntakesPage'));
+const AdminApplicationsPage = React.lazy(() => import('../pages/admin/AdminApplicationsPage'));
 
 export function AppRouter() {
   return (
@@ -72,6 +81,11 @@ export function AppRouter() {
         <Route path="/portal/login" element={<LoginPage />} />
         <Route path="/portal/register" element={<ApplyPage />} />
       </Route>
+
+      <Route path="/portal/agent/pending" element={<AgentPendingPage />} />
+      <Route path="/portal/agent/rejected" element={<AgentRejectedPage />} />
+      <Route path="/agent/pending" element={<AgentPendingPage />} />
+      <Route path="/agent/rejected" element={<AgentRejectedPage />} />
         
       {/* ── Phase 3 CRM Portals ── */}
       <Route
@@ -94,8 +108,8 @@ export function AppRouter() {
           }
         >
           <Route index element={<StudentDashboardPage />} />
-          <Route path="applications" element={<StudentDashboardPage />} />
-          <Route path="documents" element={<StudentDashboardPage />} />
+          <Route path="applications" element={<StudentApplications />} />
+          <Route path="documents" element={<StudentDocuments />} />
           <Route path="quiz" element={<StudentDashboardPage />} />
           <Route path="visa" element={<StudentDashboardPage />} />
           <Route path="agent" element={<StudentAgentPage />} />
@@ -115,6 +129,7 @@ export function AppRouter() {
           }
         >
           <Route index element={<AgentDashboard />} />
+          <Route path="onboarding" element={<AgentOnboardingPage />} />
           <Route path="team" element={<AgentTeamPage />} />
           <Route path="students" element={<AgentStudents />} />
           <Route path="applications" element={<AgentApplicationsPage />} />
@@ -135,13 +150,13 @@ export function AppRouter() {
           }
         >
           <Route index element={<AdminDashboardPage />} />
-          <Route path="universities" element={<AdminDashboardPage />} />
-          <Route path="courses" element={<AdminDashboardPage />} />
-          <Route path="intakes" element={<AdminDashboardPage />} />
+          <Route path="universities" element={<AdminUniversitiesPage />} />
+          <Route path="courses" element={<AdminCoursesPage />} />
+          <Route path="intakes" element={<AdminIntakesPage />} />
           <Route path="students" element={<AdminDashboardPage />} />
           <Route path="agents" element={<AdminDashboardPage />} />
           <Route path="agents/:pid/tree" element={<AdminAgentDetailPage />} />
-          <Route path="applications" element={<AdminDashboardPage />} />
+          <Route path="applications" element={<AdminApplicationsPage />} />
           <Route path="commissions" element={<AdminCommissionsPage />} />
           <Route path="leads" element={<AdminDashboardPage />} />
           <Route path="notices" element={<AdminNoticesPage />} />
