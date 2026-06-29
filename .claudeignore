@@ -1,0 +1,29 @@
+# Dependencies — heavy, never need direct reading
+node_modules/
+**/node_modules/
+vendor/
+**/vendor/
+
+# Build output / generated artifacts
+dist/
+build_output/
+**/dist/
+
+# Version control internals
+.git/
+
+# Editor / IDE / other AI tool state — not shared context
+.vscode/
+.kiro/
+.agents/
+.codex/
+
+
+
+# Lockfiles — large, rarely need contents read directly
+package-lock.json
+**/package-lock.json
+composer.lock
+
+
+
