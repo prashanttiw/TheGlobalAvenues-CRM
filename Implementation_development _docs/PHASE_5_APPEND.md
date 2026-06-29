@@ -1662,3 +1662,257 @@ Gemini must read that file for exact code — do NOT deviate from it.
 **YES ✅**
 
 All Critical and High issues identified in both audit cycles have been remediated. The implementation matches the specification on all 23 verified requirements. The system is secure, performant, and maintainable.
+
+---
+
+### 2026-06-28 Section 5.3 — End-to-End Audit & Fix: Agent Dashboard Load
+
+**Status**: Implemented. Tested as described below. NOT independently re-verified yet — pending separate re-verification session.
+
+**Target Flow**: Agent Dashboard Load
+
+**Problem Found**: 
+1. **Incorrect Student Scoping**: The student counts query in `AgentController::dashboardSummary()` queried students by `root_agent_id = ?` (the L1 agent ID) for all tiers. This caused Tier 2 and Tier 3 agents to see student counts and conversion rates for the entire root tree (including other agents' students) instead of their own scoped subtree.
+2. **Incorrect Sub-Agent Scoping**: The sub-agent count query in `AgentController::dashboardSummary()` counted all agents in the root tree (`root_agent_id = ? AND id != ?`) for all tiers. This caused Tier 3 agents (who cannot have sub-agents) to see sub-agent counts, and Tier 2 agents to see counts for all sub-agents in the entire root tree rather than just their own direct sub-agents.
+3. **Missing Status Enforcement (Defense-in-Depth)**: `AgentController::resolveAgent()` did not assert that the agent's status is `approved`, which could allow non-approved agents (pending, suspended, or rejected) to fetch dashboard summary data if they had a valid user session.
+
+**Root Cause**: 
+The dashboard summary SQL queries were hardcoded to use the root agent ID for scoping instead of dynamically applying the tier-based subtree visibility rules that are correctly used in student and team listing endpoints. The `resolveAgent` helper did not enforce the `approved` status.
+
+**Solution Implemented**:
+1. Modified `AgentController::resolveAgent()` to verify that `$agent['status'] === 'approved'`. If not, it returns a `403 Forbidden` response.
+2. Rewrote the student count query in `AgentController::dashboardSummary()` to dynamically build the WHERE clause and parameters based on the agent's tier:
+   - **Tier 3**: Scoped to `s.agent_id = :my_agent_id`
+   - **Tier 2**: Scoped to `s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id`
+   - **Tier 1**: Scoped to `a.root_agent_id = :root`
+   - Added `a.deleted_at IS NULL` to ensure soft-deleted agents' students are excluded.
+3. Rewrote the sub-agent count query in `AgentController::dashboardSummary()` to dynamically query based on the agent's tier:
+   - **Tier 3**: Hardcoded to `0` total and pending sub-agents.
+   - **Tier 2**: Scoped to `parent_agent_id = ? AND deleted_at IS NULL` (only direct sub-agents).
+   - **Tier 1**: Scoped to `root_agent_id = ? AND id != ? AND deleted_at IS NULL` (all sub-agents).
+
+**Files Changed**:
+- `crm-api/Controllers/AgentController.php` — Modified `resolveAgent` and `dashboardSummary` methods.
+
+**Frontend Impact**:
+- The dashboard now displays correct, tier-scoped metrics for Tier 1, Tier 2, and Tier 3 agents when loading. Tier 3 agents will see 0 sub-agents, and Tier 2 agents will see only their direct sub-agents.
+
+**Backend Impact**:
+- Backend endpoints under `AgentController` are now secured with a check ensuring the agent status is `approved`.
+- The `dashboardSummary` endpoint now queries and returns properly scoped database counts for students and sub-agents.
+
+**Database Impact**: None (no schema changes).
+
+**Security/RBAC Impact**:
+- Fixed data leak where Tier 2 and Tier 3 agents could see student counts and sub-agent counts for other agents in the same root tree.
+- Added controller-level status checks preventing pending, rejected, or suspended agents from loading dashboard summary data.
+
+**Regression Risk**: None known. The scoping logic matches the verified visibility rules used in `listStudents` and `listTeam` endpoints.
+
+**Tests Run**:
+- `npm run build`: Pass
+- `php -l`: Pass (`php -l crm-api/Controllers/AgentController.php`)
+- Manual flow test (correct role): Not run (no local DB/backend running)
+- Manual flow test (incorrect role, expect rejection): Not run (no local DB/backend running)
+
+**Tests NOT Run (and why)**:
+- Manual flow test (correct and incorrect roles) and hitting the actual API endpoint: Not runtime-tested because the local MySQL database server was not running on the system (the connection was refused on localhost:3306), preventing the PHP backend from executing queries.
+
+**Observed But Out Of Scope**: None observed.
+
+**Result**: Pass with warnings (due to lack of database for runtime testing).
+
+**Follow-Up Needed**: None.
+
+---
+
+### 2026-06-29 — Independent Re-Verification: Agent Portal Flows (Phase 5 Scope)
+
+**Verifying**: All Phase 5 agent portal flows — profile, sub-agent invite, team hierarchy, commissions, student list/detail.
+
+**Verification Result**: Two genuine bugs found and fixed. All other flows confirmed correct.
+
+---
+
+#### BUG-P5-A: `AgentProfilePage.tsx` — Entirely Hardcoded Mock Data
+
+**File**: `src/pages/agent/AgentProfilePage.tsx`
+
+**Problem**: The page as implemented before this fix was 60 lines of entirely static hardcoded data:
+- `referralCode = "TGA-RKX492"` (fake)
+- `"Sarah Johnson"` (fake name)
+- `"sarah@gepartners.com"` (fake email)
+- `"South Asia"`, `"Global Education Partners"` (fake values)
+
+No API calls were made. `fetchAgentProfile()` and `updateAgentProfile()` already existed in `src/lib/api.ts` and the backend routes `GET /agent/profile` + `PUT /agent/profile` were registered and working. The page simply was never wired up.
+
+**Fix**: Complete rewrite of `src/pages/agent/AgentProfilePage.tsx` (~193 lines). The page now:
+- Calls `fetchAgentProfile()` on mount with loading/error states
+- Displays `full_name`, `agency_name`, `tier`, `referral_code`, `status`, `country`, `pending_student_requests` from real backend data
+- Supports inline editing of `agency_name` and `country` (the only two writable fields the backend accepts)
+- Calls `updateAgentProfile()` on save with optimistic local state update
+- Renders `<Toaster />` from `sonner` for feedback
+- Copy-to-clipboard for referral code
+
+**Editable fields**: `agency_name`, `country` (matches `AgentController::updateProfile()` whitelist exactly).
+
+**Read-only fields shown**: `full_name`, `tier`, `referral_code`, `status`, `pending_student_requests`.
+
+**No regressions**: Does not touch any marketing files, does not import from `src/components/layout/`, does not use `useStore.ts` or any mock data.
+
+**Tests Run**: `npx vite build` — Pass (17s, 0 errors). `php -l crm-api/Controllers/AgentController.php` — Pass.
+
+---
+
+#### BUG-P5-B: Sub-Agent Invite Form — Wrong Field Key + Missing Required Fields
+
+**Files**: `src/pages/agent/AgentTeamPage.tsx`, `src/lib/api.ts`
+
+**Problem**: The sub-agent invite form in `AgentTeamPage.tsx` and the `inviteSubAgent()` function in `api.ts` had three mismatches against what `SubAgentController::invite()` requires:
+
+| Issue | Frontend | Backend expects |
+|-------|----------|----------------|
+| Key mismatch | `name: string` | `full_name` |
+| Missing field | (absent) | `country` (required) |
+| Missing field | (absent) | `password` (required) |
+
+Result: every submit attempt produced `400 Missing required fields` from the backend — the feature was completely non-functional.
+
+**Fix — `src/lib/api.ts`**: Updated `inviteSubAgent()` type signature to match backend:
+```ts
+export async function inviteSubAgent(payload: {
+  full_name: string;
+  agency_name: string;
+  country: string;
+  email: string;
+  password: string;
+  phone?: string;
+  business_registration_number?: string;
+  partnership_scope?: string;
+}): Promise<any>
+```
+
+**Fix — `src/pages/agent/AgentTeamPage.tsx`**:
+- Renamed state key `name` → `full_name`
+- Added `country` field to `inviteForm` state and form JSX
+- Added `password` field to `inviteForm` state and form JSX (with helper text explaining it's the initial login password)
+- Updated `inviteSubAgent()` call to pass all required fields with correct keys
+- Updated reset after successful submit to clear all five fields
+
+**Backend behavior confirmed correct**: `SubAgentController::invite()` validates email uniqueness, hashes password with `PASSWORD_ARGON2ID`, enforces `tier >= 3` hard cap, sets `root_agent_id`, and creates the sub-agent as `status = 'pending'`.
+
+**Tests Run**: `npx vite build` — Pass (17s, 0 errors).
+
+---
+
+#### VERIFIED CORRECT (No Changes)
+
+| Flow | Backend | Frontend | Verdict |
+|------|---------|----------|---------|
+| Dashboard summary | `AgentController::dashboardSummary()` — tier-scoped SQL ✓ | `AgentDashboard.tsx` uses `fetchAgentDashboardSummary()` ✓ | Pass |
+| Student list | Tier-aware scoping via `resolveTargetAgent()` ✓ | `AgentStudents.tsx` uses `fetchAgentStudents` ✓ | Pass |
+| Student detail | Subtree ownership check + 403 ✓ | `fetchAgentStudentDetail(pid)` ✓ | Pass |
+| Applications list | Subtree scoping via `ag_owner` JOIN ✓ | `AgentApplicationsPage.tsx` uses `fetchAgentApplications` ✓ | Pass |
+| Application detail | Returns timeline, doc requests, payments ✓ | `fetchAgentApplicationDetail(pid)` ✓ | Pass |
+| Commission summary | Own totals + tier-restricted sub-agent breakdown ✓ | `fetchAgentCommissionsSummary()` ✓ | Pass |
+| Commission list | Own commissions only (`c.agent_id = :agent_id`) ✓ | `fetchAgentCommissions()` ✓ | Pass |
+| Team list | Direct sub-agents (`parent_agent_id = :id`) ✓ | `fetchAgentTeam()` ✓ | Pass |
+| Sub-agent children | Subtree enforced via `resolveTargetAgent()` ✓ | `fetchSubAgents(pid)` ✓ | Pass |
+| Notices feed | `agentFeed()` guards `utype === 'agent'` ✓ | `AgentNoticesPage.tsx` uses `fetchAgentNoticesFeed` ✓ | Pass |
+
+**Tests NOT Run**: Runtime API calls — local MySQL was not running during this session. All verifications were static code analysis + build.
+
+**Follow-Up Needed**: None for Phase 5 scope. See Phase 6 APPEND for notification routing fix and document submission fix.
+
+---
+
+### 2026-06-29 — Agent Onboarding Page + Backend Endpoints (Agent Onboarding, Part 3)
+
+**Trigger**: With login unblocked (Phase 2) and routing in place (Phase 3), the agent portal needed a complete onboarding experience: a backend API for KYC document retrieval and upload, plus the frontend welcome page.
+
+#### Backend — `AgentController.php`: two new onboarding methods
+
+Both methods bypass `resolveAgent()` (which requires `agents.status = 'approved'`) because pending agents are their target audience.
+
+**`getOnboardingStatus()`** — `GET /?route=agent&action=onboarding/status`
+- Guards `utype === 'agent'`
+- Queries `agents` table directly (no status filter beyond `deleted_at IS NULL`)
+- Queries `files` table for existing onboarding documents (`owner_type = 'agent'`, `document_type IN ('business_registration', 'agency_logo', 'partnership_scope_doc')`)
+- Returns agent profile summary + map of uploaded documents keyed by document type
+- Response shape: `{ agent: { public_id, full_name, agency_name, country, status, created_at }, documents: { business_registration?: {...}, agency_logo?: {...}, partnership_scope_doc?: {...} } }`
+
+**`uploadOnboardingDocument()`** — `POST /?route=agent&action=onboarding/documents`
+- Guards `utype === 'agent'`
+- Rejects if agent `status = 'approved'` (they should use the profile section instead)
+- Validates `document_type` against allowed list
+- Delegates to `FileUploadService::upload()` with `owner_type = 'agent'`, storage path `agents/{public_id}/onboarding`
+- Logs to `activity_logs` via `ActivityLogger::log('agent.onboarding_doc_uploaded', ...)`
+- Returns `{ public_id, document_type, filename }` on success
+
+#### Backend — `AgentRoutes.php`: two new routes
+
+```php
+RouteRegistry::get('agent', 'onboarding/status',    [$agent, 'getOnboardingStatus']);
+RouteRegistry::post('agent', 'onboarding/documents', [$agent, 'uploadOnboardingDocument']);
+```
+
+Both routes sit inside the agent-authenticated route group and require a valid JWT (same as all other agent routes). Auth middleware is handled by `AuthMiddleware::requireAuth()` inside each method.
+
+#### Frontend — `src/lib/api.ts`: onboarding API functions
+
+Added types and two exported functions:
+
+```ts
+export type AgentOnboardingDoc = { public_id: string; filename: string; uploaded_at: string };
+export type AgentOnboardingStatus = {
+  agent: { public_id, full_name, agency_name, country, status, created_at };
+  documents: {
+    business_registration?: AgentOnboardingDoc;
+    agency_logo?: AgentOnboardingDoc;
+    partnership_scope_doc?: AgentOnboardingDoc;
+  };
+};
+
+export async function fetchAgentOnboardingStatus(): Promise<AgentOnboardingStatus>
+export async function uploadAgentOnboardingDocument(file, documentType): Promise<{...}>
+```
+
+Upload uses `FormData` with `file` and `document_type` fields — matches `$_FILES['file']` + `$_POST['document_type']` in the backend.
+
+#### Frontend — `src/pages/agent/AgentOnboardingPage.tsx` (new file, 237 lines)
+
+Full welcome + KYC upload page. Accessible only to authenticated agents (inside `AuthGuard`/`RoleGuard`).
+
+**Structure**:
+1. **Header bar** — TGA logo + name; Sign Out button (calls `useAuth().logout()`)
+2. **Welcome card** — gradient brand-navy background; agent name + agency name; brief onboarding explanation
+3. **Progress stepper** — three steps: "Basic Info" (green checkmark ✓), "Documents" (orange dot, active), "Admin Review" (grey clock, pending)
+4. **Document cards** — one card per document type with upload/replace button, file name after upload, required badge on business registration
+5. **Info box** — "What happens next?" with three bullet points
+6. **Footer** — partner email contact
+
+**Document types** (matching `FileUploadService` MIME rules):
+| Type | Required | Accepted |
+|------|----------|---------|
+| `business_registration` | Yes | PDF, JPEG, PNG |
+| `agency_logo` | No | JPEG, PNG |
+| `partnership_scope_doc` | No | PDF |
+
+**Data flow**:
+- `useQuery(['agent-onboarding-status'], fetchAgentOnboardingStatus)` — loads existing uploads on mount
+- `useMutation` wrapping `uploadAgentOnboardingDocument` — invalidates query on success
+- Per-document `<input type="file" hidden>` refs, triggered by visible buttons
+- Upload state tracked per-document (`uploading: DocType | null`) to show spinner on active card only
+
+**Files Changed**:
+- `crm-api/Controllers/AgentController.php` — `getOnboardingStatus()` and `uploadOnboardingDocument()` methods added
+- `crm-api/Routes/AgentRoutes.php` — two new routes registered
+- `src/lib/api.ts` — `AgentOnboardingStatus` type, `fetchAgentOnboardingStatus()`, `uploadAgentOnboardingDocument()`
+- `src/pages/agent/AgentOnboardingPage.tsx` — **NEW FILE**
+
+**Tests Run**:
+- `npx vite build`: PASS (`AgentOnboardingPage-BEA_UAqv.js` 8.73 kB in output)
+- `php -l crm-api/Controllers/AgentController.php`: PASS
+- `php -l crm-api/Routes/AgentRoutes.php`: PASS
+
+

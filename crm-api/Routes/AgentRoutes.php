@@ -69,5 +69,9 @@ final class AgentRoutes
         RouteRegistry::post('agent', ':moduleName/:recordId/notes', [$notes, 'create']);
         RouteRegistry::put('agent', 'notes/:pid',                  [$notes, 'update']);
         RouteRegistry::delete('agent', 'notes/:pid',               [$notes, 'delete']);
+
+        // ── Onboarding (pending agents) ──────────────────────────────────────
+        RouteRegistry::get('agent', 'onboarding/status',    [$agent, 'getOnboardingStatus']);
+        RouteRegistry::post('agent', 'onboarding/documents', [$agent, 'uploadOnboardingDocument']);
     }
 }

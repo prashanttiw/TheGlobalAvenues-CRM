@@ -3,10 +3,9 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, User } from 'lucide-react';
 
 export type AgentNode = {
-  id: number;
   public_id: string;
-  parent_agent_id: number | null;
-  root_agent_id: number | null;
+  parent_public_id: string | null;
+  root_public_id: string | null;
   tier: number;
   full_name: string;
   agency_name: string | null;

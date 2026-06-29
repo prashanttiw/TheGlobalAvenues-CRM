@@ -20,9 +20,11 @@ export default function AgentTeamPage() {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [inviteForm, setInviteForm] = useState({
-    name: '',
+    full_name: '',
     agency: '',
+    country: '',
     email: '',
+    password: '',
   });
 
   async function loadTeam() {
@@ -67,13 +69,15 @@ export default function AgentTeamPage() {
     setBusy(true);
     try {
       await inviteSubAgent({
-        name: inviteForm.name,
+        full_name: inviteForm.full_name,
         agency_name: inviteForm.agency,
-        email: inviteForm.email
+        country: inviteForm.country,
+        email: inviteForm.email,
+        password: inviteForm.password,
       });
       toast.success(`Invitation sent successfully to ${inviteForm.email}!`);
       setIsInviteOpen(false);
-      setInviteForm({ name: '', agency: '', email: '' });
+      setInviteForm({ full_name: '', agency: '', country: '', email: '', password: '' });
       void loadTeam();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to send invitation.');
@@ -232,20 +236,20 @@ export default function AgentTeamPage() {
           <div className="space-y-4">
             <div>
               <label className="text-xs font-semibold text-brand-navy block mb-1">Sub-Agent Full Name</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 required
                 placeholder="e.g. Ramesh Verma"
-                value={inviteForm.name}
-                onChange={(e) => setInviteForm({ ...inviteForm, name: e.target.value })}
+                value={inviteForm.full_name}
+                onChange={(e) => setInviteForm({ ...inviteForm, full_name: e.target.value })}
                 className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none focus:border-brand-navy"
               />
             </div>
 
             <div>
               <label className="text-xs font-semibold text-brand-navy block mb-1">Agency Name</label>
-              <input 
-                type="text" 
+              <input
+                type="text"
                 required
                 placeholder="e.g. Verma Consultancy"
                 value={inviteForm.agency}
@@ -255,15 +259,41 @@ export default function AgentTeamPage() {
             </div>
 
             <div>
+              <label className="text-xs font-semibold text-brand-navy block mb-1">Country / Region</label>
+              <input
+                type="text"
+                required
+                placeholder="e.g. India"
+                value={inviteForm.country}
+                onChange={(e) => setInviteForm({ ...inviteForm, country: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none focus:border-brand-navy"
+              />
+            </div>
+
+            <div>
               <label className="text-xs font-semibold text-brand-navy block mb-1">Email Address</label>
-              <input 
-                type="email" 
+              <input
+                type="email"
                 required
                 placeholder="e.g. ramesh@vermaconsultancy.com"
                 value={inviteForm.email}
                 onChange={(e) => setInviteForm({ ...inviteForm, email: e.target.value })}
                 className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none focus:border-brand-navy"
               />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-brand-navy block mb-1">Initial Password</label>
+              <input
+                type="password"
+                required
+                minLength={8}
+                placeholder="Minimum 8 characters"
+                value={inviteForm.password}
+                onChange={(e) => setInviteForm({ ...inviteForm, password: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none focus:border-brand-navy"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">The sub-agent will use this password to log in for the first time.</p>
             </div>
           </div>
 

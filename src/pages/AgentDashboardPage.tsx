@@ -221,7 +221,7 @@ export function AgentDashboardPage() {
 
           {/* Leads Table */}
           <div className="bg-white rounded-3xl border border-gray-150 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto w-full">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-150 text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -314,7 +314,7 @@ export function AgentDashboardPage() {
           </div>
 
           {/* Kanban workspace */}
-          <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 items-start overflow-x-auto pb-6">
+          <div className="flex flex-nowrap gap-4 items-start overflow-x-auto pb-6 snap-x">
             {kanbanStages.map((column) => {
               const stageApps = myApplications.filter((app) => app.status === column.status);
               
@@ -453,7 +453,7 @@ export function AgentDashboardPage() {
             <div className="p-5 border-b border-gray-150">
               <h3 className="font-extrabold text-sm text-gray-900">Placement Invoicing History</h3>
             </div>
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto w-full">
               <table className="w-full text-left border-collapse">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-150 text-xs font-bold text-gray-400 uppercase tracking-wider">
@@ -581,7 +581,7 @@ export function AgentDashboardPage() {
                   </Link>
                 </div>
                 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto w-full">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-gray-50 border-b border-gray-150 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
@@ -720,7 +720,7 @@ export function AgentDashboardPage() {
                     animate={{ x: 0, opacity: 1 }}
                     className="space-y-4"
                   >
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">First Name</label>
                         <input 
@@ -791,7 +791,7 @@ export function AgentDashboardPage() {
                       </select>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Cumulative GPA / Score</label>
                         <input 
@@ -826,7 +826,7 @@ export function AgentDashboardPage() {
                     animate={{ x: 0, opacity: 1 }}
                     className="space-y-4"
                   >
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Target Study Destination</label>
                         <select
@@ -964,7 +964,7 @@ export function AgentDashboardPage() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Calculated Payout Amount</label>
                         <input 
@@ -1029,7 +1029,7 @@ export function AgentDashboardPage() {
                       </div>
 
                       {/* Addresses */}
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
                           <div className="font-bold text-gray-400 uppercase text-[8px] tracking-wider">Bill To:</div>
                           <div className="font-extrabold text-gray-800 font-sans mt-0.5">The Global Avenues CRM</div>

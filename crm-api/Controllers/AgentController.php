@@ -42,6 +42,10 @@ final class AgentController
             Response::error('Agent profile not found.', 'FORBIDDEN', 403);
         }
 
+        if ($agent['status'] !== 'approved') {
+            Response::error('Agent account is not active.', 'FORBIDDEN', 403);
+        }
+
         return $agent;
     }
 
@@ -89,7 +93,23 @@ final class AgentController
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
 
-        // Student counts — scoped to this agent's subtree via root_agent_id
+        // Student counts — scoped to this agent's subtree based on tier
+        $studentConditions = ["s.deleted_at IS NULL", "a.deleted_at IS NULL"];
+        $studentParams = [];
+
+        if ((int)$agent['tier'] === 3) {
+            $studentConditions[] = "s.agent_id = :my_agent_id";
+            $studentParams['my_agent_id'] = (int)$agent['id'];
+        } elseif ((int)$agent['tier'] === 2) {
+            $studentConditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)";
+            $studentParams['my_agent_id'] = (int)$agent['id'];
+        } else {
+            $studentConditions[] = "a.root_agent_id = :root";
+            $studentParams['root'] = $root;
+        }
+
+        $studentWhere = implode(' AND ', $studentConditions);
+
         $stmt = $this->pdo->prepare(
             "SELECT
                 COUNT(*)                                                              AS total_students,
@@ -103,9 +123,9 @@ final class AgentController
                 )                                                                     AS conversion_rate_pct
              FROM students s
              JOIN agents a ON a.id = s.agent_id
-             WHERE a.root_agent_id = ? AND s.deleted_at IS NULL"
+             WHERE {$studentWhere}"
         );
-        $stmt->execute([$root]);
+        $stmt->execute($studentParams);
         $students = $stmt->fetch(PDO::FETCH_ASSOC);
 
         // Own commission totals (DIRECT only — never subtree blended)
@@ -120,16 +140,29 @@ final class AgentController
         $stmt->execute([$agent['id']]);
         $commissions = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        // Sub-agent count
-        $stmt = $this->pdo->prepare(
-            "SELECT
-                COUNT(*)                                                            AS total_sub_agents,
-                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)               AS pending_sub_agents
-             FROM agents
-             WHERE root_agent_id = ? AND id != ? AND deleted_at IS NULL"
-        );
-        $stmt->execute([$root, $agent['id']]);
-        $team = $stmt->fetch(PDO::FETCH_ASSOC);
+        // Sub-agent count — scoped to this agent's subtree based on tier
+        $team = ['total_sub_agents' => 0, 'pending_sub_agents' => 0];
+        if ((int)$agent['tier'] === 2) {
+            $stmt = $this->pdo->prepare(
+                "SELECT
+                    COUNT(*)                                                            AS total_sub_agents,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)               AS pending_sub_agents
+                 FROM agents
+                 WHERE parent_agent_id = ? AND deleted_at IS NULL"
+            );
+            $stmt->execute([$agent['id']]);
+            $team = $stmt->fetch(PDO::FETCH_ASSOC);
+        } elseif ((int)$agent['tier'] === 1) {
+            $stmt = $this->pdo->prepare(
+                "SELECT
+                    COUNT(*)                                                            AS total_sub_agents,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END)               AS pending_sub_agents
+                 FROM agents
+                 WHERE root_agent_id = ? AND id != ? AND deleted_at IS NULL"
+            );
+            $stmt->execute([$root, $agent['id']]);
+            $team = $stmt->fetch(PDO::FETCH_ASSOC);
+        }
 
         Response::json([
             'data' => [
@@ -154,8 +187,8 @@ final class AgentController
                     'paid_inr'      => (float) ($commissions['paid_inr']      ?? 0),
                 ],
                 'team' => [
-                    'total_sub_agents'   => (int) $team['total_sub_agents'],
-                    'pending_sub_agents' => (int) $team['pending_sub_agents'],
+                    'total_sub_agents'   => (int) ($team['total_sub_agents'] ?? 0),
+                    'pending_sub_agents' => (int) ($team['pending_sub_agents'] ?? 0),
                 ],
             ],
         ]);
@@ -649,33 +682,122 @@ final class AgentController
 
     public function listApplications(): void
     {
+        AuthMiddleware::requireAuth();
         RBACMiddleware::requirePermission('applications', 'view');
-        $user    = AuthMiddleware::user();
-        $agentId = (int) $this->resolveAgent($user['id'])['id'];
+        $user  = AuthMiddleware::user();
+        $agent = $this->resolveAgent($user['id']);
+        $root  = (int) $agent['root_agent_id'];
+        $pager = Paginator::fromQuery($_GET);
 
-        $stmt = $this->pdo->prepare(
+        $status   = trim($_GET['status'] ?? '');
+        $agentPid = trim($_GET['agent_pid'] ?? '');
+
+        $conditions = ['a.deleted_at IS NULL', 's.deleted_at IS NULL'];
+        $params = [];
+
+        if ($agentPid) {
+            if ($agentPid === $agent['public_id']) {
+                $filterAgentId = (int) $agent['id'];
+            } else {
+                $filterAgentId = $this->resolveTargetAgent($agent, $agentPid);
+            }
+
+            if (!$filterAgentId) {
+                Response::error('Agent not found in your team.', 'NOT_FOUND', 404);
+            }
+
+            $conditions[] = 's.agent_id = :filter_agent_id';
+            $params['filter_agent_id'] = $filterAgentId;
+        } else {
+            if ((int) $agent['tier'] === 3) {
+                $conditions[] = 's.agent_id = :my_agent_id';
+                $params['my_agent_id'] = (int) $agent['id'];
+            } elseif ((int) $agent['tier'] === 2) {
+                $conditions[] = '(s.agent_id = :my_agent_id OR ag_owner.parent_agent_id = :my_agent_id)';
+                $params['my_agent_id'] = (int) $agent['id'];
+            } else {
+                $conditions[] = 'ag_owner.root_agent_id = :root';
+                $params['root'] = $root;
+            }
+        }
+
+        if ($status !== '') {
+            $conditions[] = 'a.status = :status';
+            $params['status'] = $status;
+        }
+
+        $where = implode(' AND ', $conditions);
+
+        $countStmt = $this->pdo->prepare(
+            "SELECT COUNT(*)
+             FROM applications a
+             JOIN students s ON s.id = a.student_id
+             JOIN agents ag_owner ON ag_owner.id = s.agent_id
+             WHERE {$where}"
+        );
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        $dataStmt = $this->pdo->prepare(
             "SELECT a.public_id, a.reference_number, a.status, a.submitted_at, a.created_at,
                     i.public_id AS intake_pid, i.name AS intake_name, i.intake_month, i.intake_year,
                     c.name AS course_name, c.degree_level AS course_level,
                     u.name AS university_name,
-                    s.full_name AS student_name, s.public_id AS student_pid
+                    s.full_name AS student_name, s.public_id AS student_pid,
+                    ag_owner.public_id AS agent_public_id, ag_owner.full_name AS agent_name,
+                    ag_owner.agency_name AS agent_agency, ag_owner.tier AS agent_tier
              FROM applications a
-             JOIN students s ON a.student_id = s.id
-             JOIN intakes i ON a.intake_id = i.id
-             JOIN courses c ON i.course_id = c.id
-             JOIN universities u ON c.university_id = u.id
-             WHERE a.agent_id_at_submission = ? AND a.deleted_at IS NULL
-             ORDER BY a.created_at DESC"
+             JOIN students s ON s.id = a.student_id
+             JOIN agents ag_owner ON ag_owner.id = s.agent_id
+             JOIN intakes i ON i.id = a.intake_id
+             JOIN courses c ON c.id = i.course_id
+             JOIN universities u ON u.id = c.university_id
+             WHERE {$where}
+             ORDER BY COALESCE(a.submitted_at, a.created_at) DESC, a.created_at DESC
+             LIMIT :limit OFFSET :offset"
         );
-        $stmt->execute([$agentId]);
-        Response::json(['applications' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+
+        foreach ($params as $key => $value) {
+            $dataStmt->bindValue(':' . $key, $value);
+        }
+        $dataStmt->bindValue(':limit', $pager['per_page'], PDO::PARAM_INT);
+        $dataStmt->bindValue(':offset', $pager['offset'], PDO::PARAM_INT);
+        $dataStmt->execute();
+        $applications = $dataStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        Response::json([
+            'data' => $applications,
+            'meta' => [
+                'page' => $pager['page'],
+                'per_page' => $pager['per_page'],
+                'total' => $total,
+                'total_pages' => (int) ceil($total / $pager['per_page']),
+                'has_next' => ($pager['offset'] + $pager['per_page']) < $total,
+                'has_prev' => $pager['page'] > 1,
+            ],
+        ]);
     }
 
     public function getApplication(string $pid): void
     {
+        AuthMiddleware::requireAuth();
         RBACMiddleware::requirePermission('applications', 'view');
-        $user    = AuthMiddleware::user();
-        $agentId = (int) $this->resolveAgent($user['id'])['id'];
+        $user  = AuthMiddleware::user();
+        $agent = $this->resolveAgent($user['id']);
+        $root  = (int) $agent['root_agent_id'];
+
+        $scopeSql = '';
+        $scopeParams = [];
+        if ((int) $agent['tier'] === 3) {
+            $scopeSql = 's.agent_id = :my_agent_id';
+            $scopeParams['my_agent_id'] = (int) $agent['id'];
+        } elseif ((int) $agent['tier'] === 2) {
+            $scopeSql = '(s.agent_id = :my_agent_id OR ag_owner.parent_agent_id = :my_agent_id)';
+            $scopeParams['my_agent_id'] = (int) $agent['id'];
+        } else {
+            $scopeSql = 'ag_owner.root_agent_id = :root';
+            $scopeParams['root'] = $root;
+        }
 
         $stmt = $this->pdo->prepare(
             "SELECT a.id, a.public_id, a.reference_number, a.status, a.submitted_at,
@@ -684,15 +806,18 @@ final class AgentController
                     i.intake_month, i.intake_year, i.tuition_fee_amount, i.tuition_fee_currency,
                     c.name AS course_name, c.degree_level AS course_level,
                     u.name AS university_name,
-                    s.full_name AS student_name, s.public_id AS student_pid
+                    s.full_name AS student_name, s.public_id AS student_pid,
+                    ag_owner.public_id AS agent_public_id, ag_owner.full_name AS agent_name,
+                    ag_owner.agency_name AS agent_agency, ag_owner.tier AS agent_tier
              FROM applications a
-             JOIN students s ON a.student_id = s.id
-             JOIN intakes i ON a.intake_id = i.id
-             JOIN courses c ON i.course_id = c.id
-             JOIN universities u ON c.university_id = u.id
-             WHERE a.public_id = ? AND a.agent_id_at_submission = ? AND a.deleted_at IS NULL"
+             JOIN students s ON s.id = a.student_id
+             JOIN agents ag_owner ON ag_owner.id = s.agent_id
+             JOIN intakes i ON i.id = a.intake_id
+             JOIN courses c ON c.id = i.course_id
+             JOIN universities u ON u.id = c.university_id
+             WHERE a.public_id = :pid AND {$scopeSql} AND a.deleted_at IS NULL"
         );
-        $stmt->execute([$pid, $agentId]);
+        $stmt->execute(array_merge(['pid' => $pid], $scopeParams));
         $application = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$application) {
@@ -730,10 +855,6 @@ final class AgentController
         Response::json(['application' => $application]);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // REFERRAL LINKS  GET /agent/referral-links
-    // ─────────────────────────────────────────────────────────────────────────
-
     public function getReferralLinks(): void
     {
         AuthMiddleware::requireAuth();
@@ -747,12 +868,144 @@ final class AgentController
         }
 
         $baseUrl = \TGA\CRM\Config\Environment::get('FRONTEND_URL', 'https://portal.theglobalavenues.com');
-        
+
         Response::json([
             'data' => [
                 'student_referral_link' => "{$baseUrl}/register/student?ref={$code}",
                 'sub_agent_referral_link' => "{$baseUrl}/register/agent?ref={$code}"
             ]
+        ]);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // ONBOARDING (pending agents only — bypasses resolveAgent approved check)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    public function getOnboardingStatus(): void
+    {
+        AuthMiddleware::requireAuth();
+        $user = AuthMiddleware::user();
+
+        if (($user['utype'] ?? '') !== 'agent') {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        $stmt = $this->pdo->prepare(
+            "SELECT id, public_id, full_name, agency_name, country, tier, status, created_at, referral_code
+             FROM agents WHERE user_id = ? AND deleted_at IS NULL LIMIT 1"
+        );
+        $stmt->execute([(int) $user['sub']]);
+        $agent = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$agent) {
+            Response::error('Agent profile not found', 'NOT_FOUND', 404);
+        }
+
+        $docsStmt = $this->pdo->prepare(
+            "SELECT public_id, document_type, display_filename, created_at
+             FROM files
+             WHERE owner_type = 'agent' AND owner_id = ? AND deleted_at IS NULL
+               AND document_type IN ('business_registration', 'agency_logo', 'partnership_scope_doc')
+             ORDER BY created_at DESC"
+        );
+        $docsStmt->execute([(int) $agent['id']]);
+        $docs = $docsStmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $uploaded = [];
+        foreach ($docs as $doc) {
+            $uploaded[$doc['document_type']] = [
+                'public_id' => $doc['public_id'],
+                'filename'  => $doc['display_filename'],
+                'uploaded_at' => $doc['created_at'],
+            ];
+        }
+
+        Response::json([
+            'success' => true,
+            'data' => [
+                'agent' => [
+                    'public_id'   => $agent['public_id'],
+                    'full_name'   => $agent['full_name'],
+                    'agency_name' => $agent['agency_name'],
+                    'country'     => $agent['country'],
+                    'status'      => $agent['status'],
+                    'created_at'  => $agent['created_at'],
+                ],
+                'documents' => $uploaded,
+            ],
+        ]);
+    }
+
+    public function uploadOnboardingDocument(): void
+    {
+        AuthMiddleware::requireAuth();
+        $user = AuthMiddleware::user();
+
+        if (($user['utype'] ?? '') !== 'agent') {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        $stmt = $this->pdo->prepare(
+            "SELECT id, public_id, status FROM agents WHERE user_id = ? AND deleted_at IS NULL LIMIT 1"
+        );
+        $stmt->execute([(int) $user['sub']]);
+        $agent = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if (!$agent) {
+            Response::error('Agent profile not found', 'NOT_FOUND', 404);
+        }
+
+        if ($agent['status'] === 'approved') {
+            Response::error('Agent is already approved. Use the profile section to update documents.', 'BAD_REQUEST', 400);
+        }
+
+        $docType = trim($_POST['document_type'] ?? '');
+        $allowed = ['business_registration', 'agency_logo', 'partnership_scope_doc'];
+        if (!in_array($docType, $allowed, true)) {
+            Response::error(
+                'Invalid document_type. Allowed: ' . implode(', ', $allowed),
+                'VALIDATION_ERROR',
+                400
+            );
+        }
+
+        if (empty($_FILES['file'])) {
+            Response::error('No file uploaded', 'VALIDATION_ERROR', 400);
+        }
+
+        $agentId    = (int) $agent['id'];
+        $storagePath = "agents/{$agent['public_id']}/onboarding";
+
+        $uploadSvc = new \TGA\CRM\Services\FileUploadService();
+        try {
+            $fileRecord = $uploadSvc->upload(
+                $this->pdo,
+                $_FILES['file'],
+                $docType,
+                'agent',
+                $agentId,
+                'agent',
+                $agentId,
+                null,
+                false,
+                $storagePath
+            );
+        } catch (\InvalidArgumentException $e) {
+            Response::error($e->getMessage(), 'VALIDATION_ERROR', 422);
+        } catch (\RuntimeException $e) {
+            Response::error($e->getMessage(), 'UPLOAD_FAILED', 500);
+        }
+
+        \TGA\CRM\Services\ActivityLogger::log('agent.onboarding_doc_uploaded', 'agent', $agentId, $agentId);
+
+        Response::json([
+            'success'  => true,
+            'message'  => 'Document uploaded successfully',
+            'data' => [
+                'public_id'    => $fileRecord['public_id'],
+                'document_type' => $docType,
+                'filename'     => $fileRecord['display_filename'],
+            ],
         ]);
     }
 }
