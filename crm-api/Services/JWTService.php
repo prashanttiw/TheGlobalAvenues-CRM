@@ -141,4 +141,28 @@ final class JWTService
 
         return $payload;
     }
+
+    public static function issuePreAuthToken(int $userId, string $userType): string
+    {
+        $expiry = (int) SystemSettings::get('otp_expiry_minutes', '15') * 60;
+        return self::encode([
+            'sub'   => $userId,
+            'utype' => $userType,
+            'user_type' => $userType,
+            'typ'   => 'pre-auth-2fa',
+            'type'  => 'pre-auth-2fa',
+            'jti'   => bin2hex(random_bytes(16)),
+            'iat'   => time(),
+            'exp'   => time() + $expiry,
+        ], Environment::getRequired('JWT_ACCESS_SECRET'));
+    }
+
+    public static function verifyPreAuthToken(string $token): array|false
+    {
+        $payload = self::decode($token, Environment::getRequired('JWT_ACCESS_SECRET'));
+        if ($payload === false || ($payload['type'] ?? $payload['typ'] ?? '') !== 'pre-auth-2fa') {
+            return false;
+        }
+        return $payload;
+    }
 }

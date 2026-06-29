@@ -94,6 +94,20 @@ final class PendingRegistrationService
         }
     }
 
+    /**
+     * Delete all non-expired pending registrations for a given email/type combination.
+     * Called when OTP delivery fails AFTER the row was written — prevents orphaned rows
+     * that would cause confusing "session expired" errors if the user retries.
+     */
+    public function invalidateByEmail(string $regType, string $email): void
+    {
+        $emailHash = EncryptionService::hash(strtolower(trim($email)));
+        $stmt = $this->pdo->prepare(
+            'DELETE FROM pending_registrations WHERE email_hash = ? AND reg_type = ?'
+        );
+        $stmt->execute([$emailHash, $regType]);
+    }
+
     public function cleanup(): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM pending_registrations WHERE expires_at < NOW()');

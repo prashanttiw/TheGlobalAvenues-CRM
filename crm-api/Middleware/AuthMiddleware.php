@@ -10,20 +10,32 @@ use TGA\CRM\Services\JWTService;
 
 final class AuthMiddleware
 {
+    private static ?array $cachedUser = null;
+
     public static function user(): array
     {
+        if (self::$cachedUser !== null) {
+            return self::$cachedUser;
+        }
+
         $header = self::resolveAuthorizationHeader();
-        $cookieToken = $_COOKIE['access_token'] ?? null;
         $token = null;
 
         if (preg_match('/Bearer\s+(.*)$/i', $header, $matches) === 1) {
             $token = trim($matches[1]);
-        } elseif (is_string($cookieToken) && $cookieToken !== '') {
-            $token = $cookieToken;
         }
 
         if ($token === null || $token === '') {
-            Response::error('Authentication required', Constants::AUTH_ERROR_CODES['invalid'], 401);
+            Response::error('Authentication required', Constants::AUTH_ERROR_CODES['missing'], 401);
+        }
+
+        $parts = explode('.', $token);
+        if (count($parts) === 3) {
+            $payloadJson = base64_decode(strtr($parts[1], '-_', '+/'));
+            $decodedPayload = json_decode($payloadJson, true);
+            if (is_array($decodedPayload) && (($decodedPayload['typ'] ?? '') === 'pre-auth-2fa' || ($decodedPayload['type'] ?? '') === 'pre-auth-2fa')) {
+                Response::error('Pre-auth token not allowed on this endpoint', 'UNAUTHORIZED', 401);
+            }
         }
 
         $payload = JWTService::verifyAccessToken($token);
@@ -66,12 +78,22 @@ final class AuthMiddleware
         }
 
         $payload['id'] = $payload['sub'];
+        self::$cachedUser = $payload;
         return $payload;
     }
 
     public static function requireAuth(): array
     {
         return self::user();
+    }
+
+    public static function requireRole(string $role): array
+    {
+        $payload = self::user();
+        if (($payload['utype'] ?? $payload['user_type'] ?? '') !== $role) {
+            Response::error('Forbidden', 'FORBIDDEN', 403);
+        }
+        return $payload;
     }
 
     private static function resolveAuthorizationHeader(): string

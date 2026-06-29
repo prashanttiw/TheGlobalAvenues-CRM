@@ -14,8 +14,8 @@ final class PasswordValidator
     {
         $errors = [];
 
-        if (strlen($password) < 10) {
-            $errors[] = 'Password must be at least 10 characters long';
+        if (strlen($password) < 8) {
+            $errors[] = 'Password must be at least 8 characters long';
         }
 
         if (!preg_match('/[A-Z]/', $password)) {

@@ -6,9 +6,12 @@ namespace TGA\CRM\Controllers;
 
 use PDO;
 use TGA\CRM\Config\Database;
+use TGA\CRM\Helpers\DisabledEndpointResponder;
 use TGA\CRM\Helpers\Response;
+use TGA\CRM\Services\ActivityLogger;
 use TGA\CRM\Services\JWTService;
 use TGA\CRM\Services\OTPService;
+use TGA\CRM\Services\SecurityEventLogger;
 use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RateLimitMiddleware;
@@ -63,19 +66,56 @@ final class AuthController
         }
 
         if ((int) ($user['two_factor_enabled'] ?? 0) === 1) {
-            $otpService = new OTPService($this->pdo);
-            if ($otpCode === null || $otpCode === '') {
-                $otpService->generate($email, '2fa_login');
-                Response::json([
-                    'success' => true,
-                    'message' => 'OTP sent to email',
-                    'requires_otp' => true,
-                ], 202);
+            $preAuthToken = JWTService::issuePreAuthToken((int) $user['id'], (string) $user['user_type']);
+
+            $name = 'User';
+            if ($user['user_type'] === 'admin') {
+                $adminStmt = $this->pdo->prepare('SELECT full_name FROM admins WHERE user_id = ? LIMIT 1');
+                $adminStmt->execute([(int)$user['id']]);
+                $name = $adminStmt->fetchColumn() ?: 'Admin';
+            } elseif ($user['user_type'] === 'agent') {
+                $agentStmt = $this->pdo->prepare('SELECT full_name FROM agents WHERE user_id = ? LIMIT 1');
+                $agentStmt->execute([(int)$user['id']]);
+                $name = $agentStmt->fetchColumn() ?: 'Agent';
+            } elseif ($user['user_type'] === 'student') {
+                $studentStmt = $this->pdo->prepare('SELECT full_name FROM students WHERE user_id = ? LIMIT 1');
+                $studentStmt->execute([(int)$user['id']]);
+                $name = $studentStmt->fetchColumn() ?: 'Student';
             }
 
-            if ($otpService->verify($email, $otpCode, '2fa_login') !== \TGA\CRM\Services\OTPResult::Valid) {
-                Response::error('Invalid or expired OTP', 'OTP_INVALID', 401);
+            // Use admin-specific template for admins; generic login OTP template for other user types
+            $twoFaEventKey = ($user['user_type'] === 'admin') ? 'admin.2fa_otp' : 'login.otp';
+            try {
+                $plainEmail = \TGA\CRM\Services\EncryptionService::decrypt($user['email']);
+                OTPService::generateAndSend(
+                    $plainEmail,
+                    '2fa',
+                    $twoFaEventKey,
+                    ['user_name' => $name, 'full_name' => $name],
+                    $ip
+                );
+            } catch (\RuntimeException $e) {
+                if (str_starts_with($e->getMessage(), 'OTP_RATE_LIMITED:')) {
+                    $retryAfter = (int) explode(':', $e->getMessage())[1];
+                    header('Retry-After: ' . $retryAfter);
+                    Response::json([
+                        'success' => false,
+                        'error'   => 'RATE_LIMITED',
+                        'message' => 'Too many attempts. Please wait before trying again.',
+                    ], 429);
+                }
+                Response::json([
+                    'success' => false,
+                    'error'   => 'EMAIL_DELIVERY_FAILED',
+                    'message' => 'We could not send your 2FA verification code. Please try again.',
+                ], 502);
             }
+
+            Response::json([
+                'success'        => true,
+                'requires_2fa'   => true,
+                'pre_auth_token' => $preAuthToken,
+            ]);
         }
 
         if (($user['user_type'] ?? '') === 'agent') {
@@ -84,17 +124,6 @@ final class AuthController
             $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
 
             if ($agent) {
-                if ($agent['status'] === 'pending') {
-                    Response::json([
-                        'success' => true,
-                        'data' => [
-                            'account_status' => 'pending_approval',
-                            'submitted_at' => $agent['created_at'],
-                        ],
-                        'message' => 'Your application is under review',
-                    ]);
-                }
-
                 if ($agent['status'] === 'rejected') {
                     Response::json([
                         'success' => true,
@@ -141,6 +170,179 @@ final class AuthController
             'accessToken' => $tokens['access_token'],
             'access_token' => $tokens['access_token'],
             'user' => $profile,
+        ]);
+    }
+
+    public function verify2fa(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $preAuthToken = trim((string) ($input['pre_auth_token'] ?? ''));
+        $otpCode = trim((string) ($input['otp_code'] ?? ''));
+
+        if ($preAuthToken === '' || $otpCode === '') {
+            Response::error('Pre-auth token and OTP code required', 'VALIDATION_ERROR', 400);
+        }
+
+        $payload = JWTService::verifyPreAuthToken($preAuthToken);
+        if (!$payload) {
+            Response::error('Invalid or expired pre-authentication token. Please log in again.', 'AUTH_FAILED', 401);
+        }
+
+        $userId = (int) $payload['sub'];
+
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user || ($user['status'] ?? '') !== 'active') {
+            Response::error('Account is inactive or suspended', 'ACCOUNT_INACTIVE', 403);
+        }
+
+        $plainEmail = \TGA\CRM\Services\EncryptionService::decrypt($user['email']);
+        $otpService = new OTPService($this->pdo);
+
+        $verifyResult = $otpService->verify($plainEmail, $otpCode, '2fa');
+
+        if ($verifyResult !== \TGA\CRM\Services\OTPResult::Valid) {
+            if ($verifyResult === \TGA\CRM\Services\OTPResult::BruteForced) {
+                Response::error('Too many invalid attempts. Please request a new OTP or login again.', 'OTP_BRUTE_FORCED', 401);
+            }
+            if ($verifyResult === \TGA\CRM\Services\OTPResult::Expired) {
+                Response::error('OTP has expired. Please request a new OTP.', 'OTP_EXPIRED', 401);
+            }
+            Response::error('Invalid or expired OTP', 'OTP_INVALID', 401);
+        }
+
+        $ip = RateLimitMiddleware::getIpAddress();
+        if (($user['user_type'] ?? '') === 'agent') {
+            $agentStmt = $this->pdo->prepare('SELECT status, created_at, rejected_reason FROM agents WHERE user_id = ? LIMIT 1');
+            $agentStmt->execute([$userId]);
+            $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($agent) {
+                if ($agent['status'] === 'rejected') {
+                    Response::json([
+                        'success' => true,
+                        'data' => [
+                            'account_status' => 'rejected',
+                            'rejection_reason' => $agent['rejected_reason'],
+                        ],
+                        'message' => 'Application not approved',
+                    ]);
+                }
+
+                if ($agent['status'] === 'suspended') {
+                    $this->pdo->prepare(
+                        "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
+                    )->execute([(string) $user['id'], $ip]);
+                    Response::error('Account suspended. Contact support.', 'ACCOUNT_SUSPENDED', 403);
+                }
+            }
+        }
+
+        $permissions = [];
+        if (($user['user_type'] ?? '') === 'admin') {
+            $permissions = RBACMiddleware::loadPermissionsForAdmin($userId, $this->pdo);
+        }
+
+        $tokens = JWTService::issueTokenPair(
+            $userId,
+            (string) $user['public_id'],
+            (string) $user['user_type'],
+            $permissions
+        );
+
+        $this->saveSession($userId, $tokens['jti'], $tokens['refresh_token'], $tokens['refresh_expires_at']);
+        $this->setRefreshCookie($tokens['refresh_token'], $tokens['refresh_expires_at']);
+
+        $profile = $this->buildUserResponse($user, $permissions);
+
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($plainEmail));
+        $this->pdo->prepare(
+            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
+        )->execute([$userId, $emailHash, $ip]);
+
+        Response::json([
+            'success' => true,
+            'message' => 'Login successful',
+            'accessToken' => $tokens['access_token'],
+            'access_token' => $tokens['access_token'],
+            'user' => $profile,
+        ]);
+    }
+
+    public function resend2fa(): void
+    {
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $preAuthToken = trim((string) ($input['pre_auth_token'] ?? ''));
+
+        if ($preAuthToken === '') {
+            Response::error('Pre-auth token required', 'VALIDATION_ERROR', 400);
+        }
+
+        $payload = JWTService::verifyPreAuthToken($preAuthToken);
+        if (!$payload) {
+            Response::error('Invalid or expired pre-authentication token. Please log in again.', 'AUTH_FAILED', 401);
+        }
+
+        $userId = (int) $payload['sub'];
+
+        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt->execute([$userId]);
+        $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$user || ($user['status'] ?? '') !== 'active') {
+            Response::error('Account is inactive or suspended', 'ACCOUNT_INACTIVE', 403);
+        }
+
+        $plainEmail = \TGA\CRM\Services\EncryptionService::decrypt($user['email']);
+
+        $name = 'User';
+        if ($user['user_type'] === 'admin') {
+            $adminStmt = $this->pdo->prepare('SELECT full_name FROM admins WHERE user_id = ? LIMIT 1');
+            $adminStmt->execute([$userId]);
+            $name = $adminStmt->fetchColumn() ?: 'Admin';
+        } elseif ($user['user_type'] === 'agent') {
+            $agentStmt = $this->pdo->prepare('SELECT full_name FROM agents WHERE user_id = ? LIMIT 1');
+            $agentStmt->execute([$userId]);
+            $name = $agentStmt->fetchColumn() ?: 'Agent';
+        } elseif ($user['user_type'] === 'student') {
+            $studentStmt = $this->pdo->prepare('SELECT full_name FROM students WHERE user_id = ? LIMIT 1');
+            $studentStmt->execute([$userId]);
+            $name = $studentStmt->fetchColumn() ?: 'Student';
+        }
+
+        // Use admin-specific template for admins; generic login OTP template for other user types
+        $twoFaEventKey = ($user['user_type'] === 'admin') ? 'admin.2fa_otp' : 'login.otp';
+        $ip = RateLimitMiddleware::getIpAddress();
+        try {
+            OTPService::generateAndSend(
+                $plainEmail,
+                '2fa',
+                $twoFaEventKey,
+                ['user_name' => $name, 'full_name' => $name],
+                $ip
+            );
+        } catch (\RuntimeException $e) {
+            if (str_starts_with($e->getMessage(), 'OTP_RATE_LIMITED:')) {
+                $retryAfter = (int) explode(':', $e->getMessage())[1];
+                header('Retry-After: ' . $retryAfter);
+                Response::json([
+                    'success' => false,
+                    'error'   => 'RATE_LIMITED',
+                    'message' => 'Too many attempts. Please wait before trying again.',
+                ], 429);
+            }
+            Response::json([
+                'success' => false,
+                'error'   => 'EMAIL_DELIVERY_FAILED',
+                'message' => 'We could not send your 2FA verification code. Please try again.',
+            ], 502);
+        }
+
+        Response::json([
+            'success' => true,
+            'message' => '2FA OTP resent successfully',
         ]);
     }
 
@@ -223,8 +425,48 @@ final class AuthController
 
         $code = null;
         if ($user && ($user['status'] ?? '') === 'active') {
-            $otpService = new OTPService($this->pdo);
-            $code = $otpService->generate($email, 'password_reset', (int) (\TGA\CRM\Config\Environment::get('OTP_EXPIRY_MINUTES', '10')));
+            $plaintextEmail = \TGA\CRM\Services\EncryptionService::decrypt($user['email']);
+            
+            $name = 'User';
+            if ($user['user_type'] === 'admin') {
+                $adminStmt = $this->pdo->prepare('SELECT full_name FROM admins WHERE user_id = ? LIMIT 1');
+                $adminStmt->execute([(int)$user['id']]);
+                $name = $adminStmt->fetchColumn() ?: 'Admin';
+            } elseif ($user['user_type'] === 'agent') {
+                $agentStmt = $this->pdo->prepare('SELECT full_name FROM agents WHERE user_id = ? LIMIT 1');
+                $agentStmt->execute([(int)$user['id']]);
+                $name = $agentStmt->fetchColumn() ?: 'Agent';
+            } elseif ($user['user_type'] === 'student') {
+                $studentStmt = $this->pdo->prepare('SELECT full_name FROM students WHERE user_id = ? LIMIT 1');
+                $studentStmt->execute([(int)$user['id']]);
+                $name = $studentStmt->fetchColumn() ?: 'Student';
+            }
+
+            $ip = \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress();
+            try {
+                $code = OTPService::generateAndSend(
+                    $plaintextEmail,
+                    'password_reset',
+                    'password.reset_otp',
+                    ['user_name' => $name, 'full_name' => $name],
+                    $ip
+                );
+            } catch (\RuntimeException $e) {
+                if (str_starts_with($e->getMessage(), 'OTP_RATE_LIMITED:')) {
+                    $retryAfter = (int) explode(':', $e->getMessage())[1];
+                    header('Retry-After: ' . $retryAfter);
+                    Response::json([
+                        'success' => false,
+                        'error'   => 'RATE_LIMITED',
+                        'message' => 'Too many attempts. Please wait before trying again.',
+                    ], 429);
+                }
+                Response::json([
+                    'success' => false,
+                    'error'   => 'EMAIL_DELIVERY_FAILED',
+                    'message' => 'We could not send your reset code. Please try again.',
+                ], 502);
+            }
         }
 
         $devOtp = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development' && $code !== null) ? ['otp_code_preview' => $code] : [];
@@ -392,7 +634,7 @@ final class AuthController
             }
         }
 
-        $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+        $ip = \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress();
         $ua = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
         
         $stmt = $this->pdo->prepare(
@@ -481,14 +723,51 @@ final class AuthController
         $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
         RateLimitMiddleware::assertAllowed("otp_login_email_{$emailHash}", 'otp_login_request_email', 3, 3600);
 
-        $stmt = $this->pdo->prepare('SELECT id, status FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+        $stmt = $this->pdo->prepare('SELECT id, status, user_type FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
         $stmt->execute([$emailHash]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         $code = null;
         if ($user && ($user['status'] ?? '') === 'active') {
-            $otpService = new OTPService($this->pdo);
-            $code = $otpService->generate($email, 'login');
+            $name = 'User';
+            if ($user['user_type'] === 'admin') {
+                $adminStmt = $this->pdo->prepare('SELECT full_name FROM admins WHERE user_id = ? LIMIT 1');
+                $adminStmt->execute([(int)$user['id']]);
+                $name = $adminStmt->fetchColumn() ?: 'Admin';
+            } elseif ($user['user_type'] === 'agent') {
+                $agentStmt = $this->pdo->prepare('SELECT full_name FROM agents WHERE user_id = ? LIMIT 1');
+                $agentStmt->execute([(int)$user['id']]);
+                $name = $agentStmt->fetchColumn() ?: 'Agent';
+            } elseif ($user['user_type'] === 'student') {
+                $studentStmt = $this->pdo->prepare('SELECT full_name FROM students WHERE user_id = ? LIMIT 1');
+                $studentStmt->execute([(int)$user['id']]);
+                $name = $studentStmt->fetchColumn() ?: 'Student';
+            }
+
+            try {
+                $code = OTPService::generateAndSend(
+                    $email,
+                    'login',
+                    'login.otp',
+                    ['user_name' => $name, 'full_name' => $name],
+                    $ip
+                );
+            } catch (\RuntimeException $e) {
+                if (str_starts_with($e->getMessage(), 'OTP_RATE_LIMITED:')) {
+                    $retryAfter = (int) explode(':', $e->getMessage())[1];
+                    header('Retry-After: ' . $retryAfter);
+                    Response::json([
+                        'success' => false,
+                        'error'   => 'RATE_LIMITED',
+                        'message' => 'Too many attempts. Please wait before trying again.',
+                    ], 429);
+                }
+                Response::json([
+                    'success' => false,
+                    'error'   => 'EMAIL_DELIVERY_FAILED',
+                    'message' => 'We could not send your login verification code. Please try again.',
+                ], 502);
+            }
         }
 
         $devOtp = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development' && $code !== null) ? ['otp_code_preview' => $code] : [];
@@ -534,17 +813,6 @@ final class AuthController
             $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
 
             if ($agent) {
-                if ($agent['status'] === 'pending') {
-                    Response::json([
-                        'success' => true,
-                        'data' => [
-                            'account_status' => 'pending_approval',
-                            'submitted_at' => $agent['created_at'],
-                        ],
-                        'message' => 'Your application is under review',
-                    ]);
-                }
-
                 if ($agent['status'] === 'rejected') {
                     Response::json([
                         'success' => true,
@@ -583,9 +851,10 @@ final class AuthController
 
         $profile = $this->buildUserResponse($user, $permissions);
         $ip = RateLimitMiddleware::getIpAddress();
+        $emailHash2 = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
         $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, NOW())"
-        )->execute([(string) $user['id'], $ip]);
+            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
+        )->execute([(int) $user['id'], $emailHash2, $ip]);
 
         Response::json([
             'success' => true,
@@ -596,7 +865,53 @@ final class AuthController
         ]);
     }
 
-    public function impersonate(): void { Response::json(['message' => 'stub']); }
+    public function impersonate(): void
+    {
+        try {
+            $payload = AuthMiddleware::user();
+        } catch (\Throwable $e) {
+            SecurityEventLogger::log('impersonation_denied', null, 'auth/impersonate', null, [
+                'reason' => 'unauthenticated',
+            ]);
+            Response::error('Authentication required', 'AUTH_REQUIRED', 401);
+        }
+
+        $userId = (int) ($payload['id'] ?? $payload['sub'] ?? 0);
+        $userType = (string) ($payload['user_type'] ?? $payload['utype'] ?? 'unknown');
+
+        $adminStmt = $this->pdo->prepare(
+            'SELECT id, public_id, is_super_admin FROM admins WHERE user_id = ? AND deleted_at IS NULL LIMIT 1'
+        );
+        $adminStmt->execute([$userId]);
+        $admin = $adminStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$admin || (int) ($admin['is_super_admin'] ?? 0) !== 1) {
+            SecurityEventLogger::log('impersonation_denied', $userId, 'auth/impersonate', null, [
+                'reason' => 'super_admin_required',
+                'user_type' => $userType,
+            ]);
+            Response::error('Super admin access required', 'FORBIDDEN', 403);
+        }
+
+        SecurityEventLogger::log('impersonation_disabled', $userId, (string) ($admin['public_id'] ?? 'auth/impersonate'), null, [
+            'reason' => 'route_disabled',
+            'user_type' => $userType,
+        ]);
+        ActivityLogger::log(
+            'auth.impersonation_attempt_blocked',
+            'admin',
+            (int) $admin['id'],
+            $userId,
+            [],
+            ['public_id' => (string) ($admin['public_id'] ?? ''), 'status' => 'disabled']
+        );
+
+        DisabledEndpointResponder::legacyStub(
+            'auth.impersonate',
+            'Impersonation is disabled until a fully-audited super-admin flow exists.',
+            ['replacement' => 'Use normal authenticated admin sessions and role-based access controls.']
+        );
+    }
 
     public function changePassword(): void
     {
@@ -743,7 +1058,6 @@ final class AuthController
         [$firstName, $lastName] = $this->splitFullName($fullName);
 
         return [
-            'id' => (int) $user['id'],
             'public_id' => (string) ($user['public_id'] ?? ''),
             'email' => $this->decryptMaybe($user['email'] ?? null),
             'phone' => $this->decryptMaybe($user['phone'] ?? null),

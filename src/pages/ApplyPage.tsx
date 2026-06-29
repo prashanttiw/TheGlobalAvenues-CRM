@@ -3,16 +3,17 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { useStore } from '../hooks/useStore';
 import { User, Briefcase, ArrowRight, CheckCircle, Globe, GraduationCap, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
 import {
-  fetchCurrentUser,
   registerAgent,
   registerStudent,
   updateStudentProfile,
+  verifyStudentRegistrationOtp,
+  verifyAgentRegistrationOtp,
 } from '../lib/api';
+import { useAuth } from '../shared/hooks/useAuth';
 
 // Zod Validations schemas
 const studentSchema = z.object({
@@ -45,15 +46,17 @@ const PUBLIC_STEPS = [
 ];
 
 export function ApplyPage() {
-  const updateProfile = useStore((state) => state.updateProfile);
-  const setCurrentUser = useStore((state) => state.setCurrentUser);
-  const upsertStudentRecord = useStore((state) => state.upsertStudentRecord);
-  const upsertAgentRecord = useStore((state) => state.upsertAgentRecord);
+  const establishSession = useAuth((state) => state.establishSession);
   const navigate = useNavigate();
 
   const [role, setRole] = useState<'student' | 'agent'>('student');
   const [currentStep, setCurrentStep] = useState(1);
   const [successMode, setSuccessMode] = useState(false);
+  const [otpMode, setOtpMode] = useState(false);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [tempRegData, setTempRegData] = useState<any>(null);
 
   // Dynamic Theme Colors depending on active role selection
   const theme = role === 'student'
@@ -75,11 +78,11 @@ export function ApplyPage() {
       email: '',
       phone: '',
       password: '',
-      gpa: '90%',
-      englishScore: 'IELTS 7.5',
-      desiredCountry: 'Austria',
-      desiredSubject: 'IT & Game Design',
-      budgetRange: '€5,000–€10,000/year',
+      gpa: '',
+      englishScore: '',
+      desiredCountry: '',
+      desiredSubject: '',
+      budgetRange: '',
     }
   });
 
@@ -118,116 +121,107 @@ export function ApplyPage() {
   };
 
   const onStudentRegisterSubmit = async (data: z.infer<typeof studentSchema>) => {
-    const budgetMap: Record<string, [number, number]> = {
-      '€5,000–€10,000/year': [5000, 10000],
-      '€10,000–€15,000/year': [10000, 15000],
-      '€15,000+/year': [15000, 25000],
-    };
+    try {
+      const initResult = await registerStudent({
+        first_name: data.firstName,
+        last_name: data.lastName,
+        email: data.email,
+        phone: data.phone,
+        password: data.password,
+        date_of_birth: '2004-10-10', // Required by backend
+        nationality: 'Indian', // Required by backend
+      });
 
-    const [budgetMin, budgetMax] = budgetMap[data.budgetRange] ?? [5000, 10000];
+      setSessionToken(initResult.session_token);
+      setTempRegData(data);
+      setOtpMode(true);
+      toast.success('Verification OTP code sent to your email.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to initiate student registration.');
+    }
+  };
 
-    await registerStudent({
-      first_name: data.firstName,
-      last_name: data.lastName,
-      email: data.email,
-      phone: data.phone,
-      password: data.password,
-    });
+  const handleStudentOtpVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sessionToken || !tempRegData) return;
 
-    await updateStudentProfile({
-      desired_country: data.desiredCountry,
-      desired_subject: data.desiredSubject,
-      desired_degree_level: 'bachelors',
-      budget_min: budgetMin,
-      budget_max: budgetMax,
-      career_goal: `Interested in ${data.desiredSubject} in ${data.desiredCountry}`,
-      nationality: 'Indian',
-      country_of_residence: 'India',
-    });
+    setOtpLoading(true);
+    try {
+      const sessionResult = await verifyStudentRegistrationOtp(sessionToken, otpCode);
+      
+      const budgetMap: Record<string, [number, number]> = {
+        '€5,000–€10,000/year': [5000, 10000],
+        '€10,000–€15,000/year': [10000, 15000],
+        '€15,000+/year': [15000, 25000],
+      };
+      const [budgetMin, budgetMax] = budgetMap[tempRegData.budgetRange] ?? [5000, 10000];
 
-    const user = await fetchCurrentUser();
-    setCurrentUser({
-      id: String(user.id),
-      email: user.email,
-      phone: user.phone,
-      role: user.role as any,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      emailVerified: user.emailVerified,
-      createdAt: new Date().toISOString(),
-      status: user.status as any,
-    });
+      await establishSession(sessionResult);
 
-    upsertStudentRecord({
-      id: `stud-${user.id}`,
-      userId: String(user.id),
-      firstName: data.firstName,
-      lastName: data.lastName,
-      dob: '2004-10-10',
-      nationality: 'Indian',
-      educationLevel: 'High School',
-      gpa: data.gpa,
-      englishScore: data.englishScore,
-      desiredCountry: data.desiredCountry,
-      desiredSubject: data.desiredSubject,
-      budgetRange: data.budgetRange,
-      profileCompletionPct: 80,
-      gamificationPoints: 50,
-    });
+      try {
+        await updateStudentProfile({
+        desired_country: tempRegData.desiredCountry,
+        desired_subject: tempRegData.desiredSubject,
+        desired_degree_level: 'bachelors',
+        budget_min: budgetMin,
+        budget_max: budgetMax,
+        career_goal: `Interested in ${tempRegData.desiredSubject} in ${tempRegData.desiredCountry}`,
+        nationality: 'Indian',
+          country_of_residence: 'India',
+        });
+      } catch (profileError) {
+        console.warn('Student preference sync is not available on the active backend route map yet:', profileError);
+      }
 
-    updateProfile({
-      firstName: data.firstName,
-      lastName: data.lastName,
-      nationality: 'Indian',
-      educationLevel: 'High School',
-      gpa: data.gpa,
-      englishScore: data.englishScore,
-      desiredCountry: data.desiredCountry,
-      desiredSubject: data.desiredSubject,
-      budgetRange: data.budgetRange,
-    });
 
-    setSuccessMode(true);
-    toast.success('Student account registered and synced with the live CRM API.');
+
+      setSuccessMode(true);
+      setOtpMode(false);
+      toast.success('Student registration completed successfully.');
+    } catch (err: any) {
+      toast.error(err.message || 'OTP verification failed.');
+    } finally {
+      setOtpLoading(false);
+    }
   };
 
   const onAgentRegisterSubmit = async (data: z.infer<typeof agentSchema>) => {
-    await registerAgent({
-      agency_name: data.agencyName,
-      agency_country: data.agencyCountry,
-      registration_number: data.registrationNumber,
-      email: data.email,
-      phone: data.phone,
-      partnership_type: data.partnershipType,
-      password: data.password,
-    });
+    try {
+      const initResult = await registerAgent({
+        agency_name: data.agencyName,
+        agency_country: data.agencyCountry,
+        registration_number: data.registrationNumber,
+        email: data.email,
+        phone: data.phone,
+        partnership_type: data.partnershipType,
+        password: data.password,
+      });
 
-    const user = await fetchCurrentUser();
-    setCurrentUser({
-      id: String(user.id),
-      email: user.email,
-      phone: user.phone,
-      role: user.role as any,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      emailVerified: user.emailVerified,
-      createdAt: new Date().toISOString(),
-      status: user.status as any,
-    });
+      setSessionToken(initResult.session_token);
+      setTempRegData(data);
+      setOtpMode(true);
+      toast.success('Verification OTP code sent to your agency email.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to initiate agent registration.');
+    }
+  };
 
-    upsertAgentRecord({
-      id: `agent-${user.id}`,
-      userId: String(user.id),
-      agencyName: data.agencyName,
-      agencyCountry: data.agencyCountry,
-      registrationNumber: data.registrationNumber,
-      partnershipType: data.partnershipType,
-      tier: 'bronze',
-      status: 'pending',
-    });
+  const handleAgentOtpVerify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!sessionToken || !tempRegData) return;
 
-    setSuccessMode(true);
-    toast.success('Agent onboarding submitted and synced with the live CRM API.');
+    setOtpLoading(true);
+    try {
+      await verifyAgentRegistrationOtp(sessionToken, otpCode);
+
+      setSuccessMode(true);
+      setOtpMode(false);
+      toast.success('Agent registration submitted. Pending admin approval.');
+    } catch (err: any) {
+      toast.error(err.message || 'OTP verification failed.');
+    } finally {
+      setOtpLoading(false);
+    }
   };
 
   return (
@@ -309,7 +303,55 @@ export function ApplyPage() {
           {/* Right Form Card */}
           <div>
             <AnimatePresence mode="wait">
-              {successMode ? (
+              {otpMode ? (
+                <motion.div
+                  key="otp-card"
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 shadow-xl"
+                  style={{ boxShadow: `0 24px 60px ${theme.glow}` }}
+                >
+                  <h2 className="text-xl font-black text-gray-900 mb-2">Security Verification</h2>
+                  <p className="text-xs text-gray-500 mb-6 leading-relaxed">
+                    We have sent a 6-digit verification code to your email address. Enter it below to complete registration.
+                  </p>
+
+                  <form onSubmit={role === 'student' ? handleStudentOtpVerify : handleAgentOtpVerify} className="space-y-4">
+                    <div>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Enter 6-Digit OTP"
+                        required
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                        className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-gray-50 text-base outline-none focus:border-[#FD7E14] focus:bg-white tracking-[0.3em] font-extrabold text-center transition-all"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={otpLoading}
+                      className={`w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r ${theme.primary} text-white rounded-xl font-bold shadow-lg hover:scale-[1.01] transition-all disabled:opacity-60`}
+                    >
+                      {otpLoading ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <>Verify and Complete <ArrowRight className="w-4 h-4" /></>
+                      )}
+                    </button>
+                    
+                    <button
+                      type="button"
+                      onClick={() => { setOtpMode(false); setSessionToken(null); setOtpCode(''); }}
+                      className="w-full text-center text-xs text-gray-400 font-semibold hover:text-gray-600 mt-2"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                </motion.div>
+              ) : successMode ? (
                 <motion.div
                   key="success-card"
                   initial={{ opacity: 0, scale: 0.95 }}
@@ -329,7 +371,7 @@ export function ApplyPage() {
                   </p>
 
                   <button
-                    onClick={() => navigate(role === 'student' ? '/portal/student' : '/portal/agent')}
+                    onClick={() => navigate(role === 'student' ? '/portal/student' : '/portal/agent/pending')}
                     className={`w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r ${theme.primary} text-white rounded-xl font-bold shadow-lg`}
                   >
                     Enter My Portal <ArrowRight className="w-4 h-4" />
@@ -644,3 +686,4 @@ export function ApplyPage() {
     </div>
   );
 }
+

@@ -25,6 +25,8 @@ final class AuthRoutes
 
         RouteRegistry::post('auth', 'change-password', [$controller, 'changePassword']);
         RouteRegistry::post('auth', '2fa/toggle', [$controller, 'toggle2FA']);
+        RouteRegistry::post('auth', 'verify-2fa', [$controller, 'verify2fa']);
+        RouteRegistry::post('auth', 'resend-2fa', [$controller, 'resend2fa']);
 
         RouteRegistry::get('auth', 'me', [$controller, 'me']);
         RouteRegistry::get('auth', 'sessions', [$controller, 'listSessions']);
@@ -32,6 +34,5 @@ final class AuthRoutes
         
         // Internal 2FA verification during standard login if required
         RouteRegistry::post('auth', 'verify-otp', [$controller, 'verifyOtp']);
-        RouteRegistry::post('auth', 'impersonate', [$controller, 'impersonate']);
     }
 }

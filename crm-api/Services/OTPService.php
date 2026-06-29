@@ -6,6 +6,8 @@ namespace TGA\CRM\Services;
 
 use PDO;
 use Exception;
+use TGA\CRM\Config\Database;
+use TGA\CRM\Models\NotificationTemplateModel;
 
 final class OTPService
 {
@@ -98,5 +100,71 @@ final class OTPService
             }
             throw $e;
         }
+    }
+
+    /**
+     * Generate an OTP and send it via email IMMEDIATELY (synchronous).
+     * Throws on delivery failure — caller must catch and return an error
+     * response to the frontend.
+     */
+    public static function generateAndSend(
+        string $email,
+        string $purpose,
+        string $eventKey,
+        array $extraVars = [],
+        ?string $clientIp = null
+    ): string {
+        // 0. RATE LIMIT CHECK
+        $clientIp = $clientIp ?? \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress();
+        $emailHash = EncryptionService::hash(strtolower(trim($email)));
+        
+        $ipMax = 3;
+        $emailMax = 3;
+        $window = 3600;
+
+        if ($purpose === '2fa' || $purpose === '2fa_login') {
+            $ipMax = 5;
+            $emailMax = 5;
+            $window = 900;
+        }
+
+        $ipWait = \TGA\CRM\Middleware\RateLimitMiddleware::checkLimit("otp_send_ip_{$clientIp}_{$purpose}", 'otp_send', $ipMax, $window);
+        $emailWait = \TGA\CRM\Middleware\RateLimitMiddleware::checkLimit("otp_send_email_{$emailHash}_{$purpose}", 'otp_send', $emailMax, $window);
+        
+        $maxWait = max($ipWait, $emailWait);
+        if ($maxWait > 0) {
+            throw new \RuntimeException('OTP_RATE_LIMITED:' . $maxWait);
+        }
+
+        $pdo = Database::getConnection();
+        $instance = new self($pdo);
+        $code = $instance->generate($email, $purpose);
+
+        $template = NotificationTemplateModel::findByEventKey($eventKey);
+        if (!$template) {
+            throw new \RuntimeException("Missing notification template for event: $eventKey");
+        }
+
+        $vars = array_merge([
+            'otp_code'       => $code,
+            'expiry_minutes' => (int) SystemSettings::get('otp_expiry_minutes', '15'),
+        ], $extraVars);
+
+        $subject = NotificationService::render($template['subject_template'], $vars);
+        $body    = NotificationService::render($template['body_template'], $vars);
+
+        try {
+            $sent = MailService::sendNow($email, $subject, $body);
+            if (!$sent) {
+                throw new \RuntimeException('OTP_EMAIL_DELIVERY_FAILED');
+            }
+        } catch (\Throwable $e) {
+            $identifierHash = EncryptionService::hash(strtolower(trim($email)));
+            $deleteStmt = $pdo->prepare('DELETE FROM otp_verifications WHERE identifier_hash = ? AND purpose = ?');
+            $deleteStmt->execute([$identifierHash, $purpose]);
+            throw $e;
+        }
+
+        return $code;
     }
 }

@@ -1,9 +1,22 @@
 import { create } from 'zustand'
+import {
+  clearAuthSession,
+  fetchAgentProfile,
+  fetchStudentProfile,
+  logoutRequest,
+  refreshAuthSession,
+  setUnauthorizedHandler,
+  type AuthSessionResult,
+  type AuthUser,
+} from '../../lib/api'
+import { useStore } from '../../hooks/useStore'
 
-export type Role = 'student' | 'agent' | 'admin' | 'super_admin'
+export type Role = 'student' | 'agent' | 'admin'
+export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
 
 export interface User {
   id: string
+  publicId?: string
   name: string
   email: string
   role: Role
@@ -11,123 +24,218 @@ export interface User {
   tier?: string
   referralCode?: string
   permissions?: string[]
+  status?: string
+  agentStatus?: string
 }
 
 interface AuthState {
+  status: AuthStatus
+  isLoading: boolean
   isAuthenticated: boolean
   user: User | null
   token: string | null
-  login: (user: User, token: string) => void
-  logout: () => void
-  setRole: (role: Role, permissions?: string[]) => void
+  sessionExpired: boolean
+  restoreSession: () => Promise<void>
+  establishSession: (session: AuthSessionResult) => Promise<void>
+  clearSession: (sessionExpired?: boolean) => void
+  logout: () => Promise<void>
 }
 
-const SUPER_ADMIN_PERMISSIONS = ['*']
-const SUB_ADMIN_PERMISSIONS = [
-  'universities.view',
-  'courses.view',
-  'intakes.view',
-  'students.view',
-  'agents.view',
-  'applications.view',
-]
+let restorePromise: Promise<void> | null = null
 
-// Retrieve initial state from localStorage if available
-const getInitialState = () => {
-  try {
-    const storedUser = localStorage.getItem('tga_auth_user')
-    const storedToken = localStorage.getItem('tga_auth_token')
-    const storedAuth = localStorage.getItem('tga_auth_authenticated')
+function normalizeRole(rawRole: string | undefined): Role {
+  if (rawRole === 'admin' || rawRole === 'super_admin') return 'admin'
+  if (rawRole === 'agent' || rawRole === 'sub_agent') return 'agent'
+  return 'student'
+}
 
-    if (storedUser && storedToken && storedAuth === 'true') {
-      return {
-        isAuthenticated: true,
-        user: JSON.parse(storedUser) as User,
-        token: storedToken,
-      }
-    }
-  } catch (e) {
-    console.error('Error reading auth state from localStorage:', e)
-  }
+function normalizePermissions(permissions: unknown): string[] {
+  if (!Array.isArray(permissions)) return []
+  return permissions.filter((permission): permission is string => typeof permission === 'string')
+}
 
-  // Default initial state
+function mapAuthUser(apiUser: AuthUser): User {
+  const firstName = apiUser.firstName ?? ''
+  const lastName = apiUser.lastName ?? ''
+  const fallbackName = `${firstName} ${lastName}`.trim() || apiUser.email
+  const rawRole = apiUser.role ?? apiUser.user_type ?? apiUser.utype
+
   return {
-    isAuthenticated: true,
-    user: {
-      id: 'admin-1',
-      name: 'Amit Tiwari (Super Admin)',
-      email: 'amit@theglobalavenues.com',
-      role: 'admin' as Role,
-      permissions: SUPER_ADMIN_PERMISSIONS,
-    },
-    token: 'dummy_token',
+    id: apiUser.public_id,
+    publicId: apiUser.public_id,
+    name: apiUser.name || fallbackName,
+    email: apiUser.email,
+    role: normalizeRole(rawRole),
+    permissions: normalizePermissions(apiUser.permissions),
+    status: apiUser.status,
+    agentStatus: apiUser.account_status,
   }
 }
 
-const initialState = getInitialState()
+function syncLegacyCurrentUser(apiUser: AuthUser | null): void {
+  if (!apiUser) {
+    useStore.getState().setCurrentUser(null)
+    return
+  }
 
-export const useAuth = create<AuthState>((set) => ({
-  isAuthenticated: initialState.isAuthenticated, 
-  user: initialState.user,
-  token: initialState.token,
-  
-  login: (user, token) => {
-    try {
-      localStorage.setItem('tga_auth_user', JSON.stringify(user))
-      localStorage.setItem('tga_auth_token', token)
-      localStorage.setItem('tga_auth_authenticated', 'true')
-    } catch (e) {
-      console.error('Error writing auth state to localStorage:', e)
-    }
-    set({ isAuthenticated: true, user, token })
-  },
-  
-  logout: () => {
-    try {
-      localStorage.removeItem('tga_auth_user')
-      localStorage.removeItem('tga_auth_token')
-      localStorage.removeItem('tga_auth_authenticated')
-    } catch (e) {
-      console.error('Error clearing auth state from localStorage:', e)
-    }
-    set({ isAuthenticated: false, user: null, token: null })
-  },
-  
-  setRole: (role, permissions) => set((state) => {
-    let userName = 'Amit Tiwari'
-    let userPermissions = permissions || []
-    
-    if (role === 'admin') {
-      userName = 'Amit Tiwari (Super Admin)'
-      userPermissions = SUPER_ADMIN_PERMISSIONS
-    } else if (role === 'super_admin') {
-      userName = 'Amit Tiwari (Super Admin)'
-      userPermissions = SUPER_ADMIN_PERMISSIONS
-    } else if (role === 'agent') {
-      userName = 'Global Education Partners'
-    } else if (role === 'student') {
-      userName = 'Amit Tiwari (Student)'
-    } else {
-      userName = 'Sarah Sub-Admin'
-      userPermissions = SUB_ADMIN_PERMISSIONS
-    }
-
-    const updatedUser: User = {
-      id: role === 'agent' ? 'agent-1' : role === 'student' ? 'student-1' : 'staff-1',
-      name: userName,
-      email: 'amit@example.com',
-      role: role === 'super_admin' ? 'admin' : (role === 'admin' ? 'admin' : role),
-      permissions: userPermissions,
-      tier: role === 'agent' ? 'Level 1 Agent' : undefined,
-      referralCode: role === 'agent' ? 'TGA-AG-2026' : undefined,
-    }
-
-    try {
-      localStorage.setItem('tga_auth_user', JSON.stringify(updatedUser))
-    } catch (e) {
-      console.error('Error saving updated role to localStorage:', e)
-    }
-
-    return { user: updatedUser }
+  useStore.getState().setCurrentUser({
+    id: apiUser.public_id,
+    email: apiUser.email,
+    phone: apiUser.phone,
+    role: (apiUser.role ?? apiUser.user_type ?? apiUser.utype ?? 'student') as
+      | 'student'
+      | 'agent'
+      | 'sub_agent'
+      | 'counsellor'
+      | 'visa_officer'
+      | 'admin'
+      | 'super_admin',
+    firstName: apiUser.firstName,
+    lastName: apiUser.lastName,
+    emailVerified: apiUser.emailVerified,
+    createdAt: new Date().toISOString(),
+    status:
+      apiUser.status === 'suspended' ||
+      apiUser.status === 'pending' ||
+      apiUser.status === 'deleted'
+        ? apiUser.status
+        : 'active',
   })
+}
+
+function mapLegacyAgentTier(tier: number | string | undefined): 'bronze' | 'silver' | 'gold' {
+  if (tier === 'gold' || tier === 'silver' || tier === 'bronze') return tier
+  if (tier === 1 || tier === '1') return 'gold'
+  if (tier === 2 || tier === '2') return 'silver'
+  return 'bronze'
+}
+
+async function syncLegacyProfileCache(apiUser: AuthUser): Promise<void> {
+  syncLegacyCurrentUser(apiUser)
+
+  if (apiUser.role === 'student') {
+    const profile = await fetchStudentProfile()
+    useStore.getState().upsertStudentRecord({
+      id: String(profile.public_id ?? `stud-${apiUser.public_id}`),
+      userId: apiUser.public_id,
+      firstName: profile.first_name,
+      lastName: profile.last_name,
+      dob: profile.dob ?? undefined,
+      nationality: profile.nationality ?? undefined,
+      desiredCountry: profile.desired_country ?? undefined,
+      desiredSubject: profile.desired_subject ?? undefined,
+      budgetRange:
+        profile.budget_min && profile.budget_max
+          ? `${profile.budget_min}-${profile.budget_max} ${profile.budget_currency ?? 'USD'}`
+          : undefined,
+      profileCompletionPct: profile.profile_completion,
+      gamificationPoints: profile.gamification_points,
+    })
+  }
+
+  if (apiUser.role === 'agent' || apiUser.role === 'sub_agent') {
+    if (apiUser.account_status === 'pending') {
+      return
+    }
+    const profile = await fetchAgentProfile()
+    useStore.getState().upsertAgentRecord({
+      id: String(profile.public_id ?? `agent-${apiUser.public_id}`),
+      userId: apiUser.public_id,
+      agencyName: profile.agency_name,
+      agencyCountry: profile.agency_country ?? profile.country ?? '',
+      registrationNumber: profile.registration_number ?? '',
+      partnershipType: profile.partnership_type ?? 'non_exclusive',
+      tier: mapLegacyAgentTier(profile.tier),
+      status:
+        profile.status === 'inactive' || profile.status === 'rejected'
+          ? 'suspended'
+          : profile.status,
+    })
+  }
+}
+
+function applySessionState(
+  set: (partial: Partial<AuthState>) => void,
+  session: AuthSessionResult,
+): void {
+  set({
+    status: 'authenticated',
+    isLoading: false,
+    isAuthenticated: true,
+    user: mapAuthUser(session.user),
+    token: session.accessToken,
+    sessionExpired: false,
+  })
+}
+
+export const useAuth = create<AuthState>((set, get) => ({
+  status: 'loading',
+  isLoading: true,
+  isAuthenticated: false,
+  user: null,
+  token: null,
+  sessionExpired: false,
+
+  restoreSession: async () => {
+    if (get().status !== 'loading' && restorePromise === null) {
+      return
+    }
+
+    if (restorePromise === null) {
+      restorePromise = refreshAuthSession()
+        .then((session) => get().establishSession(session))
+        .catch(() => {
+          clearAuthSession()
+          syncLegacyCurrentUser(null)
+          set({
+            status: 'unauthenticated',
+            isLoading: false,
+            isAuthenticated: false,
+            user: null,
+            token: null,
+            sessionExpired: false,
+          })
+        })
+        .finally(() => {
+          restorePromise = null
+        })
+    }
+
+    await restorePromise
+  },
+
+  establishSession: async (session) => {
+    applySessionState(set, session)
+
+    try {
+      await syncLegacyProfileCache(session.user)
+    } catch {
+      syncLegacyCurrentUser(session.user)
+    }
+  },
+
+  clearSession: (sessionExpired = false) => {
+    clearAuthSession()
+    syncLegacyCurrentUser(null)
+    set({
+      status: 'unauthenticated',
+      isLoading: false,
+      isAuthenticated: false,
+      user: null,
+      token: null,
+      sessionExpired,
+    })
+  },
+
+  logout: async () => {
+    try {
+      await logoutRequest()
+    } finally {
+      get().clearSession(false)
+    }
+  },
 }))
+
+setUnauthorizedHandler(() => {
+  useAuth.getState().clearSession(true)
+})

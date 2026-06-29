@@ -124,6 +124,33 @@ final class RegistrationController
             }
         }
 
+        $ip = \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress();
+
+        try {
+            $code = OTPService::generateAndSend(
+                $email,
+                'registration',
+                'student.registration_otp',
+                ['student_name' => trim($firstName . ' ' . $lastName)],
+                $ip
+            );
+        } catch (\RuntimeException $e) {
+            if (str_starts_with($e->getMessage(), 'OTP_RATE_LIMITED:')) {
+                $retryAfter = (int) explode(':', $e->getMessage())[1];
+                header('Retry-After: ' . $retryAfter);
+                Response::json([
+                    'success' => false,
+                    'error'   => 'RATE_LIMITED',
+                    'message' => 'Too many attempts. Please wait before trying again.',
+                ], 429);
+            }
+            Response::json([
+                'success' => false,
+                'error'   => 'EMAIL_DELIVERY_FAILED',
+                'message' => 'We could not send your verification code. Please try again.',
+            ], 502);
+        }
+
         $pendingData = [
             'full_name' => trim($firstName . ' ' . $lastName),
             'email' => strtolower($email),
@@ -144,10 +171,6 @@ final class RegistrationController
             'registered_by_type' => $registeredByType,
             'registered_by_id' => $registeredById
         ];
-
-        $otpService = new OTPService($this->pdo);
-        $code = $otpService->generate($email, 'registration');
-        // Placeholder: send email with OTP
 
         $pendingSvc = new PendingRegistrationService($this->pdo);
         $token = $pendingSvc->store('student', $email, $pendingData);
@@ -354,6 +377,33 @@ final class RegistrationController
             Response::error('Email already registered', 'EMAIL_ALREADY_REGISTERED', 409);
         }
 
+        $ip = \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress();
+
+        try {
+            $code = OTPService::generateAndSend(
+                $email,
+                'registration',
+                'agent.registration_otp',
+                ['agent_name' => $fullName],
+                $ip
+            );
+        } catch (\RuntimeException $e) {
+            if (str_starts_with($e->getMessage(), 'OTP_RATE_LIMITED:')) {
+                $retryAfter = (int) explode(':', $e->getMessage())[1];
+                header('Retry-After: ' . $retryAfter);
+                Response::json([
+                    'success' => false,
+                    'error'   => 'RATE_LIMITED',
+                    'message' => 'Too many attempts. Please wait before trying again.',
+                ], 429);
+            }
+            Response::json([
+                'success' => false,
+                'error'   => 'EMAIL_DELIVERY_FAILED',
+                'message' => 'We could not send your verification code. Please try again.',
+            ], 502);
+        }
+
         $pendingData = [
             'agency_name' => $agencyName,
             'country' => $country,
@@ -365,14 +415,11 @@ final class RegistrationController
             'recruitment_description' => $recruitmentDescription,
             'referral_code' => $referralCode,
             'password_hash' => password_hash($password, PASSWORD_ARGON2ID, [
-            'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
-            'time_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
-            'threads' => 1,
-        ])
+                'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
+                'time_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
+                'threads' => 1,
+            ])
         ];
-
-        $otpService = new OTPService($this->pdo);
-        $code = $otpService->generate($email, 'registration');
 
         $pendingSvc = new PendingRegistrationService($this->pdo);
         $token = $pendingSvc->store('agent', $email, $pendingData);
@@ -429,7 +476,7 @@ final class RegistrationController
             // Insert User
             $userStmt = $this->pdo->prepare(
                 "INSERT INTO users (public_id, email, email_lookup_hash, phone, phone_lookup_hash, password_hash, user_type, status)
-                 VALUES (?, ?, ?, ?, ?, ?, 'agent', 'pending')"
+                 VALUES (?, ?, ?, ?, ?, ?, 'agent', 'active')"
             );
             $userStmt->execute([
                 $userPublicId,

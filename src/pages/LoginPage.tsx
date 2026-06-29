@@ -1,84 +1,78 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { useStore } from '../hooks/useStore';
+import { useState, type FormEvent } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { User, Briefcase, ShieldCheck, ArrowRight, Lock, Globe, Mail, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
-import { clearAuthSession, fetchAgentProfile, fetchCurrentUser, fetchStudentProfile, loginWithPassword, requestOtpLogin, verifyOtpLogin } from '../lib/api';
+import {
+  ApiRequestError,
+  loginWithPassword,
+  requestOtpLogin,
+  verifyOtpLogin,
+  verifyTwoFactorLogin,
+  type AuthLoginResult,
+  type AuthSessionResult,
+} from '../lib/api';
+import { useAuth } from '../shared/hooks/useAuth';
+
+function resolveAgentStatusPath(result: AuthLoginResult): string | null {
+  if (result.accountStatus === 'pending_approval') return '/portal/agent/pending';
+  if (result.accountStatus === 'rejected') return '/portal/agent/rejected';
+  return null;
+}
 
 export function LoginPage() {
-  const setCurrentUser = useStore((state) => state.setCurrentUser);
-  const upsertStudentRecord = useStore((state) => state.upsertStudentRecord);
-  const upsertAgentRecord = useStore((state) => state.upsertAgentRecord);
+  const establishSession = useAuth((state) => state.establishSession);
+  const clearSession = useAuth((state) => state.clearSession);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const [role, setRole] = useState<'student' | 'agent' | 'admin'>('student');
+  const [portalHint, setPortalHint] = useState<'student' | 'agent' | 'admin'>('student');
   const [method, setMethod] = useState<'password' | 'otp'>('password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [isOtpSent, setIsOtpSent] = useState(false);
+  const [twoFactorToken, setTwoFactorToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // Dynamic Theme Colors depending on active role selection
   const getThemeClass = () => {
-    if (role === 'student') return { primary: 'from-[#FD7E14] to-[#C94D1B]', accent: '#FD7E14', bg: 'bg-[#FD7E14]/10', shadow: 'rgba(253,126,20,0.15)' };
-    if (role === 'agent') return { primary: 'from-[#2D1B69] to-[#3B2B85]', accent: '#2D1B69', bg: 'bg-[#2D1B69]/10', shadow: 'rgba(45,27,105,0.15)' };
-    return { primary: 'from-[#0F0B1F] to-[#2D1B69]', accent: '#FFD700', bg: 'bg-[#FFD700]/10', shadow: 'rgba(255,215,0,0.15)' };
+    if (portalHint === 'student') return { primary: 'from-[#FD7E14] to-[#C94D1B]', shadow: 'rgba(253,126,20,0.15)' };
+    if (portalHint === 'agent') return { primary: 'from-[#2D1B69] to-[#3B2B85]', shadow: 'rgba(45,27,105,0.15)' };
+    return { primary: 'from-[#0F0B1F] to-[#2D1B69]', shadow: 'rgba(255,215,0,0.15)' };
   };
 
   const theme = getThemeClass();
 
-  const applyAuthenticatedUser = async () => {
-    const user = await fetchCurrentUser();
 
-    setCurrentUser({
-      id: String(user.id),
-      email: user.email,
-      phone: user.phone,
-      role: user.role as any,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      emailVerified: user.emailVerified,
-      createdAt: new Date().toISOString(),
-      status: user.status as any,
-    });
+  const finishLogin = async (session: AuthSessionResult) => {
+    await establishSession(session);
 
-    if (user.role === 'student') {
-      const profile = await fetchStudentProfile();
-      upsertStudentRecord({
-        id: String(profile.id),
-        userId: String(profile.user_id),
-        firstName: profile.first_name,
-        lastName: profile.last_name,
-        dob: profile.dob ?? undefined,
-        nationality: profile.nationality ?? undefined,
-        desiredCountry: profile.desired_country ?? undefined,
-        desiredSubject: profile.desired_subject ?? undefined,
-        budgetRange: profile.budget_min && profile.budget_max ? `${profile.budget_min}-${profile.budget_max} ${profile.budget_currency ?? 'USD'}` : undefined,
-        profileCompletionPct: profile.profile_completion,
-        gamificationPoints: profile.gamification_points,
-      });
-    }
+    const targetRole = session.user.role === 'sub_agent' ? 'agent' : session.user.role;
+    const fallbackPath = targetRole === 'student' ? '/portal/student' : targetRole === 'agent' ? '/portal/agent' : '/portal/admin';
+    const from = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname;
 
-    if (user.role === 'agent' || user.role === 'sub_agent') {
-      const profile = await fetchAgentProfile();
-      upsertAgentRecord({
-        id: String(profile.id),
-        userId: String(profile.user_id),
-        agencyName: profile.agency_name,
-        agencyCountry: profile.agency_country,
-        registrationNumber: profile.registration_number ?? '',
-        partnershipType: profile.partnership_type,
-        tier: profile.tier,
-        status: profile.status === 'inactive' || profile.status === 'rejected' ? 'suspended' : (profile.status as any),
-      });
-    }
-
-    return user;
+    toast.success('Successfully signed in.');
+    navigate(from && from.startsWith('/portal') ? from : fallbackPath, { replace: true });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleAccountStatus = (result: AuthLoginResult) => {
+    const destination = resolveAgentStatusPath(result);
+    if (!destination) return false;
+
+    clearSession(false);
+    navigate(destination, {
+      replace: true,
+      state: {
+        email,
+        message: result.message,
+        submittedAt: result.submittedAt,
+        rejectionReason: result.rejectionReason,
+      },
+    });
+    return true;
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
@@ -90,44 +84,73 @@ export function LoginPage() {
         return;
       }
 
-      if (method === 'otp') {
-        await verifyOtpLogin(email, otpCode);
-      } else {
-        await loginWithPassword(email, password);
+      const result = twoFactorToken
+        ? await verifyTwoFactorLogin(twoFactorToken, otpCode)
+        : method === 'otp'
+          ? await verifyOtpLogin(email, otpCode)
+          : await loginWithPassword(email, password);
+
+      if (result.requires2fa) {
+        if (!result.preAuthToken) {
+          throw new Error('Two-factor challenge token missing from response.');
+        }
+        setTwoFactorToken(result.preAuthToken);
+        setIsOtpSent(true);
+        setOtpCode('');
+        toast.info('Enter the two-factor code sent to your email.');
+        return;
       }
 
-      const user = await applyAuthenticatedUser();
-      toast.success('Successfully signed in as TGA ' + user.role + '!');
-      setTimeout(() => {
-        if (user.role === 'student') navigate('/portal/student');
-        else if (user.role === 'agent' || user.role === 'sub_agent') navigate('/portal/agent');
-        else navigate('/portal/admin');
-      }, 800);
+      if (handleAccountStatus(result)) {
+        return;
+      }
+
+      if (!result.user || !result.accessToken) {
+        throw new Error('Authentication response did not include a session.');
+      }
+
+      await finishLogin({ user: result.user, accessToken: result.accessToken });
     } catch (err) {
-      clearAuthSession();
-      toast.error('Authentication failed. Check your network or credentials.');
+      clearSession(false);
+      const message = err instanceof ApiRequestError || err instanceof Error
+        ? err.message
+        : 'Authentication failed. Check your network or credentials.';
+      toast.error(message);
     } finally {
       setLoading(false);
     }
   };
+
+  const resetChallenge = () => {
+    setIsOtpSent(false);
+    setOtpCode('');
+    setTwoFactorToken(null);
+  };
+
+  const otpLabel = twoFactorToken ? 'Two-Factor Verification Code' : 'Verification OTP Code';
+  const submitText = method === 'otp' && !isOtpSent
+    ? 'Send Secure OTP'
+    : twoFactorToken
+      ? 'Verify Two-Factor Code'
+      : 'Authorize Entrance';
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#FFFCF5] to-[#F8F7FF] pt-20 flex items-center justify-center relative overflow-hidden">
       <Toaster position="top-center" richColors />
-      
-      {/* Dynamic Background Auras shifting with theme choice */}
-      <motion.div 
+
+      <motion.div
         className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full blur-[120px] -translate-y-1/3 translate-x-1/4 pointer-events-none"
-        animate={{ backgroundColor: role === 'student' ? '#FD7E14' : '#2D1B69' }}
+        animate={{ backgroundColor: portalHint === 'student' ? '#FD7E14' : '#2D1B69' }}
         style={{ opacity: 0.05 }}
         transition={{ duration: 0.6 }}
       />
-      <motion.div 
+      <motion.div
         className="absolute bottom-0 left-0 w-[550px] h-[550px] rounded-full blur-[100px] translate-y-1/3 -translate-x-1/4 pointer-events-none"
-        animate={{ backgroundColor: role === 'admin' ? '#FFD700' : '#C94D1B' }}
+        animate={{ backgroundColor: portalHint === 'admin' ? '#FFD700' : '#C94D1B' }}
         style={{ opacity: 0.04 }}
         transition={{ duration: 0.6 }}
       />
-      
+
       <div className="max-w-md w-full px-6 py-12 relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -135,20 +158,18 @@ export function LoginPage() {
           className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 transition-shadow duration-500 shadow-xl"
           style={{ boxShadow: `0 24px 60px ${theme.shadow}` }}
         >
-          {/* Main Logo */}
           <div className="flex justify-center mb-6">
-            <motion.div 
+            <motion.div
               className={`w-12 h-12 rounded-xl bg-gradient-to-br ${theme.primary} flex items-center justify-center shadow-lg`}
               layout
             >
               <Globe className="w-6 h-6 text-white" />
             </motion.div>
           </div>
-          
-          <h1 className="text-2xl font-black text-center text-gray-900 mb-1">Portal Authentication</h1>
-          <p className="text-center text-xs text-gray-400 mb-6">Access your student, partner, or internal CRM cockpit</p>
 
-          {/* Interactive Role Switcher */}
+          <h1 className="text-2xl font-black text-center text-gray-900 mb-1">Portal Authentication</h1>
+          <p className="text-center text-xs text-gray-400 mb-6">Access your student, agent, or internal CRM cockpit</p>
+
           <div className="flex rounded-xl bg-gray-50 p-1 mb-6 border border-gray-200">
             {[
               { r: 'student', label: 'Student', icon: User },
@@ -158,10 +179,10 @@ export function LoginPage() {
               <button
                 key={r}
                 type="button"
-                onClick={() => { setRole(r as any); setIsOtpSent(false); setOtpCode(''); }}
+                onClick={() => { setPortalHint(r as any); resetChallenge(); }}
                 className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-bold transition-all ${
-                  role === r 
-                    ? `bg-gradient-to-r ${theme.primary} text-white shadow-md` 
+                  portalHint === r
+                    ? `bg-gradient-to-r ${theme.primary} text-white shadow-md`
                     : 'text-gray-500 hover:text-[#FD7E14]'
                 }`}
               >
@@ -171,18 +192,17 @@ export function LoginPage() {
             ))}
           </div>
 
-          {/* Toggle between password and OTP */}
           <div className="flex justify-end gap-3 mb-6 text-xs font-bold text-gray-400">
-            <button 
-              type="button" 
-              onClick={() => { setMethod('password'); setIsOtpSent(false); }}
+            <button
+              type="button"
+              onClick={() => { setMethod('password'); resetChallenge(); }}
               className={`pb-1 border-b-2 transition-all ${method === 'password' ? 'border-[#FD7E14] text-gray-900' : 'border-transparent hover:text-gray-600'}`}
             >
               Password Login
             </button>
-            <button 
-              type="button" 
-              onClick={() => setMethod('otp')}
+            <button
+              type="button"
+              onClick={() => { setMethod('otp'); resetChallenge(); }}
               className={`pb-1 border-b-2 transition-all ${method === 'otp' ? 'border-[#FD7E14] text-gray-900' : 'border-transparent hover:text-gray-600'}`}
             >
               OTP Secure Login
@@ -199,14 +219,13 @@ export function LoginPage() {
                   exit={{ opacity: 0, x: 10 }}
                   className="space-y-4"
                 >
-                  {/* Email */}
                   <div>
                     <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Email Address</label>
                     <div className="relative">
                       <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="email"
-                        placeholder={`${role}@theglobalavenues.com`}
+                        placeholder={`${portalHint}@theglobalavenues.com`}
                         required
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
@@ -215,7 +234,6 @@ export function LoginPage() {
                     </div>
                   </div>
 
-                  {/* Password */}
                   {method === 'password' && (
                     <div>
                       <div className="flex justify-between items-center mb-1.5">
@@ -226,7 +244,7 @@ export function LoginPage() {
                         <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
                           type="password"
-                          placeholder="••••••••"
+                          placeholder="Password"
                           required
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
@@ -244,14 +262,14 @@ export function LoginPage() {
                   exit={{ opacity: 0, x: -10 }}
                   className="space-y-4"
                 >
-                  {/* OTP Code entry */}
                   <div>
-                    <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Verification OTP Code</label>
+                    <label className="block text-xs font-bold text-gray-500 mb-1.5 uppercase tracking-wider">{otpLabel}</label>
                     <div className="relative">
                       <MessageSquare className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Enter 123456"
+                        inputMode="numeric"
+                        placeholder="Enter 6-digit OTP"
                         required
                         maxLength={6}
                         value={otpCode}
@@ -273,14 +291,13 @@ export function LoginPage() {
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  {method === 'otp' && !isOtpSent ? 'Send Secure OTP' : 'Authorize Entrance'}
+                  {submitText}
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}
             </button>
           </form>
 
-          {/* Social OAuth Google Button */}
           <div className="relative my-6 text-center">
             <span className="bg-white px-3 text-xs text-gray-400 relative z-10">Or connect with</span>
             <div className="absolute top-1/2 left-0 right-0 h-px bg-gray-150 z-0" />
@@ -313,3 +330,4 @@ export function LoginPage() {
     </div>
   );
 }
+
