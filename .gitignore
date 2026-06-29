@@ -63,3 +63,6 @@ test_*.php
 
 # Cron runtime lock file (generated at execution time, not source)
 cron/scheduler.lock
+
+# Local manual verification checklist
+manual_verification.md

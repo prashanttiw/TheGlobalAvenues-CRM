@@ -198,6 +198,7 @@ A dedicated PHP script (not accessible via the web) triggered daily to backup th
 * **Files Changed:**
   * `crm-api/Controllers/AuthController.php`: Implemented `toggle2FA` endpoint allowing authenticated users (including Admins) to seamlessly enable or disable 2FA functionality upon successfully verifying their current password. Enhanced `buildUserResponse` to expose the `two_factor_enabled` state to the frontend UI.
   * `crm-api/Routes/AuthRoutes.php`: Registered the `POST /api/auth/2fa/toggle` route.
+* **Cross-Reference Notice**: Login-time OTP gating for 2FA-enabled accounts is implemented in PHASE_2_APPEND.md — this module only covers the on/off toggle.
 * **Security Improvements:** 
   * Required current password verification for toggling 2FA prevents hijacking of the 2FA status by a malicious actor utilizing an unattended active session.
   * Granular activity and security event logging directly links 2FA lifecycle events to the user and IP address to preserve an immutable audit trail.

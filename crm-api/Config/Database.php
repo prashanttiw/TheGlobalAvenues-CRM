@@ -43,4 +43,32 @@ final class Database
 
         return self::$connection;
     }
+
+    private static ?bool $supportsSkipLocked = null;
+
+    public static function supportsSkipLocked(PDO $pdo): bool
+    {
+        if (self::$supportsSkipLocked !== null) {
+            return self::$supportsSkipLocked;
+        }
+
+        try {
+            $version = $pdo->getAttribute(PDO::ATTR_SERVER_VERSION);
+            if (stripos($version, 'MariaDB') !== false) {
+                // Handle MariaDB versions (e.g., "10.4.32-MariaDB" or "5.5.5-10.4.32-MariaDB")
+                if (preg_match('/10\.([0-9]+)\.[0-9]+/', $version, $matches)) {
+                    $minor = (int)$matches[1];
+                    self::$supportsSkipLocked = ($minor >= 6);
+                    return self::$supportsSkipLocked;
+                }
+                self::$supportsSkipLocked = false;
+                return false;
+            }
+        } catch (\Throwable $e) {
+            // Fallback to true if attribute check fails
+        }
+
+        self::$supportsSkipLocked = true;
+        return true;
+    }
 }
