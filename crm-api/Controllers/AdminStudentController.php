@@ -1,0 +1,137 @@
+<?php
+
+declare(strict_types=1);
+
+namespace TGA\CRM\Controllers;
+
+use PDO;
+use TGA\CRM\Config\Database;
+use TGA\CRM\Helpers\Paginator;
+use TGA\CRM\Helpers\Response;
+use TGA\CRM\Middleware\RBACMiddleware;
+use TGA\CRM\Services\EncryptionService;
+
+final class AdminStudentController
+{
+    private PDO $pdo;
+
+    public function __construct()
+    {
+        $this->pdo = Database::getConnection();
+    }
+
+    public function listAll(): void
+    {
+        RBACMiddleware::requirePermission('students', 'view');
+
+        $pager = Paginator::fromQuery($_GET);
+        $status = trim((string) ($_GET['status'] ?? ''));
+        $search = trim((string) ($_GET['search'] ?? ''));
+        $agentScope = trim((string) ($_GET['agent_scope'] ?? ''));
+
+        $conditions = ['s.deleted_at IS NULL'];
+        $params = [];
+
+        if ($status !== '') {
+            $conditions[] = 's.profile_status = :status';
+            $params['status'] = $status;
+        }
+
+        if ($agentScope === 'direct') {
+            $conditions[] = 's.agent_id IS NULL';
+        } elseif ($agentScope === 'assigned') {
+            $conditions[] = 's.agent_id IS NOT NULL';
+        }
+
+        if ($search !== '') {
+            $conditions[] = "(s.full_name LIKE :search OR s.public_id LIKE :search OR COALESCE(a.agency_name, '') LIKE :search)";
+            $params['search'] = '%' . $search . '%';
+        }
+
+        $where = implode(' AND ', $conditions);
+
+        $countStmt = $this->pdo->prepare("
+            SELECT COUNT(DISTINCT s.id)
+            FROM students s
+            JOIN users u ON u.id = s.user_id
+            LEFT JOIN agents a ON a.id = s.agent_id AND a.deleted_at IS NULL
+            WHERE {$where}
+        ");
+        foreach ($params as $key => $value) {
+            $countStmt->bindValue(':' . $key, $value);
+        }
+        $countStmt->execute();
+        $total = (int) $countStmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare("
+            SELECT s.id, s.public_id, s.full_name, s.nationality, s.profile_status, s.created_at,
+                   u.email AS encrypted_email, u.phone AS encrypted_phone,
+                   a.public_id AS agent_public_id, a.full_name AS agent_name, a.agency_name,
+                   COUNT(app.id) AS applications_count
+            FROM students s
+            JOIN users u ON u.id = s.user_id
+            LEFT JOIN agents a ON a.id = s.agent_id AND a.deleted_at IS NULL
+            LEFT JOIN applications app ON app.student_id = s.id AND app.deleted_at IS NULL
+            WHERE {$where}
+            GROUP BY s.id, s.public_id, s.full_name, s.nationality, s.profile_status, s.created_at,
+                     u.email, u.phone, a.public_id, a.full_name, a.agency_name
+            ORDER BY s.created_at DESC
+            LIMIT :limit OFFSET :offset
+        ");
+        foreach ($params as $key => $value) {
+            $stmt->bindValue(':' . $key, $value);
+        }
+        $stmt->bindValue(':limit', $pager['per_page'], PDO::PARAM_INT);
+        $stmt->bindValue(':offset', $pager['offset'], PDO::PARAM_INT);
+        $stmt->execute();
+
+        $students = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $email = null;
+            $phone = null;
+
+            if (!empty($row['encrypted_email'])) {
+                try {
+                    $email = EncryptionService::decrypt($row['encrypted_email']);
+                } catch (\Throwable) {
+                    $email = null;
+                }
+            }
+
+            if (!empty($row['encrypted_phone'])) {
+                try {
+                    $phone = EncryptionService::decrypt($row['encrypted_phone']);
+                } catch (\Throwable) {
+                    $phone = null;
+                }
+            }
+
+            $students[] = [
+                'id' => $row['public_id'],
+                'public_id' => $row['public_id'],
+                'name' => $row['full_name'],
+                'email' => $email,
+                'phone' => $phone,
+                'nationality' => $row['nationality'],
+                'agent' => $row['agency_name'] ?: ($row['agent_name'] ?: 'None (Direct)'),
+                'agent_public_id' => $row['agent_public_id'],
+                'status' => $row['profile_status'],
+                'applicationsCount' => (int) $row['applications_count'],
+                'registeredDate' => $row['created_at'],
+            ];
+        }
+
+        Response::json([
+            'data' => $students,
+            'meta' => [
+                'total' => $total,
+                'page' => $pager['page'],
+                'per_page' => $pager['per_page'],
+                'total_pages' => (int) ceil($total / $pager['per_page']),
+                'has_next' => ($pager['page'] * $pager['per_page']) < $total,
+            ],
+        ]);
+    }
+}
+
+
