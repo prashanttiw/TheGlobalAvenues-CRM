@@ -295,9 +295,152 @@ class UniversityController
         $stmt->execute([$uni['id']]);
         $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $uni['courses'] = $courses;
-
         Response::json(['university' => $uni]);
+    }
+
+    public function search(): void
+    {
+        $country = $_GET['country'] ?? null;
+        $budgetMax = isset($_GET['budget_max']) ? (float)$_GET['budget_max'] : null;
+        $subjectArea = $_GET['subject_area'] ?? null;
+        $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+        $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
+        $offset = ($page - 1) * $perPage;
+
+        $subjectKeywords = [];
+        if ($subjectArea) {
+            $subjectKeywords = match($subjectArea) {
+                'IT & Game Design' => ['IT', 'Computer', 'Software', 'Game', 'Data', 'Cyber'],
+                'Business & Management' => ['Business', 'Management', 'MBA', 'Finance', 'Marketing', 'Accounting'],
+                'Medicine & Health' => ['Medicine', 'Health', 'Nursing', 'Public Health', 'Biomedical'],
+                'Engineering' => ['Engineering', 'Mechanical', 'Electrical', 'Civil', 'Chemical'],
+                'Design & Creative Arts' => ['Design', 'Art', 'Creative', 'Architecture', 'Media'],
+                'Hospitality' => ['Hospitality', 'Tourism', 'Hotel', 'Culinary'],
+                default => [],
+            };
+        }
+
+        $whereClauses = [];
+        $params = [];
+
+        if ($country) {
+            $whereClauses[] = 'u.country = ?';
+            $params[] = $country;
+        }
+
+        if ($budgetMax !== null) {
+            $whereClauses[] = 'i.tuition_fee_amount <= ?';
+            $params[] = $budgetMax;
+        }
+
+        if (!empty($subjectKeywords)) {
+            $keywordClauses = [];
+            foreach ($subjectKeywords as $kw) {
+                $keywordClauses[] = 'c.name LIKE ?';
+                $params[] = '%' . $kw . '%';
+            }
+            $whereClauses[] = '(' . implode(' OR ', $keywordClauses) . ')';
+        }
+
+        $whereSql = '';
+        if (!empty($whereClauses)) {
+            $whereSql = ' AND ' . implode(' AND ', $whereClauses);
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT
+                c.id as course_id,
+                c.public_id as course_pid,
+                c.name as program_name,
+                c.degree_level,
+                MIN(i.tuition_fee_amount) as tuition_fee,
+                MIN(i.tuition_fee_currency) as tuition_currency,
+                GROUP_CONCAT(DISTINCT i.intake_month ORDER BY i.intake_month ASC SEPARATOR ',') as intake_months,
+                u.id as university_id,
+                u.public_id as university_pid,
+                u.name as university_name,
+                u.country as university_country,
+                u.city as university_city,
+                u.partnership_type as university_partnership_type
+            FROM courses c
+            JOIN universities u ON c.university_id = u.id
+            LEFT JOIN intakes i ON c.id = i.course_id AND i.deleted_at IS NULL AND i.status != 'closed'
+            WHERE c.status = 'active' AND c.deleted_at IS NULL
+              AND u.status = 'active' AND u.deleted_at IS NULL
+              $whereSql
+            GROUP BY c.id, c.public_id, c.name, c.degree_level, u.id, u.public_id, u.name, u.country, u.city, u.partnership_type
+            ORDER BY c.name ASC
+            LIMIT ? OFFSET ?
+        ");
+
+        $bindIndex = 1;
+        foreach ($params as $val) {
+            $stmt->bindValue($bindIndex++, $val);
+        }
+        $stmt->bindValue($bindIndex++, $perPage, PDO::PARAM_INT);
+        $stmt->bindValue($bindIndex++, $offset, PDO::PARAM_INT);
+
+        $stmt->execute();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $programs = [];
+        foreach ($rows as $row) {
+            $name = $row['program_name'];
+            $subjectAreaMatch = 'Other';
+            if (preg_match('/(AI|Data|Computer|Software|IT)/i', $name)) {
+                $subjectAreaMatch = 'IT & Game Design';
+            } elseif (preg_match('/(Business|Management|MBA|Administration|Marketing)/i', $name)) {
+                $subjectAreaMatch = 'Business & Management';
+            } elseif (preg_match('/(Medicine|MD|Health|Nursing|Clinical)/i', $name)) {
+                $subjectAreaMatch = 'Medicine & Health';
+            } elseif (preg_match('/(Energy|Engineering|Innovation)/i', $name)) {
+                $subjectAreaMatch = 'Engineering';
+            } elseif (preg_match('/(Design|Architecture|Creative|Art)/i', $name)) {
+                $subjectAreaMatch = 'Design & Creative Arts';
+            } elseif (preg_match('/(Hospitality|Hotel|Culinary)/i', $name)) {
+                $subjectAreaMatch = 'Hospitality';
+            }
+
+            $months = [];
+            if (!empty($row['intake_months'])) {
+                $monthNums = explode(',', $row['intake_months']);
+                $monthNames = [
+                    1 => 'January', 2 => 'February', 3 => 'March', 4 => 'April',
+                    5 => 'May', 6 => 'June', 7 => 'July', 8 => 'August',
+                    9 => 'September', 10 => 'October', 11 => 'November', 12 => 'December'
+                ];
+                foreach ($monthNums as $num) {
+                    $num = (int)$num;
+                    if (isset($monthNames[$num])) {
+                        $months[] = $monthNames[$num];
+                    }
+                }
+            }
+
+            $programs[] = [
+                'id' => $row['course_pid'],
+                'public_id' => $row['course_pid'],
+                'name' => $row['program_name'],
+                'degreeLevel' => $row['degree_level'],
+                'subjectArea' => $subjectAreaMatch,
+                'tuitionFee' => $row['tuition_fee'] !== null ? (float)$row['tuition_fee'] : null,
+                'tuitionCurrency' => $row['tuition_currency'],
+                'tuitionLabel' => $row['tuition_fee'] !== null ? ($row['tuition_currency'] . ' ' . number_format((float)$row['tuition_fee'])) : 'TBD',
+                'intakeMonths' => $months,
+                'university' => [
+                    'id' => $row['university_pid'],
+                    'public_id' => $row['university_pid'],
+                    'name' => $row['university_name'],
+                    'shortName' => null,
+                    'country' => $row['university_country'],
+                    'city' => $row['university_city'],
+                    'partnershipType' => $row['university_partnership_type'],
+                    'isExclusive' => $row['university_partnership_type'] === 'exclusive'
+                ]
+            ];
+        }
+
+        Response::json(['programs' => $programs]);
     }
 
     private function formatLogo(array &$uni, string $appUrl): void

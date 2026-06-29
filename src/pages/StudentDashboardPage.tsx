@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { toast, Toaster } from 'sonner';
-import { useStore } from '../hooks/useStore';
+import { useAuth } from '../shared/hooks/useAuth';
 import {
   createApplication,
   deleteApplicationDocument,
@@ -119,7 +119,7 @@ const DOCUMENT_OPTIONS = [
 ];
 
 export function StudentDashboardPage() {
-  const currentUser = useStore((state) => state.currentUser);
+  const { user: authUser } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<DashboardTab>('dashboard');
@@ -168,7 +168,7 @@ export function StudentDashboardPage() {
   const [error, setError] = useState<string | null>(null);
 
   const loadPortal = async (showRefreshState = false) => {
-    if (!currentUser) {
+    if (!authUser) {
       setLoading(false);
       return;
     }
@@ -194,7 +194,7 @@ export function StudentDashboardPage() {
       setError(null);
 
       if (applicationsResponse.length > 0) {
-        const detail = await fetchApplicationDetail(applicationsResponse[0].id);
+        const detail = await fetchApplicationDetail(applicationsResponse[0].public_id);
         setApplicationDetail(detail);
       } else {
         setApplicationDetail(null);
@@ -208,13 +208,14 @@ export function StudentDashboardPage() {
   };
 
   useEffect(() => {
-    if (!currentUser || currentUser.role !== 'student') {
+    if (!authUser) {
       setLoading(false);
       return;
     }
 
     void loadPortal();
-  }, [currentUser]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser?.id]);
 
   useEffect(() => {
     if (!profile) {
@@ -380,13 +381,8 @@ export function StudentDashboardPage() {
     }
   };
 
-  if (!currentUser || currentUser.role !== 'student') {
-    return (
-      <div className="min-h-screen bg-[#F8F7FF] pt-32 text-center px-6">
-        <h1 className="text-3xl font-black text-[#0F0B1F]">Student sign-in required</h1>
-        <p className="text-sm text-[#5C5675] mt-3">Use the live student login to access the application portal.</p>
-      </div>
-    );
+  if (!authUser) {
+    return null;
   }
 
   if (loading) {
@@ -424,13 +420,13 @@ export function StudentDashboardPage() {
                 Student Journey Console
               </div>
               <h1 className="text-4xl font-black tracking-tight mt-6">
-                {profile?.first_name ?? currentUser.firstName}, your next move is visible.
+                {profile?.first_name ?? authUser.name.split(' ')[0]}, your next move is visible.
               </h1>
               <p className="text-sm text-white/66 mt-4 max-w-2xl leading-6">
                 This view is now reading live profile, application, and catalog data from the CRM. What you see here is what the TGA team is actually working with.
               </p>
 
-              <div className="grid sm:grid-cols-3 gap-4 mt-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-8">
                 <MetricCard label="Profile completion" value={`${dashboard?.profileCompletion ?? 0}%`} tone={completionTone} />
                 <MetricCard label="Journey points" value={`${dashboard?.points ?? 0}`} tone="text-[#FFD700] border-[#FFD700]/20 bg-[#FFD700]/8" />
                 <MetricCard label="Applications" value={`${dashboard?.applicationCount ?? 0}`} tone="text-[#378ADD] border-[#378ADD]/20 bg-[#378ADD]/8" />
@@ -601,7 +597,7 @@ export function StudentDashboardPage() {
                 <div className="rounded-[28px] border border-[#2D1B69]/10 bg-white p-6 shadow-sm">
                   <div className="text-[11px] font-black uppercase tracking-[0.22em] text-[#7B7496]">Badges</div>
                   <h2 className="text-2xl font-black text-[#0F0B1F] mt-2">Milestone cabinet</h2>
-                  <div className="grid grid-cols-2 gap-3 mt-5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
                     {earnedBadges.map((badge) => (
                       <div
                         key={badge.id}
@@ -663,7 +659,7 @@ export function StudentDashboardPage() {
             {quizStep === 1 && (
               <div className="mt-8">
                 <h3 className="text-2xl font-black text-[#0F0B1F]">Choose the destination that matters most.</h3>
-                <div className="grid md:grid-cols-3 gap-4 mt-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 mt-6">
                   {COUNTRY_OPTIONS.map((country) => (
                     <button
                       key={country}
@@ -690,7 +686,7 @@ export function StudentDashboardPage() {
             {quizStep === 2 && (
               <div className="mt-8">
                 <h3 className="text-2xl font-black text-[#0F0B1F]">What subject should lead the shortlist?</h3>
-                <div className="grid md:grid-cols-2 gap-4 mt-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
                   {SUBJECT_OPTIONS.map((subject) => (
                     <button
                       key={subject}
@@ -814,7 +810,7 @@ export function StudentDashboardPage() {
         )}
 
         {activeTab === 'documents' && (
-          <section className="grid lg:grid-cols-[1.1fr_0.9fr] gap-6">
+          <section className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-6">
             <div className="rounded-[28px] border border-[#2D1B69]/10 bg-white p-6 shadow-sm">
               <div className="text-[11px] font-black uppercase tracking-[0.22em] text-[#7B7496]">Document ledger</div>
               <h2 className="text-2xl font-black text-[#0F0B1F] mt-2">Application file set now lives in the backend</h2>
@@ -920,7 +916,7 @@ export function StudentDashboardPage() {
         )}
 
         {activeTab === 'visa' && (
-          <section className="grid lg:grid-cols-[0.9fr_1.1fr] gap-6">
+          <section className="grid grid-cols-1 lg:grid-cols-[0.9fr_1.1fr] gap-6">
             <div className="rounded-[28px] border border-[#2D1B69]/10 bg-white p-6 shadow-sm">
               <div className="text-[11px] font-black uppercase tracking-[0.22em] text-[#7B7496]">Destination focus</div>
               <h2 className="text-2xl font-black text-[#0F0B1F] mt-2">{activeCountry} visa readiness</h2>
@@ -928,7 +924,7 @@ export function StudentDashboardPage() {
                 This panel tracks the destination implied by your current application and applies the relevant checklist language for the next visa-prep conversation.
               </p>
 
-              <div className="grid grid-cols-2 gap-3 mt-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-6">
                 {Object.keys(VISA_CHECKLISTS).map((country) => (
                   <button
                     key={country}

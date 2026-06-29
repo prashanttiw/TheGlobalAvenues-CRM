@@ -28,8 +28,16 @@ class ApplicationController
 
     public function createDraft(): void
     {
-        RBACMiddleware::requirePermission('applications', 'create');
         $user = AuthMiddleware::user();
+        $utype = $user['utype'] ?? $user['user_type'] ?? '';
+
+        if ($utype !== 'admin' && $utype !== 'agent') {
+            Response::error('Forbidden', 'FORBIDDEN', 403);
+        }
+
+        if ($utype === 'admin') {
+            RBACMiddleware::requirePermission('applications', 'create');
+        }
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $studentPid = $input['student_pid'] ?? '';
@@ -363,5 +371,90 @@ class ApplicationController
         unset($application['id']);
 
         Response::json(['application' => $application]);
+    }
+
+    public function studentCreate(): void
+    {
+        $user = AuthMiddleware::user();
+        $utype = $user['utype'] ?? $user['user_type'] ?? '';
+        
+        if ($utype !== 'student') {
+            Response::error('Forbidden', 'FORBIDDEN', 403);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $programPid = $input['program_id'] ?? '';
+        $intakeMonth = isset($input['intake_month']) ? (int)$input['intake_month'] : null;
+        $intakeYear = isset($input['intake_year']) ? (int)$input['intake_year'] : null;
+
+        if (!$programPid || !$intakeMonth || !$intakeYear) {
+            Response::error('Program and Intake details are required', 'VALIDATION_ERROR', 400);
+        }
+
+        // Find student ID from user ID
+        $stmt = $this->pdo->prepare("SELECT id, public_id FROM students WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt->execute([$user['id']]);
+        $student = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$student) {
+            Response::error('Student profile not found', 'NOT_FOUND', 404);
+        }
+        $studentId = $student['id'];
+
+        // Find course ID by public_id
+        $stmt = $this->pdo->prepare("SELECT id FROM courses WHERE public_id = ? AND deleted_at IS NULL");
+        $stmt->execute([$programPid]);
+        $courseId = $stmt->fetchColumn();
+        if (!$courseId) {
+            Response::error('Course not found', 'NOT_FOUND', 404);
+        }
+
+        // Find the intake
+        $stmt = $this->pdo->prepare("
+            SELECT id, status FROM intakes 
+            WHERE course_id = ? AND intake_month = ? AND intake_year = ? AND deleted_at IS NULL
+        ");
+        $stmt->execute([$courseId, $intakeMonth, $intakeYear]);
+        $intake = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$intake) {
+            Response::error('No intake found for the selected course, month and year', 'NOT_FOUND', 404);
+        }
+
+        // Check if the intake is closed
+        if ($intake['status'] === 'closed') {
+            Response::error('The selected intake is closed for applications', 'VALIDATION_ERROR', 400);
+        }
+
+        $intakeId = $intake['id'];
+
+        // Check draft limit per intake per student
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM applications WHERE student_id = ? AND intake_id = ? AND status = 'draft' AND deleted_at IS NULL");
+        $stmt->execute([$studentId, $intakeId]);
+        if ((int)$stmt->fetchColumn() > 0) {
+            Response::error('You already have a draft application for this intake', 'CONFLICT', 409);
+        }
+
+        $pid = UlidGenerator::generate();
+        $id = $this->model->insertWithReference([
+            'public_id' => $pid,
+            'student_id' => $studentId,
+            'intake_id' => $intakeId,
+            'agent_id_at_submission' => null,
+            'status' => 'draft',
+            'notes' => trim($input['notes'] ?? '')
+        ]);
+
+        ActivityLogger::log('application.created', 'application', $id, $user['id'] ?? null, [], ['status' => 'draft']);
+
+        $application = $this->model->findById($id);
+        Response::json(['application' => $application], 201);
+    }
+
+    public function getApplicationDetail(): void
+    {
+        $pid = $_GET['id'] ?? '';
+        if (!$pid) {
+            Response::error('Application ID is required', 'VALIDATION_ERROR', 400);
+        }
+        $this->getApplication($pid);
     }
 }

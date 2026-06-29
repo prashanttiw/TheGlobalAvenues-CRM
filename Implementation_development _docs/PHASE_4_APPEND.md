@@ -1489,3 +1489,67 @@ eact-intersection-observer), Document upload with onUploadProgress.
 
 ### Final Audit Summary
 - **READY FOR PHASE 5**: **YES**
+### 2026-06-28 - Agent Applications Routed Page Wired To Real API
+- **Scope**: Replaced the routed mock implementation in `src/pages/agent/AgentApplicationsPage.tsx` and corrected the backing `GET /agent/applications` contract.
+- **Frontend Changes**:
+  - Removed `MOCK_APPLICATIONS` and switched the page to TanStack Query using live backend data.
+  - Added production loading, recoverable error, empty, and paginated states.
+  - Replaced the old direct/sub-agent mock filter with real owner scoping backed by the authenticated agent tree.
+- **Backend Changes**:
+  - `crm-api/Controllers/AgentController.php::listApplications()` now scopes by the current allowed subtree instead of `agent_id_at_submission` only.
+  - Added backend status and `agent_pid` filtering plus paginated `meta` output for the applications list.
+  - `crm-api/Controllers/AgentController.php::getApplication()` now enforces the same subtree visibility model before returning timeline, document request, and payment data.
+- **Related Audit Fix**:
+  - `src/pages/student/StudentApplications.tsx` was also converted from routed mock data to the existing student applications API so the connected Phase 4 portal flow no longer mixes real and fake application states.
+- **Verification Target**:
+  - `npm run build`
+  - `php -l crm-api/Controllers/AgentController.php`
+
+### 2026-06-29 - Routed Portal Mock Remediation Pass (Phase 4 Academic Core UI Wiring)
+
+- **Scope**: Removed remaining routed mock data from the Phase 4 academic-core portal surfaces and aligned them with the live backend contracts already present in the repo.
+- **Frontend Pages Rewired**:
+  - `src/pages/agent/AgentApplicationsPage.tsx`
+  - `src/pages/student/StudentApplications.tsx`
+  - `src/pages/student/StudentDocuments.tsx`
+  - `src/pages/admin/AdminApplicationsPage.tsx`
+  - `src/pages/admin/AdminUniversitiesPage.tsx`
+  - `src/pages/admin/AdminCoursesPage.tsx`
+  - `src/pages/admin/AdminIntakesPage.tsx`
+- **Backend/API Corrections Applied During Wiring**:
+  - `crm-api/Controllers/AgentController.php` application list/detail access was tightened to the real agent subtree instead of the older narrower ownership assumption.
+  - `src/lib/api.ts` was extended with route-accurate helpers for admin universities, courses, intakes, applications, and mixed legacy/wrapped response normalization; FormData passthrough was preserved for upload endpoints.
+  - `crm-api/Helpers/Paginator.php` was updated to accept a default `per_page` override so log/catalog style endpoints can share one safe paginator implementation.
+- **Catalog / Intake Contract Alignment**:
+  - University, course, and intake pages were switched off stale `get_universities` / `get_programs` style assumptions and onto the live `admin/universities`, `admin/universities/:pid/courses`, `admin/courses/:pid/intakes`, `admin/intakes/:pid/clone`, and `admin/intakes/:pid/status` route family.
+  - The intake page now uses live nested university -> course -> intake data, supports create/clone/delete/status progression, and reads real `application_count` values from the backend.
+- **Applications / Documents Result**:
+  - Student, agent, and admin application pages no longer mix mock records with real application state.
+  - `StudentDocuments.tsx` now reads the live document queue/request flow instead of shipping a routed hard-coded screen.
+- **Validation Run**:
+  - `npm run build` -> PASS
+- **Validation Boundary**:
+  - This pass was verified with static build/syntax checks in the local workspace. No end-to-end browser/API runtime test against a live database was completed in-session.
+
+---
+
+### §AUDIT-P4-03 — End-to-End Audit: Document & File Flows
+
+**Date**: 2026-06-28
+**Scope**: F. Document & File Flows
+
+**Findings & Fixes**:
+1. **Notifications Issue (studentSubmit & agentSubmit)**: 
+   - Found hardcoded admin user IDs `[3]` and `[1]` in `DocumentRequestController` when notifying admins of submitted documents. 
+   - Fixed by querying the actual `user_id` of the admin who requested the document (`requested_by` column) and dynamically injecting it.
+2. **Drive Copy Erasure Retry Mechanism**:
+   - The script `retry-pending-erasures.php` was completely omitted from the master CRON `scheduler.php`, disabling the retry logic.
+   - Fixed by adding `'retry-pending-erasures.php' => 60` to the scheduler.
+3. **Integer ID Exposure**:
+   - `DocumentRequestController::getDocumentQueue` exposed `dr.id` directly to the frontend.
+   - `AdminDocumentQueueItem` interface and `reviewAdminDocument` api call incorrectly relied on integer `id`.
+   - Fixed by stripping `dr.id` from the backend query, migrating the frontend interface to use `public_id: string`, and updating `AdminDashboardPage.tsx` parameters.
+4. **API HTTP Method Alignment**:
+   - Corrected `reviewAdminDocument` in frontend `api.ts` to use `POST` instead of `PUT` to align with `AdminRoutes.php` (Line 51).
+
+**Status**: End-to-end flow is completely traced, aligned with the spec, and corrected.

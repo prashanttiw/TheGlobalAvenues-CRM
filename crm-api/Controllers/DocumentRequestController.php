@@ -13,6 +13,7 @@ use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Models\ApplicationModel;
 use TGA\CRM\Models\DocumentRequestModel;
 use TGA\CRM\Services\ActivityLogger;
+use TGA\CRM\Services\FileUploadService;
 use TGA\CRM\Services\SLAService;
 use TGA\CRM\Services\NotificationService;
 
@@ -119,8 +120,10 @@ class DocumentRequestController
 
     public function agentSubmit(string $pid): void
     {
-        RBACMiddleware::requirePermission('applications', 'edit');
         $user = AuthMiddleware::user();
+        if (($user['utype'] ?? '') !== 'agent') {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
 
         $docRequest = $this->docModel->findByPublicId($pid);
         if (!$docRequest) {
@@ -128,32 +131,74 @@ class DocumentRequestController
         }
 
         $application = $this->appModel->findById((int)$docRequest['application_id']);
+        if (!$application) {
+            Response::error('Application not found', 'NOT_FOUND', 404);
+        }
 
         $stmt = $this->pdo->prepare("SELECT id FROM agents WHERE user_id = ? AND deleted_at IS NULL");
         $stmt->execute([$user['id']]);
         $agentId = $stmt->fetchColumn();
 
-        if ($application['agent_id_at_submission'] && $application['agent_id_at_submission'] !== $agentId) {
-             Response::error('Access denied', 'FORBIDDEN', 403);
+        if (!$agentId) {
+            Response::error('Agent not found', 'NOT_FOUND', 404);
         }
 
-        $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        $filePid = $input['file_pid'] ?? '';
-
-        if (!$filePid) {
-            Response::error('File is required', 'VALIDATION_ERROR', 400);
+        if ($application['agent_id_at_submission'] && (int)$application['agent_id_at_submission'] !== (int)$agentId) {
+            Response::error('Access denied', 'FORBIDDEN', 403);
         }
 
-        $stmt = $this->pdo->prepare("SELECT id FROM files WHERE public_id = ? AND deleted_at IS NULL");
-        $stmt->execute([$filePid]);
-        $fileId = $stmt->fetchColumn();
+        if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
+            Response::error('No file uploaded or upload error', 'VALIDATION_ERROR', 400);
+        }
 
-        if (!$fileId) {
-            Response::error('Invalid file', 'NOT_FOUND', 404);
+        $stStmt = $this->pdo->prepare("SELECT public_id, full_name FROM students WHERE id = ? AND deleted_at IS NULL");
+        $stStmt->execute([$docRequest['student_id']]);
+        $student = $stStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$student) {
+            Response::error('Student not found', 'NOT_FOUND', 404);
         }
 
         try {
             $this->pdo->beginTransaction();
+
+            $prevFileId = $docRequest['submitted_file_id'];
+            $versionNumber = 1;
+            if ($prevFileId) {
+                $vStmt = $this->pdo->prepare("SELECT version_number FROM files WHERE id = ?");
+                $vStmt->execute([$prevFileId]);
+                $prevVersion = $vStmt->fetchColumn();
+                $versionNumber = $prevVersion ? (int)$prevVersion + 1 : 2;
+
+                $supStmt = $this->pdo->prepare("UPDATE files SET superseded_at = NOW() WHERE id = ?");
+                $supStmt->execute([$prevFileId]);
+            }
+
+            $cleanStudentName = preg_replace('/[^a-zA-Z0-9]/', '_', $student['full_name']);
+            $cleanDocLabel = preg_replace('/[^a-zA-Z0-9]/', '_', $docRequest['doc_label']);
+            $dateStr = date('Y-m-d');
+            $origExt = pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION);
+            $displayFilename = "{$cleanStudentName}_{$cleanDocLabel}_{$dateStr}.{$origExt}";
+
+            $fileService = new FileUploadService();
+            $uploadResult = $fileService->upload(
+                $this->pdo,
+                $_FILES['file'],
+                'other',
+                'student',
+                (int)$docRequest['student_id'],
+                'agent',
+                (int)$user['id'],
+                $displayFilename,
+                false,
+                "students/{$student['public_id']}/documents",
+                $versionNumber,
+                $prevFileId ? (int)$prevFileId : null
+            );
+
+            $fileStmt = $this->pdo->prepare("SELECT id FROM files WHERE public_id = ?");
+            $fileStmt->execute([$uploadResult['public_id']]);
+            $fileId = $fileStmt->fetchColumn();
 
             $this->docModel->update($docRequest['id'], [
                 'status' => 'submitted',
@@ -163,12 +208,12 @@ class DocumentRequestController
             $updatePid = UlidGenerator::generate();
             $content = "Document Submitted: " . $docRequest['doc_label'];
 
-            $stmt = $this->pdo->prepare("
+            $insertStmt = $this->pdo->prepare("
                 INSERT INTO application_updates
                 (public_id, application_id, direction, item_type, content, file_id, posted_by_type, posted_by_id, is_visible_to_agent)
                 VALUES (?, ?, 'student_to_admin', 'file', ?, ?, 'agent', ?, 1)
             ");
-            $stmt->execute([
+            $insertStmt->execute([
                 $updatePid,
                 $application['id'],
                 $content,
@@ -180,11 +225,15 @@ class DocumentRequestController
 
             ActivityLogger::log('document_request.submitted', 'document_request', $docRequest['id'], $user['id']);
 
-            // Start SLA for Admin Review
             SLAService::startEvent($this->pdo, 'document_request', 'submitted', $docRequest['id']);
 
-            // Notify Admin
-            NotificationService::fire('document.submitted', ['doc_label' => $docRequest['doc_label'], 'application_id' => $application['id']], [1]); // Assuming Admin 1 for now or skip specific routing if no assignment logic exists
+            $stmt = $this->pdo->prepare("SELECT user_id FROM admins WHERE id = ?");
+            $stmt->execute([$docRequest['requested_by']]);
+            $adminUid = $stmt->fetchColumn();
+
+            if ($adminUid) {
+                NotificationService::fire('document.submitted', ['doc_label' => $docRequest['doc_label'], 'application_id' => $application['id']], [(int)$adminUid]);
+            }
 
             $updatedDoc = $this->docModel->findById($docRequest['id']);
             Response::json(['success' => true, 'document_request' => $updatedDoc]);
@@ -194,19 +243,33 @@ class DocumentRequestController
         }
     }
 
-    public function adminReview(string $pid): void
+    public function adminReview(?string $pid = null): void
     {
         RBACMiddleware::requirePermission('applications', 'edit');
         $user = AuthMiddleware::user();
 
-        $docRequest = $this->docModel->findByPublicId($pid);
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $documentId = $pid ?? $input['document_id'] ?? $input['pid'] ?? '';
+
+        if (!$documentId) {
+            Response::error('Document ID is required', 'VALIDATION_ERROR', 400);
+        }
+
+        $queryField = is_numeric($documentId) ? 'id' : 'public_id';
+        $stmt = $this->pdo->prepare("SELECT * FROM document_requests WHERE {$queryField} = ? AND deleted_at IS NULL");
+        $stmt->execute([$documentId]);
+        $docRequest = $stmt->fetch(PDO::FETCH_ASSOC);
+
         if (!$docRequest) {
             Response::error('Document request not found', 'NOT_FOUND', 404);
         }
 
-        $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $status = $input['status'] ?? '';
-        $rejectionReason = trim($input['rejection_reason'] ?? '');
+        if (!$status && isset($input['decision'])) {
+            $status = ($input['decision'] === 'verified') ? 'approved' : 'rejected';
+        }
+
+        $rejectionReason = trim($input['rejection_reason'] ?? $input['reason'] ?? '');
 
         if (!in_array($status, ['approved', 'rejected'])) {
             Response::error('Invalid status. Must be approved or rejected.', 'VALIDATION_ERROR', 400);
@@ -284,7 +347,11 @@ class DocumentRequestController
             }
 
             $updatedDoc = $this->docModel->findById($docRequest['id']);
-            Response::json(['success' => true, 'document_request' => $updatedDoc]);
+            Response::json([
+                'success' => true, 
+                'document' => $updatedDoc,
+                'document_request' => $updatedDoc
+            ]);
         } catch (\Exception $e) {
             $this->pdo->rollBack();
             throw $e;
@@ -301,7 +368,7 @@ class DocumentRequestController
         }
 
         if ($docRequest['submitted_file_id']) {
-            $stmt = $this->pdo->prepare("SELECT public_id, display_filename, mime_type, file_size_bytes FROM files WHERE id = ?");
+            $stmt = $this->pdo->prepare("SELECT public_id, display_filename, mime_type, file_size_bytes, drive_sync_status FROM files WHERE id = ?");
             $stmt->execute([$docRequest['submitted_file_id']]);
             $file = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($file) {
@@ -403,7 +470,7 @@ class DocumentRequestController
 
         $stmt = $this->pdo->prepare("
             SELECT dr.public_id, dr.doc_label, dr.description, dr.deadline, dr.status, dr.rejection_reason,
-                   f.public_id as file_public_id, f.display_filename as file_name
+                   f.public_id as file_public_id, f.display_filename as file_name, f.drive_sync_status
             FROM document_requests dr
             LEFT JOIN files f ON dr.submitted_file_id = f.id
             WHERE dr.student_id = ?
@@ -509,7 +576,13 @@ class DocumentRequestController
 
             SLAService::startEvent($this->pdo, 'document_request', 'submitted', $docRequest['id']);
 
-            NotificationService::fire('document.submitted', ['doc_label' => $docRequest['doc_label']], [3]);
+            $stmt = $this->pdo->prepare("SELECT user_id FROM admins WHERE id = ?");
+            $stmt->execute([$docRequest['requested_by']]);
+            $adminUid = $stmt->fetchColumn();
+
+            if ($adminUid) {
+                NotificationService::fire('document.submitted', ['doc_label' => $docRequest['doc_label']], [(int)$adminUid]);
+            }
 
             $updatedDoc = $this->docModel->findById($docRequest['id']);
             Response::json(['success' => true, 'document_request' => $updatedDoc]);
@@ -517,5 +590,36 @@ class DocumentRequestController
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * Fetch all submitted/pending documents for review queue
+     */
+    public function getDocumentQueue(): void
+    {
+        RBACMiddleware::requirePermission('applications', 'view');
+
+        $stmt = $this->pdo->query("
+            SELECT dr.public_id, dr.doc_label, dr.description, dr.deadline, dr.status, dr.created_at,
+                   app.public_id as application_pid, app.reference_number as application_reference,
+                   u.email as student_email, s.full_name as student_name,
+                   f.public_id as file_public_id, f.display_filename as file_name,
+                   f.drive_sync_status as drive_sync_status
+            FROM document_requests dr
+            JOIN applications app ON dr.application_id = app.id
+            JOIN students s ON app.student_id = s.id
+            JOIN users u ON s.user_id = u.id
+            LEFT JOIN files f ON dr.submitted_file_id = f.id
+            WHERE dr.status = 'submitted'
+            ORDER BY dr.created_at ASC
+        ");
+        $queue = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $studentName = \TGA\CRM\Services\EncryptionService::decrypt($row['student_name']);
+            $row['student_name'] = $studentName ?: $row['student_name'];
+            $queue[] = $row;
+        }
+
+        Response::json(['queue' => $queue]);
     }
 }

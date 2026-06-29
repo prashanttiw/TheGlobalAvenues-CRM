@@ -18,6 +18,9 @@ final class ApplicationRoutes
         $docController = new DocumentRequestController();
         $paymentController = new PaymentTrackingController();
 
+        // Student / Public Endpoints
+        RouteRegistry::post('application', 'create', [$controller, 'studentCreate']);
+
         // Agent Endpoints
         RouteRegistry::post('agent', 'applications', [$controller, 'createDraft']);
         RouteRegistry::get('agent', 'applications/:pid/timeline', [$timelineController, 'agentList']);
@@ -28,6 +31,7 @@ final class ApplicationRoutes
 
         // Admin Endpoints
         RouteRegistry::get('admin', 'applications', [$controller, 'listApplications']);
+        RouteRegistry::get('admin', 'get_application_detail', [$controller, 'getApplicationDetail']);
         RouteRegistry::get('admin', 'applications/:pid', [$controller, 'getApplication']);
         RouteRegistry::post('admin', 'applications/:pid/status', [$controller, 'updateStatus']);
         RouteRegistry::put('admin', 'applications/:pid/withdraw', [$controller, 'adminWithdraw']);

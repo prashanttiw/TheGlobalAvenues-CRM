@@ -40,6 +40,8 @@ final class UniversityRoutes
 
         // Public Endpoints
         RouteRegistry::get('universities', 'ping', [$controller, 'publicList']);
+        RouteRegistry::get('university', 'list', [$controller, 'publicList']);
+        RouteRegistry::get('university', 'search', [$controller, 'search']);
         RouteRegistry::get('universities', ':pid', [$controller, 'publicGet']);
         RouteRegistry::get('universities', ':pid/courses', [$courseController, 'publicList']);
         RouteRegistry::get('courses', ':pid/intakes', [$intakeController, 'publicList']);
