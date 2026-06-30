@@ -30,15 +30,153 @@ final class AdminAgentController
         RBACMiddleware::requirePermission('agents', 'approve');
 
         $stmt = $this->pdo->prepare(
-            "SELECT public_id, full_name, agency_name, country, created_at 
-             FROM agents 
-             WHERE status = 'pending' AND deleted_at IS NULL
-             ORDER BY created_at ASC"
+            "SELECT a.public_id, a.tier, a.full_name, a.agency_name, a.country, a.created_at,
+                    a.city, a.state, a.mobile_number, a.application_submitted_at,
+                    pa.full_name AS parent_agent_name, pa.public_id AS parent_agent_public_id,
+                    GROUP_CONCAT(DISTINCT f.document_type) AS uploaded_doc_types
+             FROM agents a
+             LEFT JOIN agents pa ON pa.id = a.parent_agent_id
+             LEFT JOIN files f ON f.owner_type = 'agent' AND f.owner_id = a.id AND f.deleted_at IS NULL
+                  AND f.document_type IN ('profile_photo', 'aadhar_card', 'cv_resume')
+             WHERE a.status = 'pending' AND a.deleted_at IS NULL
+             GROUP BY a.id
+             ORDER BY a.application_submitted_at ASC, a.created_at ASC"
         );
         $stmt->execute();
         $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        foreach ($agents as &$agent) {
+            $agent['tier'] = (int) $agent['tier'];
+            $agent['uploaded_doc_types'] = $agent['uploaded_doc_types']
+                ? explode(',', $agent['uploaded_doc_types'])
+                : [];
+        }
+        unset($agent);
+
         Response::json(['agents' => $agents]);
+    }
+
+    /**
+     * Agents who have signed up but not yet started the onboarding form.
+     */
+    public function getRegistered(): void
+    {
+        RBACMiddleware::requirePermission('agents', 'approve');
+
+        $stmt = $this->pdo->prepare(
+            "SELECT a.public_id, a.tier, a.full_name, u.email AS encrypted_email, a.created_at
+             FROM agents a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.status = 'registered' AND a.deleted_at IS NULL
+             ORDER BY a.created_at DESC"
+        );
+        $stmt->execute();
+        $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $this->decryptEmails($agents);
+
+        Response::json(['agents' => $agents]);
+    }
+
+    /**
+     * Agents who started the onboarding form and saved a draft, but haven't submitted.
+     */
+    public function getDrafts(): void
+    {
+        RBACMiddleware::requirePermission('agents', 'approve');
+
+        $stmt = $this->pdo->prepare(
+            "SELECT a.public_id, a.tier, a.full_name, a.first_name, a.last_name, u.email AS encrypted_email,
+                    a.city, a.state, a.draft_updated_at, a.created_at
+             FROM agents a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.status = 'draft' AND a.deleted_at IS NULL
+             ORDER BY a.draft_updated_at DESC"
+        );
+        $stmt->execute();
+        $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $this->decryptEmails($agents);
+
+        Response::json(['agents' => $agents]);
+    }
+
+    /**
+     * Full profile + uploaded onboarding documents for a single agent —
+     * used by the admin review modal before approve/reject.
+     */
+    public function getDetail(string $publicId): void
+    {
+        RBACMiddleware::requirePermission('agents', 'view');
+
+        $stmt = $this->pdo->prepare(
+            "SELECT a.public_id, a.tier, a.status, a.full_name, a.first_name, a.last_name,
+                    a.agency_name, a.country, a.address_line, a.city, a.state,
+                    a.mobile_number, a.alternate_mobile_number, a.rejected_reason,
+                    a.created_at, a.application_submitted_at, u.email AS encrypted_email,
+                    pa.full_name AS parent_agent_name, pa.public_id AS parent_agent_public_id
+             FROM agents a
+             JOIN users u ON u.id = a.user_id
+             LEFT JOIN agents pa ON pa.id = a.parent_agent_id
+             WHERE a.public_id = ? AND a.deleted_at IS NULL"
+        );
+        $stmt->execute([$publicId]);
+        $agent = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$agent) {
+            Response::error('Agent not found', 'NOT_FOUND', 404);
+        }
+
+        $agent['tier'] = (int) $agent['tier'];
+        $agent['email'] = null;
+        if (!empty($agent['encrypted_email'])) {
+            try {
+                $agent['email'] = \TGA\CRM\Services\EncryptionService::decrypt($agent['encrypted_email']);
+            } catch (\Throwable $e) {
+                $agent['email'] = null;
+            }
+        }
+        unset($agent['encrypted_email']);
+
+        $docsStmt = $this->pdo->prepare(
+            "SELECT public_id, document_type, display_filename, created_at
+             FROM files
+             WHERE owner_type = 'agent' AND owner_id = (SELECT id FROM agents WHERE public_id = ?)
+               AND deleted_at IS NULL
+               AND document_type IN ('profile_photo', 'aadhar_card', 'cv_resume')
+             ORDER BY created_at DESC"
+        );
+        $docsStmt->execute([$publicId]);
+        $docs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $documents = [];
+        foreach ($docs as $doc) {
+            if (!isset($documents[$doc['document_type']])) {
+                $documents[$doc['document_type']] = [
+                    'public_id' => $doc['public_id'],
+                    'filename'  => $doc['display_filename'],
+                    'uploaded_at' => $doc['created_at'],
+                ];
+            }
+        }
+        $agent['documents'] = $documents;
+
+        Response::json(['data' => $agent]);
+    }
+
+    private function decryptEmails(array &$agents): void
+    {
+        foreach ($agents as &$agent) {
+            $agent['tier'] = isset($agent['tier']) ? (int) $agent['tier'] : null;
+            $agent['email'] = null;
+            if (!empty($agent['encrypted_email'])) {
+                try {
+                    $agent['email'] = \TGA\CRM\Services\EncryptionService::decrypt($agent['encrypted_email']);
+                } catch (\Throwable $e) {
+                    $agent['email'] = null;
+                }
+            }
+            unset($agent['encrypted_email']);
+        }
+        unset($agent);
     }
 
     public function approve(string $publicId): void
@@ -113,10 +251,6 @@ final class AdminAgentController
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $reason = trim($input['reason'] ?? '');
 
-        if (!$reason) {
-            Response::error('Rejection reason is required', 'VALIDATION_ERROR', 400);
-        }
-
         try {
             $this->pdo->beginTransaction();
 
@@ -137,15 +271,19 @@ final class AdminAgentController
             $updateAgent = $this->pdo->prepare(
                 "UPDATE agents SET status = 'rejected', rejected_reason = ? WHERE id = ?"
             );
-            $updateAgent->execute([$reason, $agent['id']]);
+            $updateAgent->execute([$reason ?: null, $agent['id']]);
 
-            $updateUser = $this->pdo->prepare("UPDATE users SET status = 'pending' WHERE id = ?");
+            // Keep the user account 'active' so a rejected agent can still log in,
+            // see their rejection reason, and edit & resubmit their application.
+            $updateUser = $this->pdo->prepare("UPDATE users SET status = 'active' WHERE id = ?");
             $updateUser->execute([$agent['user_id']]);
 
             $this->pdo->commit();
 
-            ActivityLogger::log('agent.rejected', 'agent', (int)$agent['id'], null, [], ['status' => 'rejected', 'reason' => $reason]);
-            NotificationService::fire('agent.rejected', ['rejection_reason' => $reason], [$agent['user_id']]);
+            ActivityLogger::log('agent.rejected', 'agent', (int)$agent['id'], null, [], ['status' => 'rejected', 'reason' => $reason ?: null]);
+            NotificationService::fire('agent.rejected', [
+                'rejection_reason' => $reason ?: 'No reason was provided.',
+            ], [$agent['user_id']]);
 
             Response::json([
                 'success' => true,
@@ -258,9 +396,11 @@ final class AdminAgentController
 
         $dataStmt = $this->pdo->prepare(
             "SELECT a.public_id, a.tier,
-                    a.full_name, a.agency_name, a.country, a.referral_code, a.status,
+                    a.full_name, a.agency_name, a.country, a.address_line, a.city, a.state,
+                    a.mobile_number, a.referral_code, a.status,
                     a.created_at, u.email AS encrypted_email,
-                    ap.public_id AS parent_public_id, ar.public_id AS root_public_id
+                    ap.public_id AS parent_public_id, ap.full_name AS parent_full_name,
+                    ar.public_id AS root_public_id
              FROM agents a
              JOIN users u ON u.id = a.user_id
              LEFT JOIN agents ap ON ap.id = a.parent_agent_id

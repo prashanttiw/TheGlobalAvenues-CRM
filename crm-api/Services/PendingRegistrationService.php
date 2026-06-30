@@ -108,6 +108,17 @@ final class PendingRegistrationService
         $stmt->execute([$emailHash, $regType]);
     }
 
+    public function update(string $token, array $newData): bool
+    {
+        $tokenHash = hash('sha256', $token);
+        $encryptedData = EncryptionService::encrypt(json_encode($newData));
+        $stmt = $this->pdo->prepare(
+            'UPDATE pending_registrations SET encrypted_data = ? WHERE token_hash = ? AND expires_at > NOW()'
+        );
+        $stmt->execute([$encryptedData, $tokenHash]);
+        return $stmt->rowCount() > 0;
+    }
+
     public function cleanup(): void
     {
         $stmt = $this->pdo->prepare('DELETE FROM pending_registrations WHERE expires_at < NOW()');

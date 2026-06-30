@@ -1,23 +1,23 @@
 import { ArrowLeft, Clock3, LogOut, Mail } from 'lucide-react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { fetchAgentOnboardingStatus } from '../../lib/api'
 import { useAuth } from '../../shared/hooks/useAuth'
-
-type PendingState = {
-  email?: string
-  message?: string
-  submittedAt?: string
-}
 
 const SUPPORT_EMAIL = 'connect@theglobalavenues.com'
 
 export default function AgentPendingPage() {
-  const location = useLocation()
   const navigate = useNavigate()
   const logout = useAuth((state) => state.logout)
-  const state = (location.state as PendingState | null) ?? null
 
-  const submittedLabel = state?.submittedAt
-    ? new Date(state.submittedAt).toLocaleString()
+  const { data } = useQuery({
+    queryKey: ['agent-onboarding-status'],
+    queryFn: fetchAgentOnboardingStatus,
+    staleTime: 10_000,
+  })
+
+  const submittedLabel = data?.agent.created_at
+    ? new Date(data.agent.created_at).toLocaleString()
     : null
 
   const handleLogout = () => {
@@ -34,19 +34,20 @@ export default function AgentPendingPage() {
             <Clock3 className="h-7 w-7" />
           </div>
           <p className="text-xs font-bold uppercase tracking-[0.24em] text-[#2D1B69]/60">Agent Application</p>
-          <h1 className="mt-3 text-3xl font-black text-[#1E2A4A]">Your account is under review.</h1>
+          <h1 className="mt-3 text-3xl font-black text-[#1E2A4A]">Your application is under review.</h1>
           <p className="mt-4 text-sm leading-6 text-[#5B6475]">
-            {state?.message || 'Your credentials were accepted, but partner access is still waiting for TGA approval. You are intentionally not issued a portal session until approval completes.'}
+            Thanks for submitting your partner application. Our team typically reviews applications within
+            2–3 business days — you'll receive an email once a decision has been made.
           </p>
 
           <div className="mt-8 space-y-4 rounded-2xl border border-[#E8E4DE] bg-[#FAFAF8] p-5 text-sm text-[#1E2A4A]">
-            {state?.email && (
+            {data?.agent.full_name && (
               <div className="flex items-center gap-3">
                 <Mail className="h-4 w-4 text-[#2D1B69]" />
-                <span>{state.email}</span>
+                <span>{data.agent.full_name}</span>
               </div>
             )}
-            {submittedLabel && <p><strong>Submitted:</strong> {submittedLabel}</p>}
+            {submittedLabel && <p><strong>Registered:</strong> {submittedLabel}</p>}
             <p><strong>Support:</strong> {SUPPORT_EMAIL}</p>
           </div>
 
@@ -72,5 +73,3 @@ export default function AgentPendingPage() {
     </div>
   )
 }
-
-

@@ -1,31 +1,31 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast, Toaster } from 'sonner'
 import {
   CheckCircle2,
-  Clock,
   Upload,
   FileText,
-  Image,
+  Image as ImageIcon,
   FileBadge,
   LogOut,
   AlertCircle,
-  X,
 } from 'lucide-react'
 import {
   fetchAgentOnboardingStatus,
   uploadAgentOnboardingDocument,
+  saveAgentOnboardingDraft,
+  submitAgentOnboardingApplication,
   type AgentOnboardingDoc,
+  type AgentOnboardingDocType,
 } from '../../lib/api'
 import { useAuth } from '../../shared/hooks/useAuth'
-
-type DocType = 'business_registration' | 'agency_logo' | 'partnership_scope_doc'
+import { INDIAN_STATES_AND_UTS } from '../../shared/constants/indianStates'
+import { OnboardingTabs } from './OnboardingTabs'
 
 interface DocConfig {
-  key: DocType
+  key: AgentOnboardingDocType
   label: string
-  required: boolean
   accept: string
   hint: string
   icon: React.ReactNode
@@ -33,55 +33,112 @@ interface DocConfig {
 
 const DOCS: DocConfig[] = [
   {
-    key: 'business_registration',
-    label: 'Business Registration Certificate',
-    required: true,
+    key: 'profile_photo',
+    label: 'Profile Photo',
+    accept: 'image/jpeg,image/png,image/webp',
+    hint: 'A clear photo of yourself — JPEG, PNG or WEBP',
+    icon: <ImageIcon className="h-5 w-5" />,
+  },
+  {
+    key: 'aadhar_card',
+    label: 'Aadhar Card',
     accept: 'application/pdf,image/jpeg,image/png',
-    hint: 'PDF or image — proof of your agency registration',
+    hint: 'PDF or photo of your Aadhar card',
     icon: <FileBadge className="h-5 w-5" />,
   },
   {
-    key: 'agency_logo',
-    label: 'Agency Logo',
-    required: false,
-    accept: 'image/jpeg,image/png',
-    hint: 'JPEG or PNG — your brand logo (optional)',
-    icon: <Image className="h-5 w-5" />,
-  },
-  {
-    key: 'partnership_scope_doc',
-    label: 'Partnership Scope Document',
-    required: false,
+    key: 'cv_resume',
+    label: 'CV / Resume',
     accept: 'application/pdf',
-    hint: 'PDF — outline of markets you operate in (optional)',
+    hint: 'PDF only',
     icon: <FileText className="h-5 w-5" />,
   },
 ]
 
+type FormState = {
+  first_name: string
+  last_name: string
+  address_line: string
+  city: string
+  state: string
+  mobile_number: string
+  alternate_mobile_number: string
+}
+
+const EMPTY_FORM: FormState = {
+  first_name: '',
+  last_name: '',
+  address_line: '',
+  city: '',
+  state: '',
+  mobile_number: '',
+  alternate_mobile_number: '',
+}
+
+function Field({
+  label,
+  required,
+  children,
+}: {
+  label: string
+  required?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-gray-600 mb-1.5 block">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </span>
+      {children}
+    </label>
+  )
+}
+
+const inputClass =
+  'w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2D1B69]/20 focus:border-[#2D1B69]'
+
 export default function AgentOnboardingPage() {
-  const { user, logout } = useAuth()
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const fileRefs = useRef<Record<DocType, HTMLInputElement | null>>({
-    business_registration: null,
-    agency_logo: null,
-    partnership_scope_doc: null,
+  const fileRefs = useRef<Record<AgentOnboardingDocType, HTMLInputElement | null>>({
+    profile_photo: null,
+    aadhar_card: null,
+    cv_resume: null,
   })
 
-  const [uploading, setUploading] = useState<DocType | null>(null)
+  const [uploading, setUploading] = useState<AgentOnboardingDocType | null>(null)
+  const [form, setForm] = useState<FormState>(EMPTY_FORM)
+  const [hydrated, setHydrated] = useState(false)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['agent-onboarding-status'],
     queryFn: fetchAgentOnboardingStatus,
-    staleTime: 30_000,
+    staleTime: 10_000,
   })
 
+  useEffect(() => {
+    if (data?.agent && !hydrated) {
+      setForm({
+        first_name: data.agent.first_name ?? '',
+        last_name: data.agent.last_name ?? '',
+        address_line: data.agent.address_line ?? '',
+        city: data.agent.city ?? '',
+        state: data.agent.state ?? '',
+        mobile_number: data.agent.mobile_number ?? '',
+        alternate_mobile_number: data.agent.alternate_mobile_number ?? '',
+      })
+      setHydrated(true)
+    }
+  }, [data, hydrated])
+
   const uploadMutation = useMutation({
-    mutationFn: ({ file, docType }: { file: File; docType: DocType }) =>
+    mutationFn: ({ file, docType }: { file: File; docType: AgentOnboardingDocType }) =>
       uploadAgentOnboardingDocument(file, docType),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent-onboarding-status'] })
-      toast.success('Document uploaded successfully.')
+      void queryClient.invalidateQueries({ queryKey: ['agent-onboarding-status'] })
+      toast.success('Document uploaded.')
       setUploading(null)
     },
     onError: (err: Error) => {
@@ -90,7 +147,25 @@ export default function AgentOnboardingPage() {
     },
   })
 
-  const handleFileChange = (docType: DocType, e: React.ChangeEvent<HTMLInputElement>) => {
+  const draftMutation = useMutation({
+    mutationFn: () => saveAgentOnboardingDraft(form),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['agent-onboarding-status'] })
+      toast.success('Draft saved.')
+    },
+    onError: (err: Error) => toast.error(err.message || 'Could not save draft.'),
+  })
+
+  const submitMutation = useMutation({
+    mutationFn: () => submitAgentOnboardingApplication(form),
+    onSuccess: () => {
+      toast.success('Application submitted!')
+      navigate('/portal/agent/pending', { replace: true })
+    },
+    onError: (err: Error) => toast.error(err.message || 'Could not submit application.'),
+  })
+
+  const handleFileChange = (docType: AgentOnboardingDocType, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     setUploading(docType)
@@ -103,16 +178,15 @@ export default function AgentOnboardingPage() {
     navigate('/portal/login', { replace: true })
   }
 
-  const uploadedDocs = data?.documents ?? {}
-  const requiredUploaded = !!uploadedDocs.business_registration
-  const totalUploaded = Object.keys(uploadedDocs).length
+  const updateField = (key: keyof FormState, value: string) =>
+    setForm((prev) => ({ ...prev, [key]: value }))
 
   if (isLoading) {
     return (
       <div className="min-h-screen bg-[var(--color-surface-warm,#FFFCF5)] flex items-center justify-center">
         <div className="text-center space-y-3">
           <div className="h-10 w-10 border-4 border-[#2D1B69] border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-[var(--color-text-muted,#6B7280)]">Loading your onboarding status…</p>
+          <p className="text-sm text-[var(--color-text-muted,#6B7280)]">Loading your application…</p>
         </div>
       </div>
     )
@@ -123,7 +197,7 @@ export default function AgentOnboardingPage() {
       <div className="min-h-screen bg-[var(--color-surface-warm,#FFFCF5)] flex items-center justify-center p-6">
         <div className="bg-white rounded-2xl border border-red-100 p-8 max-w-md w-full text-center space-y-4">
           <AlertCircle className="h-12 w-12 text-red-500 mx-auto" />
-          <h2 className="text-lg font-semibold text-gray-900">Could not load onboarding status</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Could not load your application</h2>
           <p className="text-sm text-gray-500">Please refresh the page or try again later.</p>
           <button
             onClick={() => queryClient.invalidateQueries({ queryKey: ['agent-onboarding-status'] })}
@@ -136,14 +210,15 @@ export default function AgentOnboardingPage() {
     )
   }
 
-  const agentName = data?.agent?.full_name || user?.name || 'Partner'
-  const agencyName = data?.agent?.agency_name || ''
+  const uploadedDocs = data?.documents ?? {}
+  const totalUploaded = Object.keys(uploadedDocs).length
+  const wasRejected = data?.agent.status === 'rejected'
+  const isSubmitting = draftMutation.isPending || submitMutation.isPending
 
   return (
     <div className="min-h-screen bg-[var(--color-surface-warm,#FFFCF5)]">
       <Toaster position="top-center" richColors />
 
-      {/* Header */}
       <header className="bg-white border-b border-gray-100 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full bg-[#2D1B69] flex items-center justify-center">
@@ -161,65 +236,114 @@ export default function AgentOnboardingPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-4 py-10 space-y-8">
+        <OnboardingTabs />
+
+        {wasRejected && (
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-6">
+            <h3 className="text-sm font-semibold text-red-900 mb-1">Your previous application was not approved</h3>
+            <p className="text-sm text-red-700">
+              {data?.agent.rejected_reason || 'No reason was provided.'}
+            </p>
+            <p className="text-xs text-red-600 mt-2">
+              Update the details below and submit again when you're ready.
+            </p>
+          </div>
+        )}
 
         {/* Welcome card */}
         <div className="bg-gradient-to-br from-[#2D1B69] to-[#3B2B85] rounded-2xl p-7 text-white">
           <p className="text-sm text-purple-200 mb-1">Partner Application</p>
-          <h1 className="text-2xl font-bold mb-1">Welcome, {agentName}!</h1>
-          {agencyName && (
-            <p className="text-sm text-purple-200 mb-4">{agencyName}</p>
-          )}
+          <h1 className="text-2xl font-bold mb-1">
+            {wasRejected ? 'Update Your Application' : "Let's Get You Onboarded"}
+          </h1>
           <p className="text-sm text-purple-100 leading-relaxed">
-            You're one step away from joining our global partner network. Upload your agency
-            documents below so our team can verify your account.
+            Fill in your details and upload the required documents below. You can save your progress as a
+            draft and come back anytime — nothing is final until you submit.
           </p>
         </div>
 
-        {/* Progress steps */}
-        <div className="bg-white rounded-2xl border border-gray-100 p-6">
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-5">
-            Application Progress
-          </h2>
-          <div className="flex items-center gap-0">
-            {/* Step 1 */}
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-sm font-medium text-gray-700 hidden sm:block">Basic Info</span>
-            </div>
+        {/* Profile form */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
+          <h2 className="text-base font-semibold text-gray-900">Partner Details</h2>
 
-            <div className="flex-1 h-0.5 bg-gray-200 mx-3" />
-
-            {/* Step 2 */}
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-[#D96200] flex items-center justify-center flex-shrink-0 ring-4 ring-orange-100">
-                <Upload className="h-4 w-4 text-white" />
-              </div>
-              <span className="text-sm font-medium text-[#D96200] hidden sm:block">Documents</span>
-            </div>
-
-            <div className="flex-1 h-0.5 bg-gray-200 mx-3" />
-
-            {/* Step 3 */}
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                <Clock className="h-4 w-4 text-gray-400" />
-              </div>
-              <span className="text-sm font-medium text-gray-400 hidden sm:block">Admin Review</span>
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="First Name" required>
+              <input
+                className={inputClass}
+                value={form.first_name}
+                onChange={(e) => updateField('first_name', e.target.value)}
+                placeholder="First name"
+              />
+            </Field>
+            <Field label="Last Name" required>
+              <input
+                className={inputClass}
+                value={form.last_name}
+                onChange={(e) => updateField('last_name', e.target.value)}
+                placeholder="Last name"
+              />
+            </Field>
           </div>
-          {totalUploaded > 0 && (
-            <p className="mt-4 text-xs text-gray-500">
-              {totalUploaded} of {DOCS.length} document{DOCS.length !== 1 ? 's' : ''} uploaded
-              {requiredUploaded ? ' — required document received' : ''}
-            </p>
-          )}
+
+          <Field label="Full Address" required>
+            <textarea
+              className={`${inputClass} min-h-[80px] resize-none`}
+              value={form.address_line}
+              onChange={(e) => updateField('address_line', e.target.value)}
+              placeholder="House / street / area"
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="City" required>
+              <input
+                className={inputClass}
+                value={form.city}
+                onChange={(e) => updateField('city', e.target.value)}
+                placeholder="City"
+              />
+            </Field>
+            <Field label="State" required>
+              <select
+                className={inputClass}
+                value={form.state}
+                onChange={(e) => updateField('state', e.target.value)}
+              >
+                <option value="">Select state</option>
+                {INDIAN_STATES_AND_UTS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Mobile Number" required>
+              <input
+                className={inputClass}
+                value={form.mobile_number}
+                onChange={(e) => updateField('mobile_number', e.target.value)}
+                placeholder="10-digit mobile number"
+                inputMode="tel"
+              />
+            </Field>
+            <Field label="Alternate Mobile Number">
+              <input
+                className={inputClass}
+                value={form.alternate_mobile_number}
+                onChange={(e) => updateField('alternate_mobile_number', e.target.value)}
+                placeholder="Optional"
+                inputMode="tel"
+              />
+            </Field>
+          </div>
         </div>
 
         {/* Documents */}
         <div className="space-y-4">
-          <h2 className="text-base font-semibold text-gray-900 px-1">Supporting Documents</h2>
+          <h2 className="text-base font-semibold text-gray-900 px-1">Required Documents</h2>
 
           {DOCS.map((doc) => {
             const uploaded = uploadedDocs[doc.key] as AgentOnboardingDoc | undefined
@@ -232,7 +356,6 @@ export default function AgentOnboardingPage() {
                   uploaded ? 'border-green-200 bg-green-50/40' : 'border-gray-100'
                 }`}
               >
-                {/* Icon + labels */}
                 <div className="flex items-start gap-3 flex-1 min-w-0">
                   <div
                     className={`h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0 ${
@@ -244,11 +367,9 @@ export default function AgentOnboardingPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-gray-900">{doc.label}</span>
-                      {doc.required && (
-                        <span className="text-[10px] font-semibold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
-                          Required
-                        </span>
-                      )}
+                      <span className="text-[10px] font-semibold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full uppercase tracking-wide">
+                        Required
+                      </span>
                     </div>
                     {uploaded ? (
                       <p className="text-xs text-green-600 mt-0.5 truncate">{uploaded.filename}</p>
@@ -258,10 +379,11 @@ export default function AgentOnboardingPage() {
                   </div>
                 </div>
 
-                {/* Action */}
                 <div className="flex-shrink-0">
                   <input
-                    ref={(el) => { fileRefs.current[doc.key] = el }}
+                    ref={(el) => {
+                      fileRefs.current[doc.key] = el
+                    }}
                     type="file"
                     accept={doc.accept}
                     className="hidden"
@@ -297,26 +419,32 @@ export default function AgentOnboardingPage() {
               </div>
             )
           })}
+
+          {totalUploaded > 0 && (
+            <p className="text-xs text-gray-500 px-1">
+              {totalUploaded} of {DOCS.length} document{DOCS.length !== 1 ? 's' : ''} uploaded
+            </p>
+          )}
         </div>
 
-        {/* Info box */}
-        <div className="bg-blue-50 border border-blue-100 rounded-2xl p-6 space-y-3">
-          <h3 className="text-sm font-semibold text-blue-900">What happens next?</h3>
-          <ul className="space-y-2">
-            {[
-              'Our compliance team will review your application within 2–3 business days.',
-              'You will receive an email notification once your account is approved.',
-              'After approval, you can start referring students and tracking commissions.',
-            ].map((item) => (
-              <li key={item} className="flex items-start gap-2 text-sm text-blue-700">
-                <CheckCircle2 className="h-4 w-4 text-blue-400 mt-0.5 flex-shrink-0" />
-                {item}
-              </li>
-            ))}
-          </ul>
+        {/* Actions */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button
+            onClick={() => draftMutation.mutate()}
+            disabled={isSubmitting}
+            className="flex-1 px-5 py-3 rounded-xl text-sm font-bold border border-gray-200 text-gray-700 bg-white hover:bg-gray-50 transition-colors disabled:opacity-60"
+          >
+            {draftMutation.isPending ? 'Saving…' : 'Save Draft'}
+          </button>
+          <button
+            onClick={() => submitMutation.mutate()}
+            disabled={isSubmitting}
+            className="flex-1 px-5 py-3 rounded-xl text-sm font-bold text-white bg-[#2D1B69] hover:bg-[#231552] transition-colors disabled:opacity-60"
+          >
+            {submitMutation.isPending ? 'Submitting…' : 'Submit Application'}
+          </button>
         </div>
 
-        {/* Footer note */}
         <p className="text-center text-xs text-gray-400 pb-6">
           Questions? Email us at{' '}
           <span className="text-[#D96200] font-medium">partners@theglobalavenues.com</span>

@@ -12,13 +12,13 @@ final class RegistrationRoutes
     {
         $controller = new RegistrationController();
 
-        RouteRegistry::post('auth', 'register/student/validate-agent-code', [$controller, 'validateAgentCode']);
-        RouteRegistry::post('auth', 'register/student/initiate', [$controller, 'initiateStudent']);
-        RouteRegistry::post('auth', 'register/student/verify-otp', [$controller, 'verifyStudentOtp']);
-
-        RouteRegistry::post('auth', 'register/agent/initiate', [$controller, 'initiateAgent']);
-        RouteRegistry::post('auth', 'register/agent/verify-otp', [$controller, 'verifyAgentOtp']);
-        
+        // Admin-only: create admin account (requires super_admin auth)
         RouteRegistry::post('auth', 'register/admin', [$controller, 'registerAdmin']);
+
+        // Simplified 3-step registration: email → OTP → password only
+        RouteRegistry::post('auth', 'register/send-otp', [$controller, 'sendRegistrationOtp']);
+        RouteRegistry::post('auth', 'register/verify-otp', [$controller, 'verifyRegistrationOtp']);
+        RouteRegistry::post('auth', 'register/complete-student', [$controller, 'completeStudentReg']);
+        RouteRegistry::post('auth', 'register/complete-agent', [$controller, 'completeAgentReg']);
     }
 }

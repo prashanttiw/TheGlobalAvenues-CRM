@@ -199,20 +199,18 @@ final class ReassignmentController
             $pendingData = $detailStmt->fetch(PDO::FETCH_ASSOC);
         }
 
-        Response::json([
-            'data' => [
-                'current_agent' => $row['agent_id'] ? [
-                    'public_id'    => $row['agent_public_id'],
-                    'full_name'    => $row['agent_name'],
-                    'agency_name'  => $row['agency_name'],
-                    'tier'         => (int) $row['tier'],
-                    'referral_code' => $row['referral_code'],
-                    'country'      => $row['country'],
-                ] : null,
-                'agent_lock_status'    => $row['agent_lock_status'],
-                'can_request_reassignment' => $row['agent_lock_status'] !== 'locked' && !$pending,
-                'pending_reassignment' => $pendingData,
-            ],
+        Response::success('Agent assignment retrieved.', [
+            'current_agent' => $row['agent_id'] ? [
+                'public_id'    => $row['agent_public_id'],
+                'full_name'    => $row['agent_name'],
+                'agency_name'  => $row['agency_name'],
+                'tier'         => (int) $row['tier'],
+                'referral_code' => $row['referral_code'],
+                'country'      => $row['country'],
+            ] : null,
+            'agent_lock_status'    => $row['agent_lock_status'],
+            'can_request_reassignment' => $row['agent_lock_status'] !== 'locked' && !$pending,
+            'pending_reassignment' => $pendingData,
         ]);
     }
 

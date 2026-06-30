@@ -878,8 +878,34 @@ final class AgentController
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ONBOARDING (pending agents only — bypasses resolveAgent approved check)
+    // ONBOARDING (registered / draft / pending / rejected agents — bypasses
+    // resolveAgent()'s approved-only check)
     // ─────────────────────────────────────────────────────────────────────────
+
+    private const ONBOARDING_DOC_TYPES = ['profile_photo', 'aadhar_card', 'cv_resume'];
+    private const ONBOARDING_EDITABLE_STATUSES = ['registered', 'draft', 'rejected'];
+
+    /**
+     * Resolve the logged-in user's agent record for onboarding purposes.
+     * Unlike resolveAgent(), does NOT require status = 'approved'.
+     */
+    private function resolveOnboardingAgent(int $userId): array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT id, public_id, full_name, first_name, last_name, agency_name, country,
+                    address_line, city, state, mobile_number, alternate_mobile_number,
+                    tier, status, rejected_reason, created_at, referral_code
+             FROM agents WHERE user_id = ? AND deleted_at IS NULL LIMIT 1"
+        );
+        $stmt->execute([$userId]);
+        $agent = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$agent) {
+            Response::error('Agent profile not found', 'NOT_FOUND', 404);
+        }
+
+        return $agent;
+    }
 
     public function getOnboardingStatus(): void
     {
@@ -890,46 +916,48 @@ final class AgentController
             Response::error('Access denied', 'FORBIDDEN', 403);
         }
 
-        $stmt = $this->pdo->prepare(
-            "SELECT id, public_id, full_name, agency_name, country, tier, status, created_at, referral_code
-             FROM agents WHERE user_id = ? AND deleted_at IS NULL LIMIT 1"
-        );
-        $stmt->execute([(int) $user['sub']]);
-        $agent = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$agent) {
-            Response::error('Agent profile not found', 'NOT_FOUND', 404);
-        }
+        $agent = $this->resolveOnboardingAgent((int) $user['sub']);
 
         $docsStmt = $this->pdo->prepare(
             "SELECT public_id, document_type, display_filename, created_at
              FROM files
              WHERE owner_type = 'agent' AND owner_id = ? AND deleted_at IS NULL
-               AND document_type IN ('business_registration', 'agency_logo', 'partnership_scope_doc')
+               AND document_type IN ('profile_photo', 'aadhar_card', 'cv_resume')
              ORDER BY created_at DESC"
         );
         $docsStmt->execute([(int) $agent['id']]);
         $docs = $docsStmt->fetchAll(\PDO::FETCH_ASSOC);
 
+        // ORDER BY created_at DESC means the first row seen per type is the newest.
         $uploaded = [];
         foreach ($docs as $doc) {
-            $uploaded[$doc['document_type']] = [
-                'public_id' => $doc['public_id'],
-                'filename'  => $doc['display_filename'],
-                'uploaded_at' => $doc['created_at'],
-            ];
+            if (!isset($uploaded[$doc['document_type']])) {
+                $uploaded[$doc['document_type']] = [
+                    'public_id'   => $doc['public_id'],
+                    'filename'    => $doc['display_filename'],
+                    'uploaded_at' => $doc['created_at'],
+                ];
+            }
         }
 
         Response::json([
             'success' => true,
             'data' => [
                 'agent' => [
-                    'public_id'   => $agent['public_id'],
-                    'full_name'   => $agent['full_name'],
-                    'agency_name' => $agent['agency_name'],
-                    'country'     => $agent['country'],
-                    'status'      => $agent['status'],
-                    'created_at'  => $agent['created_at'],
+                    'public_id'               => $agent['public_id'],
+                    'first_name'              => $agent['first_name'],
+                    'last_name'               => $agent['last_name'],
+                    'full_name'               => $agent['full_name'],
+                    'agency_name'             => $agent['agency_name'],
+                    'address_line'            => $agent['address_line'],
+                    'city'                    => $agent['city'],
+                    'state'                   => $agent['state'],
+                    'mobile_number'           => $agent['mobile_number'],
+                    'alternate_mobile_number' => $agent['alternate_mobile_number'],
+                    'country'                 => $agent['country'],
+                    'status'                  => $agent['status'],
+                    'rejected_reason'         => $agent['rejected_reason'],
+                    'created_at'              => $agent['created_at'],
                 ],
                 'documents' => $uploaded,
             ],
@@ -945,25 +973,16 @@ final class AgentController
             Response::error('Access denied', 'FORBIDDEN', 403);
         }
 
-        $stmt = $this->pdo->prepare(
-            "SELECT id, public_id, status FROM agents WHERE user_id = ? AND deleted_at IS NULL LIMIT 1"
-        );
-        $stmt->execute([(int) $user['sub']]);
-        $agent = $stmt->fetch(\PDO::FETCH_ASSOC);
+        $agent = $this->resolveOnboardingAgent((int) $user['sub']);
 
-        if (!$agent) {
-            Response::error('Agent profile not found', 'NOT_FOUND', 404);
-        }
-
-        if ($agent['status'] === 'approved') {
-            Response::error('Agent is already approved. Use the profile section to update documents.', 'BAD_REQUEST', 400);
+        if (!in_array($agent['status'], self::ONBOARDING_EDITABLE_STATUSES, true)) {
+            Response::error('Documents can only be uploaded while your application is editable.', 'BAD_REQUEST', 400);
         }
 
         $docType = trim($_POST['document_type'] ?? '');
-        $allowed = ['business_registration', 'agency_logo', 'partnership_scope_doc'];
-        if (!in_array($docType, $allowed, true)) {
+        if (!in_array($docType, self::ONBOARDING_DOC_TYPES, true)) {
             Response::error(
-                'Invalid document_type. Allowed: ' . implode(', ', $allowed),
+                'Invalid document_type. Allowed: ' . implode(', ', self::ONBOARDING_DOC_TYPES),
                 'VALIDATION_ERROR',
                 400
             );
@@ -1006,6 +1025,142 @@ final class AgentController
                 'document_type' => $docType,
                 'filename'     => $fileRecord['display_filename'],
             ],
+        ]);
+    }
+
+    public function saveOnboardingDraft(): void
+    {
+        AuthMiddleware::requireAuth();
+        $user = AuthMiddleware::user();
+
+        if (($user['utype'] ?? '') !== 'agent') {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        $agent = $this->resolveOnboardingAgent((int) $user['sub']);
+
+        if (!in_array($agent['status'], self::ONBOARDING_EDITABLE_STATUSES, true)) {
+            Response::error('This application can no longer be edited.', 'BAD_REQUEST', 400);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $firstName   = trim((string) ($input['first_name'] ?? $agent['first_name'] ?? ''));
+        $lastName    = trim((string) ($input['last_name'] ?? $agent['last_name'] ?? ''));
+        $addressLine = trim((string) ($input['address_line'] ?? $agent['address_line'] ?? ''));
+        $city        = trim((string) ($input['city'] ?? $agent['city'] ?? ''));
+        $state       = trim((string) ($input['state'] ?? $agent['state'] ?? ''));
+        $mobile      = trim((string) ($input['mobile_number'] ?? $agent['mobile_number'] ?? ''));
+        $altMobile   = trim((string) ($input['alternate_mobile_number'] ?? $agent['alternate_mobile_number'] ?? ''));
+        $fullName    = trim($firstName . ' ' . $lastName);
+
+        // A rejected application that's being edited again re-enters the draft state.
+        $newStatus = $agent['status'] === 'registered' || $agent['status'] === 'rejected' ? 'draft' : $agent['status'];
+
+        $this->pdo->prepare(
+            "UPDATE agents
+             SET first_name = ?, last_name = ?, full_name = ?, address_line = ?, city = ?, state = ?,
+                 mobile_number = ?, alternate_mobile_number = ?, status = ?, draft_updated_at = NOW()
+             WHERE id = ?"
+        )->execute([
+            $firstName ?: null,
+            $lastName ?: null,
+            $fullName !== '' ? $fullName : $agent['full_name'],
+            $addressLine ?: null,
+            $city ?: null,
+            $state ?: null,
+            $mobile ?: null,
+            $altMobile ?: null,
+            $newStatus,
+            $agent['id'],
+        ]);
+
+        Response::json(['success' => true, 'message' => 'Draft saved.', 'data' => ['status' => $newStatus]]);
+    }
+
+    public function submitOnboardingApplication(): void
+    {
+        AuthMiddleware::requireAuth();
+        $user = AuthMiddleware::user();
+
+        if (($user['utype'] ?? '') !== 'agent') {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        $agent = $this->resolveOnboardingAgent((int) $user['sub']);
+
+        if (!in_array($agent['status'], self::ONBOARDING_EDITABLE_STATUSES, true)) {
+            Response::error('This application has already been submitted.', 'BAD_REQUEST', 400);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $firstName   = trim((string) ($input['first_name'] ?? $agent['first_name'] ?? ''));
+        $lastName    = trim((string) ($input['last_name'] ?? $agent['last_name'] ?? ''));
+        $addressLine = trim((string) ($input['address_line'] ?? $agent['address_line'] ?? ''));
+        $city        = trim((string) ($input['city'] ?? $agent['city'] ?? ''));
+        $state       = trim((string) ($input['state'] ?? $agent['state'] ?? ''));
+        $mobile      = trim((string) ($input['mobile_number'] ?? $agent['mobile_number'] ?? ''));
+        $altMobile   = trim((string) ($input['alternate_mobile_number'] ?? $agent['alternate_mobile_number'] ?? ''));
+
+        $missing = [];
+        if ($firstName === '') $missing[] = 'first_name';
+        if ($lastName === '') $missing[] = 'last_name';
+        if ($addressLine === '') $missing[] = 'address_line';
+        if ($city === '') $missing[] = 'city';
+        if ($state === '') $missing[] = 'state';
+        if ($mobile === '') $missing[] = 'mobile_number';
+
+        $docsStmt = $this->pdo->prepare(
+            "SELECT DISTINCT document_type FROM files
+             WHERE owner_type = 'agent' AND owner_id = ? AND deleted_at IS NULL
+               AND document_type IN ('profile_photo', 'aadhar_card', 'cv_resume')"
+        );
+        $docsStmt->execute([(int) $agent['id']]);
+        $uploadedTypes = array_column($docsStmt->fetchAll(\PDO::FETCH_ASSOC), 'document_type');
+
+        foreach (self::ONBOARDING_DOC_TYPES as $required) {
+            if (!in_array($required, $uploadedTypes, true)) {
+                $missing[] = $required;
+            }
+        }
+
+        if (!empty($missing)) {
+            Response::error(
+                'Please complete all required fields and documents before submitting: ' . implode(', ', $missing),
+                'VALIDATION_ERROR',
+                422
+            );
+        }
+
+        $fullName = trim($firstName . ' ' . $lastName);
+
+        $this->pdo->prepare(
+            "UPDATE agents
+             SET first_name = ?, last_name = ?, full_name = ?, address_line = ?, city = ?, state = ?,
+                 mobile_number = ?, alternate_mobile_number = ?, status = 'pending',
+                 application_submitted_at = NOW()
+             WHERE id = ?"
+        )->execute([$firstName, $lastName, $fullName, $addressLine, $city, $state, $mobile, $altMobile ?: null, $agent['id']]);
+
+        \TGA\CRM\Services\ActivityLogger::log('agent.application_submitted', 'agent', (int) $agent['id'], (int) $user['sub']);
+
+        $adminStmt = $this->pdo->prepare(
+            "SELECT u.id FROM users u JOIN admins adm ON adm.user_id = u.id WHERE u.status = 'active'"
+        );
+        $adminStmt->execute();
+        $adminUserIds = array_column($adminStmt->fetchAll(\PDO::FETCH_ASSOC), 'id');
+
+        \TGA\CRM\Services\NotificationService::fire('agent.onboarding_submitted', [
+            'agency_name' => $agent['agency_name'] ?: $fullName,
+            'full_name'   => $fullName,
+            'country'     => $agent['country'] ?: 'India',
+        ], $adminUserIds);
+
+        Response::json([
+            'success' => true,
+            'message' => 'Your application has been submitted and is now awaiting admin review.',
+            'data' => ['status' => 'pending'],
         ]);
     }
 }

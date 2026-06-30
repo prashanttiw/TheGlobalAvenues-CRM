@@ -70,8 +70,13 @@ final class AgentRoutes
         RouteRegistry::put('agent', 'notes/:pid',                  [$notes, 'update']);
         RouteRegistry::delete('agent', 'notes/:pid',               [$notes, 'delete']);
 
-        // ── Onboarding (pending agents) ──────────────────────────────────────
+        // ── Onboarding (registered / draft / pending / rejected agents) ───────
         RouteRegistry::get('agent', 'onboarding/status',    [$agent, 'getOnboardingStatus']);
         RouteRegistry::post('agent', 'onboarding/documents', [$agent, 'uploadOnboardingDocument']);
+        RouteRegistry::put('agent', 'onboarding/draft',      [$agent, 'saveOnboardingDraft']);
+        RouteRegistry::post('agent', 'onboarding/submit',    [$agent, 'submitOnboardingApplication']);
+
+        // ── Sub-agent onboarding documents (uploaded by the inviting parent) ──
+        RouteRegistry::post('agent', 'sub-agents/:pid/documents', [$subAgent, 'uploadDocument']);
     }
 }
