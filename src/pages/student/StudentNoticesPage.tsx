@@ -1,132 +1,182 @@
 import * as React from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { AlertTriangle, Bell, Calendar, MapPin } from 'lucide-react'
-import { fetchStudentNoticesFeed } from '../../lib/api'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { AlertTriangle, Bell, ChevronLeft, ChevronRight, LayoutGrid, List } from 'lucide-react'
+import { fetchStudentNoticesFeed, type PaginationMeta } from '../../lib/api'
+import { NoticesFeedView } from '../../shared/components/ui/NoticesFeedView'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Button } from '../../shared/components/ui/Button'
-import { Card, CardContent, CardHeader, CardTitle } from '../../shared/components/ui/Card'
+import { Card, CardContent } from '../../shared/components/ui/Card'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 
-interface NoticeRecord {
-  public_id: string
-  title: string
-  content: string
-  notice_type: 'notice' | 'event'
-  published_at?: string | null
-  created_at: string
-  event_date?: string | null
-  event_location?: string | null
-}
+const PER_PAGE = 20
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+const VIEW_MODE_KEY = 'student_notices_view_mode'
 
-function formatDate(value?: string | null): string {
-  return new Date(value || Date.now()).toLocaleDateString()
-}
-
-function NoticeTypeBadge({ type }: { type: NoticeRecord['notice_type'] }) {
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-        type === 'event'
-          ? 'bg-amber-100 text-amber-700'
-          : 'bg-brand-orange-accessible/10 text-brand-orange-accessible'
-      }`}
-    >
-      {type === 'event' ? 'Event' : 'Notice'}
-    </span>
-  )
+function readStoredViewMode(): 'grid' | 'table' {
+  try { return (localStorage.getItem(VIEW_MODE_KEY) as 'grid' | 'table') || 'grid' } catch { return 'grid' }
 }
 
 export default function StudentNoticesPage() {
   const [filter, setFilter] = React.useState<'all' | 'notice' | 'event'>('all')
+  const [sortDir, setSortDir] = React.useState<'desc' | 'asc'>('desc')
+  const [page, setPage] = React.useState(1)
+  const [viewMode, setViewMode] = React.useState<'grid' | 'table'>(readStoredViewMode)
+
+  React.useEffect(() => { setPage(1) }, [filter, sortDir])
+
+  const handleViewMode = (mode: 'grid' | 'table') => {
+    setViewMode(mode)
+    try { localStorage.setItem(VIEW_MODE_KEY, mode) } catch {}
+  }
 
   const noticesQuery = useQuery({
-    queryKey: ['student', 'notices'],
-    queryFn: fetchStudentNoticesFeed,
+    queryKey: ['student', 'notices', { filter, sortDir, page }],
+    queryFn: () =>
+      fetchStudentNoticesFeed({
+        page,
+        per_page: PER_PAGE,
+        sort: sortDir,
+        notice_type: filter === 'all' ? undefined : filter,
+      }),
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   })
 
-  const notices = (noticesQuery.data ?? []).filter((notice: NoticeRecord) => filter === 'all' || notice.notice_type === filter)
+  const notices = noticesQuery.data?.notices ?? []
+  const meta = noticesQuery.data?.meta as PaginationMeta | undefined
+  const totalPages = meta?.total_pages ?? 1
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader title="Notices & Events" subtitle="Important updates and upcoming events from The Global Avenues." />
+      <PageHeader
+        title="Notices & Events"
+        subtitle="Important updates and upcoming events from The Global Avenues."
+      />
 
-      <div className="flex gap-2">
-        <Button variant={filter === 'all' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('all')}>
-          All
-        </Button>
-        <Button variant={filter === 'notice' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('notice')}>
-          Notices
-        </Button>
-        <Button variant={filter === 'event' ? 'primary' : 'secondary'} size="sm" onClick={() => setFilter('event')}>
-          Events
-        </Button>
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3 bg-surface-card border border-border-warm rounded-xl p-3">
+        {/* Type filter */}
+        <div className="flex gap-1.5">
+          {(['all', 'notice', 'event'] as const).map((val) => (
+            <Button
+              key={val}
+              variant={filter === val ? 'primary' : 'secondary'}
+              size="sm"
+              onClick={() => setFilter(val)}
+            >
+              {val === 'all' ? 'All' : val === 'notice' ? 'Notices' : 'Events'}
+            </Button>
+          ))}
+        </div>
+
+        {/* Sort */}
+        <select
+          value={sortDir}
+          onChange={(e) => setSortDir(e.target.value as 'asc' | 'desc')}
+          className="px-3 py-1.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+        >
+          <option value="desc">Latest First</option>
+          <option value="asc">Oldest First</option>
+        </select>
+
+        {/* Meta count */}
+        {meta && meta.total > 0 && (
+          <span className="text-xs text-muted-foreground whitespace-nowrap">
+            {meta.total} total · page {meta.current_page}/{totalPages}
+          </span>
+        )}
+
+        {/* View toggle */}
+        <div className="ml-auto flex rounded-lg border border-border-warm overflow-hidden">
+          <button
+            type="button"
+            onClick={() => handleViewMode('grid')}
+            title="Grid view"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+              viewMode === 'grid'
+                ? 'bg-brand-orange-accessible text-white'
+                : 'bg-surface-warm text-muted-foreground hover:text-brand-navy'
+            }`}
+          >
+            <LayoutGrid className="h-4 w-4" />
+            <span className="hidden sm:inline">Grid</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => handleViewMode('table')}
+            title="Table view"
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-l border-border-warm transition-colors ${
+              viewMode === 'table'
+                ? 'bg-brand-orange-accessible text-white'
+                : 'bg-surface-warm text-muted-foreground hover:text-brand-navy'
+            }`}
+          >
+            <List className="h-4 w-4" />
+            <span className="hidden sm:inline">Table</span>
+          </button>
+        </div>
       </div>
 
+      {/* Content */}
       {noticesQuery.isError ? (
         <EmptyState
           icon={AlertTriangle}
           heading="Notices could not be loaded"
-          description={noticesQuery.error instanceof Error ? noticesQuery.error.message : 'The backend request failed.'}
+          description={noticesQuery.error instanceof Error ? noticesQuery.error.message : 'Backend request failed.'}
           action={<Button onClick={() => noticesQuery.refetch()}>Retry</Button>}
         />
-      ) : noticesQuery.isLoading ? (
-        <div className="grid gap-6">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="rounded-card border border-border-warm bg-surface-card p-6 animate-pulse">
-              <div className="h-6 w-1/2 rounded bg-surface-warm" />
-              <div className="mt-2 h-3 w-1/3 rounded bg-surface-warm" />
-              <div className="mt-5 space-y-2">
-                <div className="h-3 rounded bg-surface-warm" />
-                <div className="h-3 rounded bg-surface-warm" />
-                <div className="h-3 w-4/5 rounded bg-surface-warm" />
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : notices.length > 0 ? (
-        <div className="grid gap-6">
-          {notices.map((notice: NoticeRecord) => (
-            <Card key={notice.public_id} className="hover:shadow-card-hover transition-shadow">
-              <CardHeader className="flex flex-row items-center justify-between pb-2 border-b border-border-warm gap-4">
-                <div className="space-y-1">
-                  <CardTitle className="text-lg font-semibold text-brand-navy">{notice.title}</CardTitle>
-                  <p className="text-xs text-muted-foreground">Published on {formatDate(notice.published_at || notice.created_at)}</p>
-                </div>
-                <NoticeTypeBadge type={notice.notice_type} />
-              </CardHeader>
-              <CardContent className="mt-4 space-y-4">
-                <div className="prose prose-sm max-w-none text-brand-navy" dangerouslySetInnerHTML={{ __html: notice.content }} />
-
-                {notice.notice_type === 'event' ? (
-                  <div className="rounded-md bg-surface-warm p-4 space-y-2 border border-border-warm">
-                    {notice.event_date ? (
-                      <div className="flex items-center text-xs text-brand-navy">
-                        <Calendar className="mr-2 h-4 w-4 text-brand-orange-accessible" />
-                        <strong>Time:</strong>&nbsp;{notice.event_date}
-                      </div>
-                    ) : null}
-                    {notice.event_location ? (
-                      <div className="flex items-center text-xs text-brand-navy">
-                        <MapPin className="mr-2 h-4 w-4 text-brand-orange-accessible" />
-                        <strong>Location:</strong>&nbsp;{notice.event_location}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      ) : (
+      ) : notices.length === 0 && !noticesQuery.isLoading ? (
         <Card className="border-dashed border-border-warm py-12">
           <CardContent className="flex flex-col items-center justify-center text-center">
-            <Bell className="h-10 w-10 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-semibold text-brand-navy">No updates found</h3>
-            <p className="text-sm text-muted-foreground mt-1">There are no updates in this category.</p>
+            <Bell className="mb-4 h-10 w-10 text-muted-foreground" />
+            <h3 className="text-lg font-semibold text-brand-navy">No notices yet</h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              There are no {filter !== 'all' ? filter + 's' : 'notices or events'} right now. Check back later.
+            </p>
           </CardContent>
         </Card>
+      ) : (
+        <>
+          <NoticesFeedView
+            notices={notices}
+            isLoading={noticesQuery.isLoading && !noticesQuery.data}
+            viewMode={viewMode}
+            apiBase={API_BASE}
+          />
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border-warm pt-4">
+              <p className="text-xs text-muted-foreground">
+                Showing {notices.length} of {meta?.total ?? 0} notices
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={!meta?.has_prev || noticesQuery.isFetching}
+                >
+                  <ChevronLeft className="h-4 w-4 mr-1" />
+                  Previous
+                </Button>
+                <span className="text-xs font-semibold text-brand-navy px-2">
+                  {meta?.current_page ?? page} / {totalPages}
+                </span>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setPage((p) => p + 1)}
+                  disabled={!meta?.has_next || noticesQuery.isFetching}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </PageWrapper>
   )

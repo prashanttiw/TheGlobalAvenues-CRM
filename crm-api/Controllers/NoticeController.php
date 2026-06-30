@@ -31,35 +31,50 @@ class NoticeController
         RBACMiddleware::requirePermission('notices', 'view');
 
         $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
-        $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
+        $perPage = isset($_GET['per_page']) ? max(1, min(100, (int)$_GET['per_page'])) : 20;
         $offset = ($page - 1) * $perPage;
 
-        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM notices WHERE deleted_at IS NULL");
-        $countStmt->execute();
+        $sort = ($_GET['sort'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
+        $noticeType = in_array($_GET['notice_type'] ?? '', ['notice', 'event'], true) ? $_GET['notice_type'] : null;
+
+        $conditions = ['n.deleted_at IS NULL'];
+        $bindParams = [];
+        if ($noticeType !== null) {
+            $conditions[] = 'n.notice_type = ?';
+            $bindParams[] = $noticeType;
+        }
+        $where = 'WHERE ' . implode(' AND ', $conditions);
+
+        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM notices n {$where}");
+        $countStmt->execute($bindParams);
         $total = (int) $countStmt->fetchColumn();
 
-        $stmt = $this->pdo->prepare("
-            SELECT id, public_id, title, notice_type, status, published_at, expires_at, created_at,
-                   visible_to_students, visible_to_agents, visible_to_admins 
-            FROM notices 
-            WHERE deleted_at IS NULL 
-            ORDER BY created_at DESC 
+        $listStmt = $this->pdo->prepare("
+            SELECT n.id, n.public_id, n.title, n.notice_type, n.status,
+                   n.published_at, n.expires_at, n.created_at,
+                   n.visible_to_students, n.visible_to_agents, n.visible_to_admins,
+                   f.public_id AS attachment_public_id,
+                   f.display_filename AS attachment_filename
+            FROM notices n
+            LEFT JOIN files f ON f.id = n.attachment_file_id AND f.deleted_at IS NULL
+            {$where}
+            ORDER BY COALESCE(n.published_at, n.created_at) {$sort}
             LIMIT ? OFFSET ?
         ");
-        $stmt->bindValue(1, $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(2, $offset, PDO::PARAM_INT);
-        $stmt->execute();
-        $notices = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $listStmt->execute(array_merge($bindParams, [$perPage, $offset]));
+        $notices = $listStmt->fetchAll(PDO::FETCH_ASSOC);
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 1;
 
-        Response::json([
+        Response::success('OK', [
             'data' => $notices,
             'meta' => [
-                'page' => $page,
+                'current_page' => $page,
                 'per_page' => $perPage,
                 'total' => $total,
-                'total_pages' => ceil($total / $perPage),
-                'has_next' => ($page * $perPage) < $total
-            ]
+                'total_pages' => $totalPages,
+                'has_next' => $page < $totalPages,
+                'has_prev' => $page > 1,
+            ],
         ]);
     }
 
@@ -81,12 +96,16 @@ class NoticeController
         $user = AuthMiddleware::user();
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        $title = trim($input['title'] ?? '');
+        $title = trim(strip_tags($input['title'] ?? ''));
         $content = trim($input['content'] ?? '');
 
         if (!$title || !$content) {
             Response::error('Title and content are required', 'VALIDATION_ERROR', 400);
         }
+
+        // Strip dangerous HTML while preserving safe rich-text tags from TipTap
+        $allowedTags = '<p><br><strong><em><u><s><h1><h2><h3><h4><ul><ol><li><blockquote><a><code><pre>';
+        $content = strip_tags($content, $allowedTags);
 
         $pid = UlidGenerator::generate();
         $id = $this->model->insert([
@@ -120,18 +139,27 @@ class NoticeController
             Response::error('Notice not found', 'NOT_FOUND', 404);
         }
 
-        if ($notice['status'] === 'published') {
-            Response::error('Cannot edit a published notice. Unpublish or delete it.', 'VALIDATION_ERROR', 400);
-        }
-
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $updateData = [];
 
-        $fields = ['title', 'content', 'notice_type', 'event_date', 'event_location', 'expires_at'];
+        $allowedTags = '<p><br><strong><em><u><s><h1><h2><h3><h4><ul><ol><li><blockquote><a><code><pre>';
+        $fields = ['title', 'content', 'event_date', 'event_location', 'expires_at'];
         foreach ($fields as $field) {
             if (isset($input[$field])) {
-                $updateData[$field] = $input[$field];
+                if ($field === 'title') {
+                    $updateData[$field] = trim(strip_tags($input[$field]));
+                } elseif ($field === 'content') {
+                    $updateData[$field] = strip_tags($input[$field], $allowedTags);
+                } else {
+                    $updateData[$field] = $input[$field];
+                }
             }
+        }
+
+        if (isset($input['notice_type'])) {
+            $updateData['notice_type'] = in_array($input['notice_type'], ['notice', 'event'], true)
+                ? $input['notice_type']
+                : $notice['notice_type'];
         }
 
         if (isset($input['visible_to_students'])) $updateData['visible_to_students'] = !empty($input['visible_to_students']) ? 1 : 0;
@@ -213,7 +241,7 @@ class NoticeController
             ], $chunk);
         }
 
-        ActivityLogger::log('notice.published', 'notice', $notice['id'], (int)$user['id'], null, ['title' => $notice['title']]);
+        ActivityLogger::log('notice.published', 'notice', $notice['id'], (int)$user['id'], [], ['title' => $notice['title']]);
 
         Response::json(['success' => true, 'message' => 'Notice published and notifications dispatched']);
     }
@@ -225,8 +253,30 @@ class NoticeController
             Response::error('Forbidden', 'FORBIDDEN', 403);
         }
 
-        $notices = $this->model->getFeedForStudent((int)$user['sub']);
-        Response::json(['data' => $notices]);
+        $page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+        $perPage = isset($_GET['per_page']) ? max(1, min(50, (int) $_GET['per_page'])) : 10;
+        $offset = ($page - 1) * $perPage;
+        $noticeType = $_GET['notice_type'] ?? null;
+        if (!in_array($noticeType, ['notice', 'event'], true)) {
+            $noticeType = null;
+        }
+
+        $sort = ($_GET['sort'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
+        $total = $this->model->countFeedForStudent($noticeType);
+        $notices = $this->model->getFeedForStudent((int) $user['sub'], $perPage, $offset, $noticeType, $sort);
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 1;
+
+        Response::success('OK', [
+            'notices' => $notices,
+            'meta' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => $totalPages,
+                'has_next' => $page < $totalPages,
+                'has_prev' => $page > 1,
+            ],
+        ]);
     }
 
     public function agentFeed(): void
@@ -236,8 +286,27 @@ class NoticeController
             Response::error('Forbidden', 'FORBIDDEN', 403);
         }
 
-        $notices = $this->model->getFeedForAgent((int)$user['sub']);
-        Response::json(['data' => $notices]);
+        $page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+        $perPage = isset($_GET['per_page']) ? max(1, min(50, (int) $_GET['per_page'])) : 20;
+        $offset = ($page - 1) * $perPage;
+        $sort = ($_GET['sort'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
+        $noticeType = in_array($_GET['notice_type'] ?? '', ['notice', 'event'], true) ? $_GET['notice_type'] : null;
+
+        $total = $this->model->countFeedForAgent($noticeType);
+        $notices = $this->model->getFeedForAgent((int)$user['sub'], $perPage, $offset, $noticeType, $sort);
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 1;
+
+        Response::success('OK', [
+            'notices' => $notices,
+            'meta' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => $totalPages,
+                'has_next' => $page < $totalPages,
+                'has_prev' => $page > 1,
+            ],
+        ]);
     }
 
     public function adminFeed(): void
@@ -247,8 +316,27 @@ class NoticeController
             Response::error('Forbidden', 'FORBIDDEN', 403);
         }
 
-        $notices = $this->model->getFeedForAdmin();
-        Response::json(['data' => $notices]);
+        $page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+        $perPage = isset($_GET['per_page']) ? max(1, min(50, (int) $_GET['per_page'])) : 20;
+        $offset = ($page - 1) * $perPage;
+        $sort = ($_GET['sort'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
+        $noticeType = in_array($_GET['notice_type'] ?? '', ['notice', 'event'], true) ? $_GET['notice_type'] : null;
+
+        $total = $this->model->countFeedForAdmin($noticeType);
+        $notices = $this->model->getFeedForAdmin($perPage, $offset, $noticeType, $sort);
+        $totalPages = $total > 0 ? (int) ceil($total / $perPage) : 1;
+
+        Response::success('OK', [
+            'notices' => $notices,
+            'meta' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => $totalPages,
+                'has_next' => $page < $totalPages,
+                'has_prev' => $page > 1,
+            ],
+        ]);
     }
 
     public function uploadAttachment(string $pid): void
@@ -261,20 +349,49 @@ class NoticeController
             Response::error('Notice not found', 'NOT_FOUND', 404);
         }
 
-        if (!isset($_FILES['attachment']) || $_FILES['attachment']['error'] !== UPLOAD_ERR_OK) {
-            Response::error('No file uploaded or upload error', 'VALIDATION_ERROR', 400);
+        if (!isset($_FILES['attachment'])) {
+            Response::error('No attachment received by server. Check PHP upload settings.', 'VALIDATION_ERROR', 400);
+        }
+        $uploadError = (int) $_FILES['attachment']['error'];
+        if ($uploadError !== UPLOAD_ERR_OK) {
+            $uploadMaxSize = ini_get('upload_max_filesize');
+            $errorMsg = match ($uploadError) {
+                UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE => "File too large. Server upload limit is {$uploadMaxSize}. Increase upload_max_filesize in php.ini.",
+                UPLOAD_ERR_PARTIAL   => 'Upload interrupted — file was only partially received.',
+                UPLOAD_ERR_NO_FILE   => 'No file was sent.',
+                UPLOAD_ERR_NO_TMP_DIR => 'Server tmp directory missing. Check PHP configuration.',
+                UPLOAD_ERR_CANT_WRITE => 'Server cannot write the uploaded file. Check disk permissions.',
+                default              => "Upload failed (PHP error code {$uploadError}).",
+            };
+            Response::error($errorMsg, 'VALIDATION_ERROR', 400);
         }
 
-        $fileId = FileUploadService::store($_FILES['attachment'], 'notice', $notice['id'], true);
-        if (!$fileId) {
-            Response::error('File upload failed', 'INTERNAL_ERROR', 500);
-        }
+        $fileService = new FileUploadService();
+        $uploadResult = $fileService->upload(
+            $this->pdo,
+            $_FILES['attachment'],
+            'other',
+            'notice',
+            $notice['id'],
+            'admin',
+            (int)$user['id'],
+            null,
+            true,
+            'notices',
+            1,
+            null,
+            10
+        );
+
+        $stmt = $this->pdo->prepare("SELECT id FROM files WHERE public_id = ?");
+        $stmt->execute([$uploadResult['public_id']]);
+        $fileId = (int) $stmt->fetchColumn();
 
         $this->pdo->prepare("UPDATE notices SET attachment_file_id = ? WHERE id = ?")
             ->execute([$fileId, $notice['id']]);
 
         ActivityLogger::log('notice.attachment_uploaded', 'notice', $notice['id'], (int)$user['id']);
 
-        Response::json(['success' => true, 'file_id' => $fileId]);
+        Response::json(['success' => true, 'file_public_id' => $uploadResult['public_id']]);
     }
 }
