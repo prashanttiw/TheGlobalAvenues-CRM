@@ -24,6 +24,7 @@ export interface User {
   tier?: string
   referralCode?: string
   permissions?: string[]
+  isSuperAdmin?: boolean
   status?: string
   agentStatus?: string
 }
@@ -60,13 +61,16 @@ function mapAuthUser(apiUser: AuthUser): User {
   const fallbackName = `${firstName} ${lastName}`.trim() || apiUser.email
   const rawRole = apiUser.role ?? apiUser.user_type ?? apiUser.utype
 
+  const isSuperAdmin = apiUser.is_super_admin === true || normalizePermissions(apiUser.permissions).includes('*')
+
   return {
     id: apiUser.public_id,
     publicId: apiUser.public_id,
     name: apiUser.name || fallbackName,
     email: apiUser.email,
     role: normalizeRole(rawRole),
-    permissions: normalizePermissions(apiUser.permissions),
+    permissions: isSuperAdmin ? ['*'] : normalizePermissions(apiUser.permissions),
+    isSuperAdmin,
     status: apiUser.status,
     agentStatus: apiUser.account_status,
   }

@@ -153,17 +153,17 @@ final class OTPService
         $subject = NotificationService::render($template['subject_template'], $vars);
         $body    = NotificationService::render($template['body_template'], $vars);
 
-        try {
-            $sent = MailService::sendNow($email, $subject, $body);
-            if (!$sent) {
-                throw new \RuntimeException('OTP_EMAIL_DELIVERY_FAILED');
-            }
-        } catch (\Throwable $e) {
+        $sent = MailService::sendNow($email, $subject, $body);
+        $isDev = (\TGA\CRM\Config\Environment::get('APP_ENV') === 'development');
+
+        if (!$sent && !$isDev) {
+            // Production: delete the stored OTP so the user can retry cleanly
             $identifierHash = EncryptionService::hash(strtolower(trim($email)));
-            $deleteStmt = $pdo->prepare('DELETE FROM otp_verifications WHERE identifier_hash = ? AND purpose = ?');
-            $deleteStmt->execute([$identifierHash, $purpose]);
-            throw $e;
+            $pdo->prepare('DELETE FROM otp_verifications WHERE identifier_hash = ? AND purpose = ?')
+                ->execute([$identifierHash, $purpose]);
+            throw new \RuntimeException('OTP_EMAIL_DELIVERY_FAILED');
         }
+        // Dev mode: SMTP failure is tolerated — OTP stays in DB so otp_code_preview can be used
 
         return $code;
     }

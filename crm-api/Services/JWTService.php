@@ -36,6 +36,7 @@ final class JWTService
             'pid'   => $publicId,
             'utype' => $userType,
             'user_type' => $userType,
+            'jti'   => bin2hex(random_bytes(16)),
             'type'  => 'refresh',
             'iat'   => time(),
             'exp'   => time() + $refreshExpiry,
@@ -116,18 +117,19 @@ final class JWTService
         return (string) base64_decode(strtr($value, '-_', '+/'));
     }
 
-    public static function issueResetToken(string $emailHash, string $pwdFragment): string
+    public static function issueResetToken(string $emailHash, string $pwdFragment, string $userType = ''): string
     {
         $expiry = 900; // 15 minutes
         $jti = bin2hex(random_bytes(16));
 
         return self::encode([
             'email_hash' => $emailHash,
-            'pwd_h' => $pwdFragment,
-            'type' => 'password-reset',
-            'jti' => $jti,
-            'iat' => time(),
-            'exp' => time() + $expiry
+            'pwd_h'      => $pwdFragment,
+            'user_type'  => $userType,
+            'type'       => 'password-reset',
+            'jti'        => $jti,
+            'iat'        => time(),
+            'exp'        => time() + $expiry,
         ], Environment::getRequired('JWT_RESET_SECRET'));
     }
 

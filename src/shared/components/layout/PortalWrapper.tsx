@@ -1,6 +1,6 @@
 import * as React from 'react'
-import { useNavigate } from 'react-router-dom'
-import { 
+import { Outlet, useNavigate } from 'react-router-dom'
+import {
   LayoutDashboard, FileText, User, Settings, CreditCard, 
   Users, FolderOpen, Globe, BookOpen, Calendar, Handshake, 
   Target, Megaphone, BarChart2, Key, Activity, Lock, Network, DollarSign, UserCheck, Bell
@@ -53,15 +53,25 @@ export function PortalWrapper() {
 
   if (!user) return null
 
+  // Agents who haven't been approved yet only ever see the standalone
+  // onboarding experience (Company Info / Apply / Pending / Rejected) — no
+  // sidebar or topbar shell, since none of those nav destinations are
+  // reachable until RoleGuard lets them through.
+  if (user.role === 'agent' && user.agentStatus && user.agentStatus !== 'approved') {
+    return <Outlet />
+  }
+
   let navItems: NavItem[] = []
   
   if (user.role === 'student') navItems = STUDENT_NAV
   if (user.role === 'agent') navItems = AGENT_NAV
   if (user.role === 'admin') {
-    // Filter admin nav based on permissions
+    const isSuperAdmin = user.isSuperAdmin === true || (user.permissions?.includes('*') ?? false)
+    // Super admins always see every page — their access cannot be filtered
     navItems = ADMIN_NAV_BASE.filter(item => {
-      if (!item.permission) return true;
-      return user.permissions?.includes('*') || user.permissions?.includes(item.permission) || false;
+      if (!item.permission) return true
+      if (isSuperAdmin) return true
+      return user.permissions?.includes(item.permission) ?? false
     })
   }
 

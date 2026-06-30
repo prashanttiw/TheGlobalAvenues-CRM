@@ -25,7 +25,10 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   if (!isAuthenticated) {
-    return <Navigate to="/portal/login" state={{ from: location }} replace />
+    const loginPath = location.pathname.startsWith('/portal/admin')
+      ? '/portal/admin/login'
+      : '/portal/login';
+    return <Navigate to={loginPath} state={{ from: location }} replace />
   }
 
   return <>{children}</>
