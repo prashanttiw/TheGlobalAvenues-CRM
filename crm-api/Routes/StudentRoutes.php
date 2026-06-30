@@ -29,6 +29,7 @@ final class StudentRoutes
         RouteRegistry::get('student', 'applications', $requireStudent([$controller, 'listApplications']));
         RouteRegistry::get('student', 'applications/:pid', $requireStudent([$controller, 'getApplication']));
         RouteRegistry::get('student', 'profile', $requireStudent([$controller, 'getProfile']));
+        RouteRegistry::put('student', 'profile', $requireStudent([$controller, 'updateProfile']));
         RouteRegistry::get('student', 'dashboard', $requireStudent([$controller, 'getDashboard']));
         
         $appController = new \TGA\CRM\Controllers\ApplicationController();

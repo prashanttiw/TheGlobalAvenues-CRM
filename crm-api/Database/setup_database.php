@@ -479,6 +479,7 @@ try {
             INSERT INTO agents (public_id, user_id, parent_agent_id, root_agent_id, tier, full_name, agency_name, country, referral_code, status)
             VALUES (?, ?, ?, ?, 2, 'Sonia Sharma', 'Noida Franchise', 'India', 'TGA-NOI002', 'approved')
         ")->execute([$agent2PublicId, $agent2Info['id'], $agent1Id, $agent1Id]);
+        $agent2Id = (int)$pdo->lastInsertId();
         echo "-> [DEV] Agent L2 created: agent2@theglobalavenues.com / Agent@12345\n";
 
         $studentInfo = $createUser('student@theglobalavenues.com', '+919999999903', 'Student@12345', 'student', 'active');
@@ -628,11 +629,408 @@ try {
         ")->execute([UlidGenerator::generate(), $adminInfo['id']]);
         echo "-> Application payment requested.\n";
 
+        $comm1PublicId = UlidGenerator::generate();
         $pdo->prepare("
-            INSERT INTO commissions (public_id, application_id, agent_id, amount, percentage, currency, status, notes)
-            VALUES (?, 1, ?, 15000.00, 10.00, 'INR', 'pending', 'Draft commission seed for Rajesh')
-        ")->execute([UlidGenerator::generate(), $agent1Id]);
+            INSERT INTO commissions (public_id, application_id, agent_id, created_by_user_id, created_by_name, amount, percentage, currency, status, notes)
+            VALUES (?, 1, ?, ?, 'Super Admin Test', 15000.00, 10.00, 'INR', 'pending', 'Test commission — AI & Data Science enrollment')
+        ")->execute([$comm1PublicId, $agent1Id, $adminInfo['id']]);
+        $comm1Id = (int)$pdo->lastInsertId();
         echo "-> Pending commission added.\n\n";
+
+        // ═══════════════════════════════════════════════════════════════════════
+        // COMPREHENSIVE TEST DATA — every table, every status, no blank pages
+        // ═══════════════════════════════════════════════════════════════════════
+        echo "Seeding comprehensive test data...\n";
+
+        // ── ROLES + ROLE_PERMISSIONS ─────────────────────────────────────────
+        // Load the permissions map that was seeded in step 7
+        $permMap = [];
+        foreach ($pdo->query("SELECT id, module, action FROM permissions")->fetchAll(PDO::FETCH_ASSOC) as $p) {
+            $permMap[$p['module'] . '.' . $p['action']] = (int)$p['id'];
+        }
+        $rpStmt = $pdo->prepare("INSERT IGNORE INTO role_permissions (role_id, permission_id) VALUES (?, ?)");
+
+        // Role 1: Counsellor Test
+        $pdo->prepare("INSERT INTO roles (public_id, name, description) VALUES (?, 'Counsellor Test', 'Test role — manage applications, documents, students')")
+            ->execute([UlidGenerator::generate()]);
+        $roleCounsellorId = (int)$pdo->lastInsertId();
+        foreach (['applications.view','applications.edit','students.view','documents.view','documents.create','documents.approve','notices.view','internal_notes.view','internal_notes.create','sla.view'] as $k) {
+            if (isset($permMap[$k])) $rpStmt->execute([$roleCounsellorId, $permMap[$k]]);
+        }
+
+        // Role 2: Visa Officer Test
+        $pdo->prepare("INSERT INTO roles (public_id, name, description) VALUES (?, 'Visa Officer Test', 'Test role — read-only applications and reports')")
+            ->execute([UlidGenerator::generate()]);
+        $roleVisaId = (int)$pdo->lastInsertId();
+        foreach (['applications.view','students.view','documents.view','documents.approve','reports.view','leads.view'] as $k) {
+            if (isset($permMap[$k])) $rpStmt->execute([$roleVisaId, $permMap[$k]]);
+        }
+
+        // Role 3: Manager Test (all except system_settings.edit + user_management.delete)
+        $pdo->prepare("INSERT INTO roles (public_id, name, description) VALUES (?, 'Manager Test', 'Test role — broad access for office managers')")
+            ->execute([UlidGenerator::generate()]);
+        $roleManagerId = (int)$pdo->lastInsertId();
+        $excluded = ['system_settings.edit', 'user_management.delete'];
+        foreach (array_keys($permMap) as $k) {
+            if (!in_array($k, $excluded)) $rpStmt->execute([$roleManagerId, $permMap[$k]]);
+        }
+        echo "-> [DEV] Roles seeded: Counsellor Test, Visa Officer Test, Manager Test\n";
+
+        // ── ADDITIONAL ADMIN ACCOUNTS ────────────────────────────────────────
+        $cslInfo = $createUser('admin_test_counsellor@theglobalavenues.com', '+911146801141', 'Admin@12345', 'admin', 'active');
+        $pdo->prepare("INSERT INTO admins (public_id, user_id, role_id, is_super_admin, full_name, created_by) VALUES (?, ?, ?, 0, 'Priya Counsellor Test', ?)")
+            ->execute([UlidGenerator::generate(), $cslInfo['id'], $roleCounsellorId, $adminInfo['id']]);
+        $cslAdminId = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Admin (Counsellor Test): admin_test_counsellor@theglobalavenues.com\n";
+
+        $visaInfo = $createUser('admin_test_visa@theglobalavenues.com', '+911146801142', 'Admin@12345', 'admin', 'active');
+        $pdo->prepare("INSERT INTO admins (public_id, user_id, role_id, is_super_admin, full_name, created_by) VALUES (?, ?, ?, 0, 'Rahul Visa Test', ?)")
+            ->execute([UlidGenerator::generate(), $visaInfo['id'], $roleVisaId, $adminInfo['id']]);
+        $visaAdminId = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Admin (Visa Officer Test): admin_test_visa@theglobalavenues.com\n";
+
+        // ── ADDITIONAL AGENTS ────────────────────────────────────────────────
+        // Agent 3 — Tier 3 (child of agent2), approved
+        $ag3Info = $createUser('agent_test_3@theglobalavenues.com', '+919888888801', 'Agent@12345', 'agent', 'active');
+        $ag3PublicId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO agents (public_id, user_id, parent_agent_id, root_agent_id, tier, full_name, agency_name, country, referral_code, status, approved_at) VALUES (?, ?, ?, ?, 3, 'Arjun Test Agent 3', 'Gurgaon Franchise Test', 'India', 'TGA-GUR003', 'approved', NOW())")
+            ->execute([$ag3PublicId, $ag3Info['id'], $agent2Id, $agent1Id]);
+        $ag3Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Agent L3 (Tier 3, approved): agent_test_3@theglobalavenues.com\n";
+
+        // Agent 4 — PENDING (shows in admin approval queue)
+        $ag4Info = $createUser('agent_test_4@theglobalavenues.com', '+919888888802', 'Agent@12345', 'agent', 'active');
+        $ag4PublicId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO agents (public_id, user_id, tier, full_name, agency_name, country, business_reg_number, status) VALUES (?, ?, 1, 'Meena Test Agent 4', 'Chennai Partners Test', 'India', 'BRN-TEST-001', 'pending')")
+            ->execute([$ag4PublicId, $ag4Info['id']]);
+        $ag4Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Agent (PENDING): agent_test_4@theglobalavenues.com\n";
+
+        // Agent 5 — PENDING (second pending, makes queue count = 2)
+        $ag5Info = $createUser('agent_test_5@theglobalavenues.com', '+919888888803', 'Agent@12345', 'agent', 'active');
+        $ag5PublicId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO agents (public_id, user_id, tier, full_name, agency_name, country, business_reg_number, status) VALUES (?, ?, 1, 'Vivek Test Agent 5', 'Hyderabad Consultants Test', 'India', 'BRN-TEST-002', 'pending')")
+            ->execute([$ag5PublicId, $ag5Info['id']]);
+        $ag5Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Agent (PENDING): agent_test_5@theglobalavenues.com\n";
+
+        // ── ADDITIONAL STUDENTS ──────────────────────────────────────────────
+        // Student 2 — just registered, no application (referred by agent2)
+        $stu2Info = $createUser('student_test_2@theglobalavenues.com', '+919777777702', 'Student@12345', 'student', 'active');
+        $stu2PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO students (public_id, user_id, agent_id, full_name, date_of_birth, nationality, passport_number, phone_in_profile, lead_source, referral_agent_code, profile_status) VALUES (?, ?, ?, 'Sneha Test Student 2', '2001-08-20', 'Indian', ?, ?, 'agent_referral', 'TGA-NOI002', 'registered')")
+            ->execute([$stu2PubId, $stu2Info['id'], $agent2Id, EncryptionService::encrypt('B9876543'), EncryptionService::encrypt('+919777777702')]);
+        $stu2Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Student 2 (registered, no app): student_test_2@theglobalavenues.com\n";
+
+        // Student 3 — application under review (referred by agent1)
+        $stu3Info = $createUser('student_test_3@theglobalavenues.com', '+919777777703', 'Student@12345', 'student', 'active');
+        $stu3PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO students (public_id, user_id, agent_id, full_name, date_of_birth, nationality, passport_number, phone_in_profile, lead_source, referral_agent_code, profile_status) VALUES (?, ?, ?, 'Ravi Test Student 3', '2000-03-12', 'Indian', ?, ?, 'agent_referral', 'TGA-DEL001', 'application_in_progress')")
+            ->execute([$stu3PubId, $stu3Info['id'], $agent1Id, EncryptionService::encrypt('C1122334'), EncryptionService::encrypt('+919777777703')]);
+        $stu3Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Student 3 (under review): student_test_3@theglobalavenues.com\n";
+
+        // Student 4 — enrolled (referred by agent3, locked to agent)
+        $stu4Info = $createUser('student_test_4@theglobalavenues.com', '+919777777704', 'Student@12345', 'student', 'active');
+        $stu4PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO students (public_id, user_id, agent_id, full_name, date_of_birth, nationality, passport_number, phone_in_profile, lead_source, referral_agent_code, profile_status, agent_lock_status) VALUES (?, ?, ?, 'Anjali Test Student 4', '1999-11-05', 'Indian', ?, ?, 'agent_referral', 'TGA-GUR003', 'enrolled', 'locked')")
+            ->execute([$stu4PubId, $stu4Info['id'], $ag3Id, EncryptionService::encrypt('D5566778'), EncryptionService::encrypt('+919777777704')]);
+        $stu4Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Student 4 (enrolled): student_test_4@theglobalavenues.com\n";
+
+        // Student 5 — rejected application (referred by agent2)
+        $stu5Info = $createUser('student_test_5@theglobalavenues.com', '+919777777705', 'Student@12345', 'student', 'active');
+        $stu5PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO students (public_id, user_id, agent_id, full_name, date_of_birth, nationality, passport_number, phone_in_profile, lead_source, referral_agent_code, profile_status) VALUES (?, ?, ?, 'Karan Test Student 5', '2003-06-18', 'Indian', ?, ?, 'agent_referral', 'TGA-NOI002', 'registered')")
+            ->execute([$stu5PubId, $stu5Info['id'], $agent2Id, EncryptionService::encrypt('E9900112'), EncryptionService::encrypt('+919777777705')]);
+        $stu5Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Student 5 (rejected app): student_test_5@theglobalavenues.com\n";
+
+        // ── ADDITIONAL APPLICATIONS ──────────────────────────────────────────
+        // App 2: under_review (student3 → intake 2 MBA/EUAS, agent1)
+        $app2PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO applications (id, public_id, reference_number, student_id, intake_id, agent_id_at_submission, status, submitted_at, notes) VALUES (2, ?, 'TGA-2026-000002', ?, 2, ?, 'under_review', DATE_SUB(NOW(), INTERVAL 4 DAY), 'Test application — Business Administration under review')")
+            ->execute([$app2PubId, $stu3Id, $agent1Id]);
+        echo "-> [DEV] Application 2 (under_review): TGA-2026-000002\n";
+
+        // App 3: offer_received (student4 → intake 3 MD/St Georges, agent3)
+        $app3PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO applications (id, public_id, reference_number, student_id, intake_id, agent_id_at_submission, status, submitted_at, notes) VALUES (3, ?, 'TGA-2026-000003', ?, 3, ?, 'offer_received', DATE_SUB(NOW(), INTERVAL 10 DAY), 'Test application — MD St. Georges offer received')")
+            ->execute([$app3PubId, $stu4Id, $ag3Id]);
+        echo "-> [DEV] Application 3 (offer_received): TGA-2026-000003\n";
+
+        // App 4: enrolled (student4 → intake 1 AI/FH Kufstein, agent3)
+        $app4PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO applications (id, public_id, reference_number, student_id, intake_id, agent_id_at_submission, status, submitted_at, notes) VALUES (4, ?, 'TGA-2026-000004', ?, 1, ?, 'enrolled', DATE_SUB(NOW(), INTERVAL 20 DAY), 'Test application — AI & Data Science FH Kufstein enrolled')")
+            ->execute([$app4PubId, $stu4Id, $ag3Id]);
+        echo "-> [DEV] Application 4 (enrolled): TGA-2026-000004\n";
+
+        // App 5: rejected (student5 → intake 4 MBA/Benedictine, agent2)
+        $app5PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO applications (id, public_id, reference_number, student_id, intake_id, agent_id_at_submission, status, submitted_at, notes) VALUES (5, ?, 'TGA-2026-000005', ?, 4, ?, 'rejected', DATE_SUB(NOW(), INTERVAL 14 DAY), 'Test application — MBA Benedictine rejected')")
+            ->execute([$app5PubId, $stu5Id, $agent2Id]);
+        echo "-> [DEV] Application 5 (rejected): TGA-2026-000005\n";
+
+        // App 6: withdrawn (student1 second app → intake 2)
+        $app6PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO applications (id, public_id, reference_number, student_id, intake_id, agent_id_at_submission, status, submitted_at, withdrawal_reason, notes) VALUES (6, ?, 'TGA-2026-000006', ?, 2, ?, 'withdrawn', DATE_SUB(NOW(), INTERVAL 7 DAY), 'Student relocated to a different country', 'Test application — Business Admin withdrawn')")
+            ->execute([$app6PubId, $studentId, $agent1Id]);
+        echo "-> [DEV] Application 6 (withdrawn): TGA-2026-000006\n";
+
+        // Update sequence to 7
+        $pdo->exec("UPDATE sequences SET next_val = 7 WHERE seq_name = 'application_ref'");
+
+        // ── APPLICATION TIMELINE + DOCUMENT REQUESTS + PAYMENTS ─────────────
+        // App 2 timeline
+        $pdo->prepare("INSERT INTO application_updates (public_id, application_id, direction, item_type, content, posted_by_type, posted_by_id) VALUES (?, 2, 'student_to_admin', 'note', 'Test: Application submitted for Business Administration.', 'student', ?)")
+            ->execute([UlidGenerator::generate(), $stu3Info['id']]);
+        $pdo->prepare("INSERT INTO application_updates (public_id, application_id, direction, item_type, content, posted_by_type, posted_by_id) VALUES (?, 2, 'admin_to_student', 'note', 'Test: Application is now under review. We will update you within 3 business days.', 'admin', ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+
+        // App 2 — 2 document requests (submitted + requested → shows in pending reviews)
+        $pdo->prepare("INSERT INTO document_requests (public_id, student_id, application_id, doc_label, description, deadline, status, requested_by) VALUES (?, ?, 2, 'Academic Transcripts Test', 'Upload all university academic transcripts', DATE_ADD(NOW(), INTERVAL 5 DAY), 'submitted', ?)")
+            ->execute([UlidGenerator::generate(), $stu3Id, $adminInfo['id']]);
+        $dr2Id = (int)$pdo->lastInsertId();
+        $pdo->prepare("INSERT INTO document_requests (public_id, student_id, application_id, doc_label, description, deadline, status, requested_by) VALUES (?, ?, 2, 'English Proficiency Test Score', 'IELTS / TOEFL score card (min 6.5 overall)', DATE_ADD(NOW(), INTERVAL 3 DAY), 'requested', ?)")
+            ->execute([UlidGenerator::generate(), $stu3Id, $adminInfo['id']]);
+        $dr3Id = (int)$pdo->lastInsertId();
+
+        // App 3 — approved doc + payment confirmed
+        $pdo->prepare("INSERT INTO document_requests (public_id, student_id, application_id, doc_label, description, deadline, status, requested_by) VALUES (?, ?, 3, 'Passport Copy Test', 'Clear scan of valid passport — all pages', DATE_ADD(NOW(), INTERVAL 10 DAY), 'approved', ?)")
+            ->execute([UlidGenerator::generate(), $stu4Id, $adminInfo['id']]);
+        $pdo->prepare("INSERT INTO application_payments (public_id, application_id, label, amount, currency, due_date, status, created_by) VALUES (?, 3, 'Application Fee Test', 100.00, 'EUR', DATE_ADD(NOW(), INTERVAL 7 DAY), 'confirmed', ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+
+        // App 4 — enrolled payment paid
+        $pdo->prepare("INSERT INTO application_payments (public_id, application_id, label, amount, currency, due_date, status, created_by) VALUES (?, 4, 'Enrollment Deposit Test', 726.00, 'EUR', DATE_SUB(NOW(), INTERVAL 5 DAY), 'confirmed', ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+        echo "-> [DEV] App timelines, document requests, payments seeded\n";
+
+        // ── ADDITIONAL COMMISSIONS ───────────────────────────────────────────
+        // Commission 2: pending (app 2, agent1)
+        $comm2PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO commissions (public_id, application_id, agent_id, created_by_user_id, created_by_name, amount, percentage, currency, status, notes) VALUES (?, 2, ?, ?, 'Super Admin Test', 18000.00, 10.00, 'INR', 'pending', 'Test commission — Business Administration application')")
+            ->execute([$comm2PubId, $agent1Id, $adminInfo['id']]);
+        $comm2Id = (int)$pdo->lastInsertId();
+
+        // Commission 3: confirmed (app 3, agent3)
+        $comm3PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO commissions (public_id, application_id, agent_id, created_by_user_id, created_by_name, amount, percentage, currency, status, notes) VALUES (?, 3, ?, ?, 'Super Admin Test', 25000.00, 10.00, 'INR', 'confirmed', 'Test commission — MD St Georges offer confirmed')")
+            ->execute([$comm3PubId, $ag3Id, $adminInfo['id']]);
+        $comm3Id = (int)$pdo->lastInsertId();
+
+        // Commission 4: paid (app 4, agent3) — INSERT as paid directly; trigger only fires on UPDATE
+        $comm4PubId = UlidGenerator::generate();
+        $pdo->prepare("INSERT INTO commissions (public_id, application_id, agent_id, created_by_user_id, created_by_name, paid_by_user_id, paid_by_name, paid_at, amount, percentage, currency, status, notes) VALUES (?, 4, ?, ?, 'Super Admin Test', ?, 'Super Admin Test', DATE_SUB(NOW(), INTERVAL 5 DAY), 12000.00, 10.00, 'INR', 'paid', 'Test commission — AI enrollment paid')")
+            ->execute([$comm4PubId, $ag3Id, $adminInfo['id'], $adminInfo['id']]);
+        $comm4Id = (int)$pdo->lastInsertId();
+        echo "-> [DEV] Commissions (pending ×2, confirmed, paid) seeded\n";
+
+        // ── COMMISSION AUDIT LOG ─────────────────────────────────────────────
+        $calStmt = $pdo->prepare("INSERT INTO commission_audit_log (public_id, commission_id, commission_public_id, old_status, new_status, old_amount, new_amount, action, changed_by_user_id, changed_by_name, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $calStmt->execute([UlidGenerator::generate(), $comm1Id, $comm1PublicId, '',        'pending',   null,      15000.00, 'created',   $adminInfo['id'], 'Super Admin Test', 'Test seed: commission created']);
+        $calStmt->execute([UlidGenerator::generate(), $comm2Id, $comm2PubId,    '',        'pending',   null,      18000.00, 'created',   $adminInfo['id'], 'Super Admin Test', 'Test seed: commission created']);
+        $calStmt->execute([UlidGenerator::generate(), $comm3Id, $comm3PubId,    'pending', 'confirmed', 25000.00,  25000.00, 'confirmed', $adminInfo['id'], 'Super Admin Test', 'Test seed: admin confirmed commission']);
+        $calStmt->execute([UlidGenerator::generate(), $comm4Id, $comm4PubId,    'pending', 'confirmed', 12000.00,  12000.00, 'confirmed', $adminInfo['id'], 'Super Admin Test', 'Test seed: admin confirmed commission']);
+        $calStmt->execute([UlidGenerator::generate(), $comm4Id, $comm4PubId,    'confirmed','paid',     12000.00,  12000.00, 'paid',      $adminInfo['id'], 'Super Admin Test', 'Test seed: bank transfer completed']);
+        echo "-> [DEV] Commission audit log (5 entries) seeded\n";
+
+        // ── LEADS ────────────────────────────────────────────────────────────
+        $createLead = function(string $name, string $email, string $phone, string $source, string $country, string $course, string $status, ?int $assignedTo = null, ?int $convertedStudentId = null) use ($pdo): array {
+            $pubId = UlidGenerator::generate();
+            $pdo->prepare("INSERT INTO leads (public_id, full_name, email, email_lookup_hash, phone, source, source_detail, interested_country, interested_course, status, assigned_to, converted_student_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+                ->execute([$pubId, $name, EncryptionService::encrypt($email), EncryptionService::hash($email), EncryptionService::encrypt($phone), $source, json_encode(['medium' => 'test_seed', 'source' => $source]), $country, $course, $status, $assignedTo, $convertedStudentId]);
+            return ['id' => (int)$pdo->lastInsertId(), 'public_id' => $pubId];
+        };
+        $lead1 = $createLead('Mohit Test Lead 1', 'lead_test_1@test.com', '+919600000001', 'website_form',  'Austria', 'AI & Data Science', 'new');
+        $lead2 = $createLead('Deepa Test Lead 2', 'lead_test_2@test.com', '+919600000002', 'instagram',     'Germany', 'MBA',               'contacted', $cslAdminId);
+        $lead3 = $createLead('Farhan Test Lead 3','lead_test_3@test.com', '+919600000003', 'referral',      'France',  'Graphic Design',    'qualified',  $cslAdminId);
+        $lead4 = $createLead('Pooja Test Lead 4', 'lead_test_4@test.com', '+919600000004', 'google_ads',    'USA',     'Computer Science',  'converted',  null, $stu2Id);
+        $lead5 = $createLead('Rohan Test Lead 5', 'lead_test_5@test.com', '+919600000005', 'facebook',      'Cyprus',  'Hospitality Mgmt',  'dropped');
+        echo "-> [DEV] Leads (new, contacted, qualified, converted, dropped) seeded\n";
+
+        // ── NOTICES ──────────────────────────────────────────────────────────
+        $pdo->prepare("INSERT INTO notices (public_id, title, content, notice_type, visible_to_students, visible_to_agents, visible_to_admins, status, published_at, created_by) VALUES (?, 'Welcome to TGA Portal Test Notice 1', '<p>Welcome to The Global Avenues CRM portal. This is a <strong>test notice</strong> visible to all users.</p>', 'notice', 1, 1, 1, 'published', DATE_SUB(NOW(), INTERVAL 2 DAY), ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+        $pdo->prepare("INSERT INTO notices (public_id, title, content, notice_type, visible_to_students, visible_to_agents, visible_to_admins, status, published_at, expires_at, created_by) VALUES (?, 'Student Scholarship Test Notice 2', '<p>A scholarship is available for students applying to Austria and Estonia partner universities. Deadline: 30 July 2026.</p>', 'notice', 1, 0, 0, 'published', DATE_SUB(NOW(), INTERVAL 1 DAY), DATE_ADD(NOW(), INTERVAL 30 DAY), ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+        $pdo->prepare("INSERT INTO notices (public_id, title, content, notice_type, visible_to_students, visible_to_agents, visible_to_admins, status, published_at, created_by) VALUES (?, 'Agent Commission Update Test Notice 3', '<p>Commission rates updated for Fall 2026. Gold-tier agents receive <strong>12% base commission</strong> on confirmed enrollments.</p>', 'notice', 0, 1, 1, 'published', DATE_SUB(NOW(), INTERVAL 3 DAY), ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+        $pdo->prepare("INSERT INTO notices (public_id, title, content, notice_type, event_date, event_location, visible_to_students, visible_to_agents, visible_to_admins, status, created_by) VALUES (?, 'University Fair Test Event 1', '<p>Join us for an exclusive university fair featuring all TGA partner institutions. Free registration.</p>', 'event', DATE_ADD(NOW(), INTERVAL 14 DAY), 'New Delhi, India', 1, 1, 1, 'draft', ?)")
+            ->execute([UlidGenerator::generate(), $adminInfo['id']]);
+        echo "-> [DEV] Notices (published ×3, draft ×1) seeded\n";
+
+        // ── INTERNAL NOTES ───────────────────────────────────────────────────
+        $inStmt = $pdo->prepare("INSERT INTO internal_notes (public_id, entity_type, entity_id, content, author_type, author_id, visible_to_agent, visible_to_admin, is_pinned) VALUES (?, ?, ?, ?, 'admin', ?, ?, 1, ?)");
+        $inStmt->execute([UlidGenerator::generate(), 'student',     $stu3Id,    'Test Note 1: Strong academics, IELTS 7.0. Prioritise Austria placement. Pinned for counsellor.', $adminInfo['id'], 0, 1]);
+        $inStmt->execute([UlidGenerator::generate(), 'student',     $stu3Id,    'Test Note 2: Parent contacted re scholarship options. Sent brochure via email.', $cslAdminId, 1, 0]);
+        $inStmt->execute([UlidGenerator::generate(), 'application', 2,          'Test Note 3: Transcripts look incomplete — need certified copies. Flag for student.', $cslAdminId, 0, 0]);
+        $inStmt->execute([UlidGenerator::generate(), 'student',     $stu4Id,    'Test Note 4: Visa approved. Departure confirmed August 2026. Pre-departure briefing scheduled. Pinned.', $adminInfo['id'], 1, 1]);
+        $inStmt->execute([UlidGenerator::generate(), 'application', 1,          'Test Note 5: First test application — needs follow-up on document submission timeline.', $adminInfo['id'], 0, 0]);
+        echo "-> [DEV] Internal notes (5 entries) seeded\n";
+
+        // ── AGENT REASSIGNMENT REQUESTS ──────────────────────────────────────
+        // Pending request (student2 wants to move from agent2 → agent1)
+        $pdo->prepare("INSERT INTO agent_reassignment_requests (public_id, student_id, current_agent_id, requested_agent_id, reason, status) VALUES (?, ?, ?, ?, ?, 'pending')")
+            ->execute([UlidGenerator::generate(), $stu2Id, $agent2Id, $agent1Id, 'Test reassignment: Student prefers working with senior L1 agent for complex multi-country application.']);
+        // Approved historical request (student3 already on agent1, this is past record)
+        $pdo->prepare("INSERT INTO agent_reassignment_requests (public_id, student_id, current_agent_id, requested_agent_id, final_agent_id, reason, status, reviewed_by, reviewed_at, review_notes) VALUES (?, ?, ?, ?, ?, 'Test reassignment history: agent was unresponsive.', 'approved', ?, NOW(), 'Test: Approved after verification.')")
+            ->execute([UlidGenerator::generate(), $stu3Id, $agent2Id, $agent1Id, $agent1Id, $adminInfo['id']]);
+        echo "-> [DEV] Reassignment requests (1 pending, 1 approved) seeded\n";
+
+        // ── SLA EVENTS ───────────────────────────────────────────────────────
+        $slaRules = [];
+        foreach ($pdo->query("SELECT id, rule_name FROM sla_rules")->fetchAll(PDO::FETCH_ASSOC) as $r) {
+            $slaRules[$r['rule_name']] = (int)$r['id'];
+        }
+        if (isset($slaRules['application_review'])) {
+            // App 2 submitted 4 days ago → 72hr target already passed → BREACHED
+            $pdo->prepare("INSERT INTO sla_events (sla_rule_id, entity_type, entity_id, started_at, target_at, status, breach_notified) VALUES (?, 'application', 2, DATE_SUB(NOW(), INTERVAL 4 DAY), DATE_SUB(NOW(), INTERVAL 1 DAY), 'breached', 1)")
+                ->execute([$slaRules['application_review']]);
+        }
+        if (isset($slaRules['document_review'])) {
+            // Doc request 2 submitted 12 hrs ago → 48hr target still active
+            $pdo->prepare("INSERT INTO sla_events (sla_rule_id, entity_type, entity_id, started_at, target_at, status, breach_notified) VALUES (?, 'document_request', ?, DATE_SUB(NOW(), INTERVAL 12 HOUR), DATE_ADD(NOW(), INTERVAL 36 HOUR), 'active', 0)")
+                ->execute([$slaRules['document_review'], $dr2Id]);
+        }
+        if (isset($slaRules['lead_first_contact'])) {
+            // Lead 1 created 2 hrs ago → 24hr window → active
+            $pdo->prepare("INSERT INTO sla_events (sla_rule_id, entity_type, entity_id, started_at, target_at, status, breach_notified) VALUES (?, 'lead', ?, DATE_SUB(NOW(), INTERVAL 2 HOUR), DATE_ADD(NOW(), INTERVAL 22 HOUR), 'active', 0)")
+                ->execute([$slaRules['lead_first_contact'], $lead1['id']]);
+        }
+        echo "-> [DEV] SLA events (1 breached, 2 active) seeded\n";
+
+        // ── ACTIVITY LOGS ────────────────────────────────────────────────────
+        $actStmt = $pdo->prepare("INSERT INTO activity_logs (actor_user_id, actor_user_type, actor_display_name, action, target_type, target_id, target_public_id, target_display, before_value, after_value, ip_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '127.0.0.1')");
+        // Application status changes — required by AdminDashboardController "recent stage movements"
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'application.status_changed', 'application', 2, $app2PubId, 'TGA-2026-000002', json_encode(['status'=>'submitted']),     json_encode(['status'=>'under_review'])]);
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'application.status_changed', 'application', 3, $app3PubId, 'TGA-2026-000003', json_encode(['status'=>'under_review']),  json_encode(['status'=>'offer_received'])]);
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'application.status_changed', 'application', 4, $app4PubId, 'TGA-2026-000004', json_encode(['status'=>'offer_received']),json_encode(['status'=>'enrolled'])]);
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'application.status_changed', 'application', 5, $app5PubId, 'TGA-2026-000005', json_encode(['status'=>'under_review']),  json_encode(['status'=>'rejected'])]);
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'application.status_changed', 'application', 6, $app6PubId, 'TGA-2026-000006', json_encode(['status'=>'submitted']),     json_encode(['status'=>'withdrawn'])]);
+        // Agent approvals
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'agent.approved', 'agent', $agent1Id, $agent1PublicId, 'Rajesh Kumar — Delhi Consultations Test', json_encode(['status'=>'pending']), json_encode(['status'=>'approved'])]);
+        $actStmt->execute([$adminInfo['id'], 'admin', 'Super Admin Test', 'agent.approved', 'agent', $agent2Id, $agent2PublicId, 'Sonia Sharma — Noida Franchise Test',    json_encode(['status'=>'pending']), json_encode(['status'=>'approved'])]);
+        // Lead activity
+        $actStmt->execute([$adminInfo['id'],  'admin', 'Super Admin Test',      'lead.created',         'lead', $lead1['id'], $lead1['public_id'], 'Mohit Test Lead 1',  null,                              json_encode(['status'=>'new'])]);
+        $actStmt->execute([$cslAdminId,       'admin', 'Priya Counsellor Test', 'lead.status_changed',  'lead', $lead2['id'], $lead2['public_id'], 'Deepa Test Lead 2',  json_encode(['status'=>'new']),     json_encode(['status'=>'contacted'])]);
+        // Commission paid
+        $actStmt->execute([$adminInfo['id'],  'admin', 'Super Admin Test',      'commission.paid',      'commission', $comm4Id, $comm4PubId, 'INR 12000 — Anjali Test Student 4', json_encode(['status'=>'confirmed']), json_encode(['status'=>'paid'])]);
+        echo "-> [DEV] Activity logs (10 entries) seeded\n";
+
+        // ── REPORT SNAPSHOTS ─────────────────────────────────────────────────
+        $snapStmt = $pdo->prepare("INSERT IGNORE INTO report_snapshots (snapshot_date, metric_key, metric_value, dimension_type, dimension_id) VALUES (?, ?, ?, ?, ?)");
+        $today = new \DateTime();
+
+        // 7 days of global + per-agent + per-source snapshots
+        $globalMetrics = [
+            ['total_students',          5],
+            ['new_students',            1],
+            ['total_applications',      6],
+            ['total_offers',            1],
+            ['total_enrollments',       1],
+            ['total_leads',             5],
+            ['conversion_rate_pct',    40.0],
+            ['commissions_pending_inr', 33000],
+            ['commissions_paid_inr',   12000],
+        ];
+        $agentMetrics = [
+            // [agent_public_id, students, enrollments, conversion_rate, paid_inr]
+            [$agent1PublicId, 3, 0,  0.0,   0],
+            [$agent2PublicId, 2, 0,  0.0,   0],
+            [$ag3PublicId,    1, 1, 100.0, 12000],
+        ];
+        $sourceMetrics = [
+            ['website_form', 2, 1, 50.0],
+            ['referral',     1, 0,  0.0],
+            ['google_ads',   1, 0,  0.0],
+        ];
+
+        $uniRows = $pdo->query("SELECT public_id FROM universities WHERE deleted_at IS NULL LIMIT 4")->fetchAll(PDO::FETCH_COLUMN);
+        $uniMetrics = [
+            [$uniRows[0] ?? '_unk', 3, 2, 1, 66.7, 33.3],
+            [$uniRows[1] ?? '_unk', 2, 1, 0, 50.0,  0.0],
+            [$uniRows[2] ?? '_unk', 1, 0, 0,  0.0,  0.0],
+        ];
+
+        for ($i = 6; $i >= 0; $i--) {
+            $d = clone $today;
+            $d->modify("-{$i} days");
+            $date = $d->format('Y-m-d');
+
+            foreach ($globalMetrics as [$key, $val]) {
+                $snapStmt->execute([$date, $key, $val, 'global', '_global']);
+            }
+            foreach ($agentMetrics as [$apid, $stu, $enr, $rate, $paid]) {
+                $snapStmt->execute([$date, 'agent_students',         $stu,  'agent', $apid]);
+                $snapStmt->execute([$date, 'agent_enrollments',      $enr,  'agent', $apid]);
+                $snapStmt->execute([$date, 'agent_conversion_rate',  $rate, 'agent', $apid]);
+                $snapStmt->execute([$date, 'agent_commissions_paid', $paid, 'agent', $apid]);
+            }
+            foreach ($sourceMetrics as [$src, $stu, $enr, $rate]) {
+                $snapStmt->execute([$date, 'source_students',         $stu,  'lead_source', $src]);
+                $snapStmt->execute([$date, 'source_enrollments',      $enr,  'lead_source', $src]);
+                $snapStmt->execute([$date, 'source_conversion_rate',  $rate, 'lead_source', $src]);
+            }
+            foreach ($uniMetrics as [$upid, $apps, $offers, $enr, $offerRate, $enrRate]) {
+                $snapStmt->execute([$date, 'uni_applications',    $apps,      'university', $upid]);
+                $snapStmt->execute([$date, 'uni_offers',          $offers,    'university', $upid]);
+                $snapStmt->execute([$date, 'uni_enrollments',     $enr,       'university', $upid]);
+                $snapStmt->execute([$date, 'uni_offer_rate',      $offerRate, 'university', $upid]);
+                $snapStmt->execute([$date, 'uni_enrollment_rate', $enrRate,   'university', $upid]);
+            }
+        }
+        echo "-> [DEV] Report snapshots (7 days × global + agents + universities + sources) seeded\n";
+
+        // ── AGENT STATS ──────────────────────────────────────────────────────
+        $pdo->prepare("INSERT INTO agent_stats (agent_id, total_students, enrolled_count, in_progress_count, new_count, pending_commissions_inr, confirmed_commissions_inr, paid_commissions_inr, last_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
+            ->execute([$agent1Id, 3, 0, 1, 2, 33000.00,  0.00,     0.00]);
+        $pdo->prepare("INSERT INTO agent_stats (agent_id, total_students, enrolled_count, in_progress_count, new_count, pending_commissions_inr, confirmed_commissions_inr, paid_commissions_inr, last_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
+            ->execute([$agent2Id, 2, 0, 0, 2,     0.00,  0.00,     0.00]);
+        $pdo->prepare("INSERT INTO agent_stats (agent_id, total_students, enrolled_count, in_progress_count, new_count, pending_commissions_inr, confirmed_commissions_inr, paid_commissions_inr, last_updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())")
+            ->execute([$ag3Id,   1, 1, 0, 0,     0.00, 25000.00, 12000.00]);
+        echo "-> [DEV] Agent stats seeded for 3 agents\n";
+
+        // ── STUDENT ACADEMICS + TEST SCORES ─────────────────────────────────
+        // Student 4 — full academic profile (enrolled, so expect complete docs)
+        $pdo->prepare("INSERT INTO student_academics (public_id, student_id, institution_name, degree_level, field_of_study, start_date, end_date, score_type, score_value, is_highest_qualification) VALUES (?, ?, 'Delhi Public School Test', 'High School', 'Science (PCM)', '2015-04-01', '2017-03-31', 'Percentage', '87.4%', TRUE)")
+            ->execute([UlidGenerator::generate(), $stu4Id]);
+        $pdo->prepare("INSERT INTO student_academics (public_id, student_id, institution_name, degree_level, field_of_study, start_date, end_date, score_type, score_value, is_highest_qualification) VALUES (?, ?, 'Amity University Test', 'Bachelors', 'Computer Science', '2017-07-01', '2021-05-31', 'CGPA', '8.2 / 10', FALSE)")
+            ->execute([UlidGenerator::generate(), $stu4Id]);
+        $pdo->prepare("INSERT INTO student_test_scores (public_id, student_id, test_name, overall_score, reading_score, writing_score, listening_score, speaking_score, test_date) VALUES (?, ?, 'IELTS', '7.0', '7.0', '6.5', '7.5', '7.0', '2025-11-15')")
+            ->execute([UlidGenerator::generate(), $stu4Id]);
+        // Student 3 — in progress, has TOEFL
+        $pdo->prepare("INSERT INTO student_test_scores (public_id, student_id, test_name, overall_score, reading_score, writing_score, listening_score, speaking_score, test_date) VALUES (?, ?, 'TOEFL', '105', '28', '24', '27', '26', '2025-09-20')")
+            ->execute([UlidGenerator::generate(), $stu3Id]);
+        echo "-> [DEV] Student academics (2 records) + test scores (2 records) seeded\n";
+
+        // ── NOTIFICATIONS ────────────────────────────────────────────────────
+        $notifStmt = $pdo->prepare("INSERT INTO notifications (public_id, event_key, recipient_user_id, channel, category, subject, body, status, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+        $now = date('Y-m-d H:i:s');
+        $notifStmt->execute([UlidGenerator::generate(), 'application.status_changed', $studentInfo['id'], 'in_app', 'system',    'Application TGA-2026-000001 Submitted',       'Your application has been submitted successfully.',                          'sent',   $now]);
+        $notifStmt->execute([UlidGenerator::generate(), 'application.status_changed', $stu4Info['id'],    'in_app', 'system',    'Congratulations — Application Enrolled',       'Your application TGA-2026-000004 has been moved to Enrolled.',                'sent',   $now]);
+        $notifStmt->execute([UlidGenerator::generate(), 'commission.created',         $ag3Info['id'],     'in_app', 'approvals', 'Commission Record Created',                    'A commission of INR 12,000 has been recorded for Anjali Test Student 4.',    'sent',   $now]);
+        $notifStmt->execute([UlidGenerator::generate(), 'notice.published',           $studentInfo['id'], 'in_app', 'system',    'New Notice: Welcome to TGA Portal Test Notice 1','Welcome to The Global Avenues CRM portal.',                              'queued', null]);
+        $notifStmt->execute([UlidGenerator::generate(), 'lead.new',                   $adminInfo['id'],   'in_app', 'system',    'New Lead: Mohit Test Lead 1 from website_form','A new lead has been captured from the website.',                            'queued', null]);
+        echo "-> [DEV] Notifications (3 sent, 2 queued) seeded\n";
+
+        echo "\n[DEV] Comprehensive test data complete.\n";
+        echo "Test accounts (password: Admin@12345 / Agent@12345 / Student@12345):\n";
+        echo "  Admin (super):      env-configured SUPER_ADMIN_EMAIL\n";
+        echo "  Admin (ops):        ops@theglobalavenues.com\n";
+        echo "  Admin (counsellor): admin_test_counsellor@theglobalavenues.com\n";
+        echo "  Admin (visa):       admin_test_visa@theglobalavenues.com\n";
+        echo "  Agent L1 (approved):agent1@theglobalavenues.com   (TGA-DEL001)\n";
+        echo "  Agent L2 (approved):agent2@theglobalavenues.com   (TGA-NOI002)\n";
+        echo "  Agent L3 (approved):agent_test_3@theglobalavenues.com (TGA-GUR003)\n";
+        echo "  Agent (pending):    agent_test_4@theglobalavenues.com\n";
+        echo "  Agent (pending):    agent_test_5@theglobalavenues.com\n";
+        echo "  Student 1 (app submitted):   student@theglobalavenues.com\n";
+        echo "  Student 2 (registered):      student_test_2@theglobalavenues.com\n";
+        echo "  Student 3 (under review):    student_test_3@theglobalavenues.com\n";
+        echo "  Student 4 (enrolled):        student_test_4@theglobalavenues.com\n";
+        echo "  Student 5 (rejected app):    student_test_5@theglobalavenues.com\n\n";
     }
 
     echo "==========================================\n";

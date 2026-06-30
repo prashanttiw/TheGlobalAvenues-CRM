@@ -1,298 +1,286 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import * as z from 'zod';
-import { User, Briefcase, ArrowRight, CheckCircle, Globe, GraduationCap, ChevronLeft } from 'lucide-react';
+import {
+  User, Briefcase, ArrowRight, CheckCircle, Globe,
+  Eye, EyeOff, Mail, Lock, RefreshCw, ShieldCheck,
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
 import {
-  registerAgent,
-  registerStudent,
-  updateStudentProfile,
-  verifyStudentRegistrationOtp,
-  verifyAgentRegistrationOtp,
+  sendRegistrationOtp,
+  verifyRegistrationOtp,
+  completeStudentRegistration,
+  completeAgentRegistration,
 } from '../lib/api';
 import { useAuth } from '../shared/hooks/useAuth';
 
-// Zod Validations schemas
-const studentSchema = z.object({
-  firstName: z.string().min(2, 'First name must be at least 2 characters'),
-  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
-  email: z.string().email('Please enter a valid email address'),
-  phone: z.string().min(10, 'Please enter a valid 10-digit phone number'),
-  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/, 'Password must be 8+ chars and include upper, lower, number, and special character'),
-  gpa: z.string().min(1, 'GPA / academic score is required'),
-  englishScore: z.string().min(1, 'Please enter your IELTS/proficiency score'),
-  desiredCountry: z.string().min(1, 'Please select your target country'),
-  desiredSubject: z.string().min(1, 'Please select your preferred study area'),
-  budgetRange: z.string().min(1, 'Please select your annual tuition budget'),
-});
+type Role = 'student' | 'agent';
+type Step = 1 | 2 | 3 | 4;
 
-const agentSchema = z.object({
-  agencyName: z.string().min(2, 'Agency name is required'),
-  agencyCountry: z.string().min(2, 'Agency headquarters country is required'),
-  registrationNumber: z.string().min(4, 'Please enter a valid business registration number'),
-  email: z.string().email('Please enter a valid agency email'),
-  phone: z.string().min(10, 'Please enter a valid agency phone contact'),
-  partnershipType: z.enum(['exclusive', 'non_exclusive']),
-  password: z.string().regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/, 'Password must be 8+ chars and include upper, lower, number, and special character'),
-});
-
-const PUBLIC_STEPS = [
-  { step: '01', title: 'Basic Details', desc: 'Secure register' },
-  { step: '02', title: 'Academics', desc: 'Grades & scores' },
-  { step: '03', title: 'Preferences', desc: 'Budget & goals' },
+const STEPS = [
+  { label: 'Verify Email', desc: 'Enter email & get OTP' },
+  { label: 'Confirm Code', desc: 'Enter 6-digit OTP' },
+  { label: 'Set Password', desc: 'Secure your account' },
 ];
+
+function PasswordStrengthBar({ password }: { password: string }) {
+  if (!password) return null;
+  const checks = [
+    password.length >= 8,
+    /[A-Z]/.test(password),
+    /[a-z]/.test(password),
+    /\d/.test(password),
+    /[^A-Za-z\d]/.test(password),
+  ];
+  const score = checks.filter(Boolean).length;
+  const label = score <= 1 ? 'Weak' : score <= 3 ? 'Fair' : score === 4 ? 'Good' : 'Strong';
+  const color =
+    score <= 1 ? 'bg-red-400' :
+    score <= 3 ? 'bg-yellow-400' :
+    score === 4 ? 'bg-blue-400' : 'bg-green-500';
+  return (
+    <div className="mt-1.5">
+      <div className="flex gap-0.5 mb-1">
+        {[1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className={`h-1 flex-1 rounded-full transition-all ${i <= score ? color : 'bg-gray-200'}`} />
+        ))}
+      </div>
+      <span className="text-[10px] text-gray-400 font-semibold">{label}</span>
+    </div>
+  );
+}
 
 export function ApplyPage() {
   const establishSession = useAuth((state) => state.establishSession);
   const navigate = useNavigate();
 
-  const [role, setRole] = useState<'student' | 'agent'>('student');
-  const [currentStep, setCurrentStep] = useState(1);
-  const [successMode, setSuccessMode] = useState(false);
-  const [otpMode, setOtpMode] = useState(false);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [role, setRole] = useState<Role>('student');
+  const [step, setStep] = useState<Step>(1);
+  const [loading, setLoading] = useState(false);
+  const [resending, setResending] = useState(false);
+
+  // Step 1
+  const [email, setEmail] = useState('');
+
+  // Step 2
+  const [sessionToken, setSessionToken] = useState('');
   const [otpCode, setOtpCode] = useState('');
-  const [otpLoading, setOtpLoading] = useState(false);
-  const [tempRegData, setTempRegData] = useState<any>(null);
 
-  // Dynamic Theme Colors depending on active role selection
-  const theme = role === 'student'
-    ? { primary: 'from-[#FD7E14] to-[#C94D1B]', accent: '#FD7E14', glow: 'rgba(253,126,20,0.15)' }
-    : { primary: 'from-[#2D1B69] to-[#3B2B85]', accent: '#2D1B69', glow: 'rgba(45,27,105,0.15)' };
+  // Step 3 — password only
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Forms hook-ups
-  const {
-    register: regStudent,
-    handleSubmit: handleStudentSubmit,
-    trigger: triggerStudent,
-    formState: { errors: errorsStudent },
-    getValues: getValuesStudent
-  } = useForm<z.infer<typeof studentSchema>>({
-    resolver: zodResolver(studentSchema),
-    defaultValues: {
-      firstName: '',
-      lastName: '',
-      email: '',
-      phone: '',
-      password: '',
-      gpa: '',
-      englishScore: '',
-      desiredCountry: '',
-      desiredSubject: '',
-      budgetRange: '',
+  const isStudent = role === 'student';
+  const themeFrom = isStudent ? '#FD7E14' : '#2D1B69';
+  const themeTo = isStudent ? '#C94D1B' : '#3B2B85';
+  const themeGlow = isStudent ? 'rgba(253,126,20,0.12)' : 'rgba(45,27,105,0.12)';
+  const focusBorder = isStudent ? 'focus:border-[#FD7E14]' : 'focus:border-[#2D1B69]';
+  const focusRing = isStudent ? 'focus:ring-[#FD7E14]/15' : 'focus:ring-[#2D1B69]/15';
+
+  const currentStepIdx = step - 1;
+
+  const inputClass = `w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none ${focusBorder} focus:bg-white focus:ring-4 ${focusRing} transition-all placeholder:text-gray-400`;
+
+  const handleSendOtp = async () => {
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      toast.error('Please enter a valid email address.');
+      return;
     }
-  });
-
-  const {
-    register: regAgent,
-    handleSubmit: handleAgentSubmit,
-    formState: { errors: errorsAgent }
-  } = useForm<z.infer<typeof agentSchema>>({
-    resolver: zodResolver(agentSchema),
-    defaultValues: {
-      agencyName: '',
-      agencyCountry: 'India',
-      registrationNumber: '',
-      email: '',
-      phone: '',
-      partnershipType: 'exclusive',
-      password: '',
-    }
-  });
-
-  // Handle student multi-step validation triggers
-  const handleNextStep = async () => {
-    let fieldsToValidate: any[] = [];
-    if (currentStep === 1) {
-      fieldsToValidate = ['firstName', 'lastName', 'email', 'phone', 'password'];
-    } else if (currentStep === 2) {
-      fieldsToValidate = ['gpa', 'englishScore'];
-    }
-
-    const isValid = await triggerStudent(fieldsToValidate);
-    if (isValid) {
-      setCurrentStep(prev => prev + 1);
-    } else {
-      toast.error('Please resolve all validation errors on the current step.');
-    }
-  };
-
-  const onStudentRegisterSubmit = async (data: z.infer<typeof studentSchema>) => {
+    setLoading(true);
     try {
-      const initResult = await registerStudent({
-        first_name: data.firstName,
-        last_name: data.lastName,
-        email: data.email,
-        phone: data.phone,
-        password: data.password,
-        date_of_birth: '2004-10-10', // Required by backend
-        nationality: 'Indian', // Required by backend
-      });
-
-      setSessionToken(initResult.session_token);
-      setTempRegData(data);
-      setOtpMode(true);
-      toast.success('Verification OTP code sent to your email.');
+      const result = await sendRegistrationOtp(email, role);
+      setSessionToken(result.session_token);
+      toast.success('Verification code sent to your email.');
+      setStep(2);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to initiate student registration.');
-    }
-  };
-
-  const handleStudentOtpVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sessionToken || !tempRegData) return;
-
-    setOtpLoading(true);
-    try {
-      const sessionResult = await verifyStudentRegistrationOtp(sessionToken, otpCode);
-      
-      const budgetMap: Record<string, [number, number]> = {
-        '€5,000–€10,000/year': [5000, 10000],
-        '€10,000–€15,000/year': [10000, 15000],
-        '€15,000+/year': [15000, 25000],
-      };
-      const [budgetMin, budgetMax] = budgetMap[tempRegData.budgetRange] ?? [5000, 10000];
-
-      await establishSession(sessionResult);
-
-      try {
-        await updateStudentProfile({
-        desired_country: tempRegData.desiredCountry,
-        desired_subject: tempRegData.desiredSubject,
-        desired_degree_level: 'bachelors',
-        budget_min: budgetMin,
-        budget_max: budgetMax,
-        career_goal: `Interested in ${tempRegData.desiredSubject} in ${tempRegData.desiredCountry}`,
-        nationality: 'Indian',
-          country_of_residence: 'India',
-        });
-      } catch (profileError) {
-        console.warn('Student preference sync is not available on the active backend route map yet:', profileError);
+      const msg: string = err.message || '';
+      if (msg.toLowerCase().includes('already registered')) {
+        toast.error('This email is already registered. Please log in instead.');
+      } else if (msg.includes('OTP_RATE_LIMITED')) {
+        const secs = parseInt(msg.split(':')[1] || '60', 10);
+        toast.error(`Too many OTP requests. Please wait ${Math.ceil(secs / 60)} min before trying again.`);
+      } else {
+        toast.error(msg || 'Failed to send verification code. Please try again.');
       }
-
-
-
-      setSuccessMode(true);
-      setOtpMode(false);
-      toast.success('Student registration completed successfully.');
-    } catch (err: any) {
-      toast.error(err.message || 'OTP verification failed.');
     } finally {
-      setOtpLoading(false);
+      setLoading(false);
     }
   };
 
-  const onAgentRegisterSubmit = async (data: z.infer<typeof agentSchema>) => {
+  const handleResend = async () => {
+    if (resending) return;
+    setResending(true);
     try {
-      const initResult = await registerAgent({
-        agency_name: data.agencyName,
-        agency_country: data.agencyCountry,
-        registration_number: data.registrationNumber,
-        email: data.email,
-        phone: data.phone,
-        partnership_type: data.partnershipType,
-        password: data.password,
-      });
-
-      setSessionToken(initResult.session_token);
-      setTempRegData(data);
-      setOtpMode(true);
-      toast.success('Verification OTP code sent to your agency email.');
+      const result = await sendRegistrationOtp(email, role);
+      setSessionToken(result.session_token);
+      setOtpCode('');
+      toast.success('New verification code sent.');
     } catch (err: any) {
-      toast.error(err.message || 'Failed to initiate agent registration.');
+      toast.error(err.message || 'Failed to resend. Please try again.');
+    } finally {
+      setResending(false);
     }
   };
 
-  const handleAgentOtpVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sessionToken || !tempRegData) return;
-
-    setOtpLoading(true);
-    try {
-      await verifyAgentRegistrationOtp(sessionToken, otpCode);
-
-      setSuccessMode(true);
-      setOtpMode(false);
-      toast.success('Agent registration submitted. Pending admin approval.');
-    } catch (err: any) {
-      toast.error(err.message || 'OTP verification failed.');
-    } finally {
-      setOtpLoading(false);
+  const handleVerifyOtp = async () => {
+    if (otpCode.length !== 6) {
+      toast.error('Please enter the 6-digit verification code.');
+      return;
     }
+    setLoading(true);
+    try {
+      await verifyRegistrationOtp(sessionToken, otpCode);
+      toast.success('Email verified!');
+      setStep(3);
+    } catch (err: any) {
+      const msg: string = err.message || '';
+      if (msg.toLowerCase().includes('expired')) {
+        toast.error('Code expired. Please request a new one.');
+      } else if (msg.toLowerCase().includes('brute') || msg.toLowerCase().includes('attempts')) {
+        toast.error('Too many failed attempts. Please request a new code.');
+        setOtpCode('');
+      } else {
+        toast.error('Invalid verification code. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleComplete = async () => {
+    if (!password) { toast.error('Please create a password.'); return; }
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/.test(password)) {
+      toast.error('Password must be 8+ characters with upper, lower, number, and special character.');
+      return;
+    }
+    if (password !== confirmPassword) { toast.error('Passwords do not match.'); return; }
+
+    setLoading(true);
+    try {
+      if (isStudent) {
+        const result = await completeStudentRegistration(sessionToken, password);
+        await establishSession(result as any);
+      } else {
+        await completeAgentRegistration(sessionToken, { password });
+      }
+      toast.success(isStudent ? 'Welcome to TGA!' : 'Account created!');
+      setStep(4);
+    } catch (err: any) {
+      const msg: string = err.message || '';
+      if (msg.toLowerCase().includes('session') || msg.toLowerCase().includes('expired')) {
+        toast.error('Your session expired. Please start over.');
+        setStep(1);
+        setSessionToken('');
+        setOtpCode('');
+      } else {
+        toast.error(msg || 'Registration failed. Please try again.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const btnStyle = {
+    background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})`,
+    boxShadow: `0 8px 24px ${themeGlow}`,
   };
 
   return (
     <div className="min-h-screen bg-[#FFFCF5] pt-24 flex items-center relative overflow-hidden">
       <Toaster position="top-center" richColors />
-      
-      {/* Background Decor */}
-      <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[#FD7E14]/4 rounded-full blur-[110px] -translate-y-1/3 translate-x-1/4 pointer-events-none" />
+
+      <div
+        className="absolute top-0 right-0 w-[700px] h-[700px] rounded-full blur-[130px] -translate-y-1/3 translate-x-1/4 pointer-events-none"
+        style={{ background: `radial-gradient(circle, ${themeFrom}18 0%, transparent 70%)` }}
+      />
 
       <div className="max-w-6xl mx-auto px-6 py-12 w-full relative z-10">
-        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1fr] gap-12 items-center">
-          
-          {/* Left Info segment */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_1fr] gap-12 items-start">
+
+          {/* Left: branding + onboarding map */}
           <div>
             <motion.div initial={{ opacity: 0, x: -30 }} animate={{ opacity: 1, x: 0 }}>
               <div className="flex items-center gap-3 mb-6">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#FD7E14] to-[#C94D1B] flex items-center justify-center shadow-lg">
+                <div
+                  className="w-10 h-10 rounded-xl flex items-center justify-center shadow-lg"
+                  style={{ background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})` }}
+                >
                   <Globe className="w-5 h-5 text-white" />
                 </div>
                 <span className="text-sm font-black text-gray-800 tracking-tight uppercase">The Global Avenues</span>
               </div>
-              
+
               <h1 className="text-4xl sm:text-5xl font-black text-[#1A1A1A] leading-tight mb-4 tracking-tight">
-                Unlock Premium Pathways to <span className="text-gradient-orange">Europe & Beyond</span>
+                {isStudent
+                  ? <>Unlock Premium Pathways to <span className="text-gradient-orange">Europe & Beyond</span></>
+                  : <>Join the TGA <span style={{ color: '#2D1B69' }}>Partner Network</span></>
+                }
               </h1>
-              
-              <p className="text-base sm:text-lg text-[#666] mb-10 leading-relaxed max-w-lg">
-                Submit a single digital profile to TGA. Our AI matcher aligns your goals and budget with exclusive university MOUs in under 5 minutes.
+              <p className="text-base text-[#666] mb-10 leading-relaxed max-w-lg">
+                {isStudent
+                  ? 'Create your profile in 3 simple steps. TGA matches your goals with exclusive university partners across Europe.'
+                  : 'Register as a certified TGA education agent and earn commissions on every successful enrollment.'
+                }
               </p>
 
-              {/* Progress Steps indicators */}
-              {role === 'student' && !successMode && (
-                <div className="space-y-4 max-w-md bg-white border border-gray-150 rounded-2xl p-5 shadow-sm">
-                  <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Onboarding Map</div>
-                  {PUBLIC_STEPS.map((s, i) => {
-                    const isDone = currentStep > i + 1;
-                    const isActive = currentStep === i + 1;
-                    return (
-                      <div key={s.step} className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-xs shadow-sm transition-all ${
-                          isDone 
-                            ? 'bg-green-500 text-white' 
-                            : isActive 
-                            ? `bg-gradient-to-r ${theme.primary} text-white ring-4 ring-[#FD7E14]/10` 
-                            : 'bg-gray-100 border border-gray-200 text-gray-400'
-                        }`}>
-                          {isDone ? '✓' : s.step}
+              {step < 4 && (
+                <div className="max-w-sm bg-white border border-gray-150 rounded-2xl p-5 shadow-sm">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-4">Onboarding Map</div>
+                  <div className="space-y-3">
+                    {STEPS.map((s, i) => {
+                      const done = currentStepIdx > i;
+                      const active = currentStepIdx === i;
+                      return (
+                        <div key={i} className="flex items-start gap-3">
+                          <div
+                            className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs flex-shrink-0 transition-all ${
+                              done
+                                ? 'bg-green-500 text-white'
+                                : active
+                                ? 'text-white'
+                                : 'bg-gray-100 border border-gray-200 text-gray-400'
+                            }`}
+                            style={active ? { background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})`, boxShadow: `0 0 0 4px ${themeFrom}22` } : {}}
+                          >
+                            {done ? <CheckCircle className="w-4 h-4" /> : <span>{String(i + 1).padStart(2, '0')}</span>}
+                          </div>
+                          <div className="pt-0.5">
+                            <div
+                              className={`text-xs font-bold transition-colors ${active ? '' : done ? 'text-gray-700' : 'text-gray-400'}`}
+                              style={active ? { color: themeFrom } : {}}
+                            >
+                              {s.label}
+                            </div>
+                            <div className="text-[10px] text-gray-400 mt-0.5">{s.desc}</div>
+                          </div>
                         </div>
-                        <div>
-                          <div className={`text-xs font-bold ${isActive ? 'text-[#FD7E14]' : isDone ? 'text-gray-900' : 'text-gray-400'}`}>{s.title}</div>
-                          <div className="text-[10px] text-gray-400 mt-0.5">{s.desc}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
+                  <div className="mt-5 pt-4 border-t border-gray-100 flex items-center gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <span className="text-[10px] text-gray-400 font-semibold leading-tight">
+                      256-bit encrypted &middot; ICEF certified &middot; Your data stays private
+                    </span>
+                  </div>
                 </div>
               )}
 
-              {/* Testimonial block */}
-              {successMode && (
-                <div className="mt-8 bg-white border border-gray-150 rounded-3xl p-6 shadow-sm max-w-md">
+              {step === 4 && isStudent && (
+                <div className="max-w-sm bg-white border border-gray-150 rounded-3xl p-6 shadow-sm mt-2">
                   <p className="text-[#555] italic text-sm mb-4 leading-relaxed">
-                    "I registered my profile, completed the course finder, and TGA fast-tracked my admission offer from Austria public university in 14 days. Amazing!"
+                    "I registered in 2 minutes and TGA fast-tracked my admission offer from an Austrian university in 14 days!"
                   </p>
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#FD7E14] to-[#C94D1B] flex items-center justify-center text-white font-extrabold shadow-sm">
-                      A
-                    </div>
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white font-extrabold text-sm shadow"
+                      style={{ background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})` }}
+                    >A</div>
                     <div>
                       <div className="font-bold text-gray-900 text-xs">Aarav Sharma</div>
-                      <div className="text-[10px] text-gray-400 font-semibold">FH Kufstein Tirol Candidate · 2026</div>
+                      <div className="text-[10px] text-gray-400 font-semibold">FH Kufstein &middot; 2026 Cohort</div>
                     </div>
                   </div>
                 </div>
@@ -300,384 +288,316 @@ export function ApplyPage() {
             </motion.div>
           </div>
 
-          {/* Right Form Card */}
+          {/* Right: step cards */}
           <div>
             <AnimatePresence mode="wait">
-              {otpMode ? (
+
+              {/* STEP 4: SUCCESS */}
+              {step === 4 && (
                 <motion.div
-                  key="otp-card"
+                  key="success"
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 shadow-xl"
-                  style={{ boxShadow: `0 24px 60px ${theme.glow}` }}
+                  className="bg-white rounded-3xl p-8 border border-gray-150 shadow-xl text-center"
+                  style={{ boxShadow: `0 24px 60px ${themeGlow}` }}
                 >
-                  <h2 className="text-xl font-black text-gray-900 mb-2">Security Verification</h2>
-                  <p className="text-xs text-gray-500 mb-6 leading-relaxed">
-                    We have sent a 6-digit verification code to your email address. Enter it below to complete registration.
-                  </p>
-
-                  <form onSubmit={role === 'student' ? handleStudentOtpVerify : handleAgentOtpVerify} className="space-y-4">
-                    <div>
-                      <input
-                        type="text"
-                        inputMode="numeric"
-                        placeholder="Enter 6-Digit OTP"
-                        required
-                        maxLength={6}
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
-                        className="w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-gray-50 text-base outline-none focus:border-[#FD7E14] focus:bg-white tracking-[0.3em] font-extrabold text-center transition-all"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={otpLoading}
-                      className={`w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r ${theme.primary} text-white rounded-xl font-bold shadow-lg hover:scale-[1.01] transition-all disabled:opacity-60`}
-                    >
-                      {otpLoading ? (
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <>Verify and Complete <ArrowRight className="w-4 h-4" /></>
-                      )}
-                    </button>
-                    
-                    <button
-                      type="button"
-                      onClick={() => { setOtpMode(false); setSessionToken(null); setOtpCode(''); }}
-                      className="w-full text-center text-xs text-gray-400 font-semibold hover:text-gray-600 mt-2"
-                    >
-                      Cancel
-                    </button>
-                  </form>
-                </motion.div>
-              ) : successMode ? (
-                <motion.div
-                  key="success-card"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="bg-white rounded-3xl p-8 border border-gray-150 shadow-xl text-center flex flex-col items-center justify-center"
-                >
-                  <div className="w-16 h-16 rounded-full bg-green-500/10 border border-green-500/20 flex items-center justify-center text-green-500 mb-6">
+                  <div className="w-16 h-16 rounded-full bg-green-500/10 border-2 border-green-400/20 flex items-center justify-center text-green-500 mx-auto mb-5">
                     <CheckCircle className="w-8 h-8" />
                   </div>
-                  
-                  <h2 className="text-2xl font-black text-gray-900 mb-2">Registration Complete!</h2>
-                  
-                  <p className="text-sm text-gray-500 mb-8 leading-relaxed">
-                    {role === 'student' 
-                      ? 'Your student candidate profile is verified. Access your live journey map, complete matching checklists, and request offers!' 
-                      : 'Your Partner onboarding lead has been submitted to the TGA administration committee. We will verify your registration details within 24 hours.'}
+                  <h2 className="text-2xl font-black text-gray-900 mb-2">
+                    {isStudent ? 'Welcome to TGA!' : 'Account Created!'}
+                  </h2>
+                  <p className="text-sm text-gray-500 mb-8 leading-relaxed max-w-xs mx-auto">
+                    {isStudent
+                      ? 'Your account is ready. Explore your student portal, track applications, and connect with your advisor.'
+                      : 'Log in to complete your partner application — it only takes a few minutes.'}
                   </p>
-
                   <button
-                    onClick={() => navigate(role === 'student' ? '/portal/student' : '/portal/agent/pending')}
-                    className={`w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r ${theme.primary} text-white rounded-xl font-bold shadow-lg`}
+                    onClick={() => navigate(isStudent ? '/portal/student' : '/portal/login')}
+                    className="w-full flex items-center justify-center gap-2 py-3.5 text-white rounded-xl font-bold hover:scale-[1.01] transition-transform"
+                    style={btnStyle}
                   >
-                    Enter My Portal <ArrowRight className="w-4 h-4" />
+                    {isStudent ? 'Enter My Portal' : 'Log In to Continue'}
+                    <ArrowRight className="w-4 h-4" />
                   </button>
                 </motion.div>
-              ) : (
+              )}
+
+              {/* STEP 1: EMAIL */}
+              {step === 1 && (
                 <motion.div
-                  key="form-card"
+                  key="step1"
                   initial={{ opacity: 0, x: 20 }}
                   animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
                   className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 shadow-xl"
-                  style={{ boxShadow: `0 24px 60px ${theme.glow}` }}
+                  style={{ boxShadow: `0 24px 60px ${themeGlow}` }}
                 >
-                  {/* Selector switch */}
+                  {/* Role toggle */}
                   <div className="flex rounded-xl bg-gray-50 p-1 mb-6 border border-gray-200">
-                    {[
+                    {([
                       { r: 'student', label: "I'm a Student", icon: User },
-                      { r: 'agent', label: "I'm an Agent", icon: Briefcase }
-                    ].map(({ r, label, icon: Icon }) => (
+                      { r: 'agent', label: "I'm an Agent", icon: Briefcase },
+                    ] as const).map(({ r, label, icon: Icon }) => (
                       <button
                         key={r}
                         type="button"
-                        onClick={() => { setRole(r as any); setCurrentStep(1); }}
+                        onClick={() => setRole(r)}
                         className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-xs font-bold transition-all ${
-                          role === r 
-                            ? `bg-gradient-to-r ${theme.primary} text-white shadow-md` 
-                            : 'text-gray-500 hover:text-[#FD7E14]'
+                          role === r ? 'text-white shadow-md' : 'text-gray-500 hover:text-gray-700'
                         }`}
+                        style={role === r ? { background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})` } : {}}
                       >
-                        <Icon className="w-4 h-4" />
+                        <Icon className="w-3.5 h-3.5" />
                         {label}
                       </button>
                     ))}
                   </div>
 
-                  <h2 className="text-lg font-black text-gray-900 mb-6">
-                    {role === 'student' ? 'Create Candidate Account' : 'Create Agency Onboarding'}
+                  <h2 className="text-xl font-black text-gray-900 mb-1">
+                    {isStudent ? 'Create Student Account' : 'Apply as Agency Partner'}
                   </h2>
+                  <p className="text-xs text-gray-400 mb-6 leading-relaxed">
+                    Enter your email and we'll send you a 6-digit verification code.
+                  </p>
 
-                  {/* Student Stepper Form */}
-                  {role === 'student' ? (
-                    <form className="space-y-4" onSubmit={handleStudentSubmit(onStudentRegisterSubmit)}>
-                      <AnimatePresence mode="wait">
-                        {currentStep === 1 && (
-                          <motion.div
-                            key="student-step-1"
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 10 }}
-                            className="space-y-3.5"
-                          >
-                            <div className="grid grid-cols-2 gap-3">
-                              <div>
-                                <input
-                                  type="text"
-                                  placeholder="First Name"
-                                  {...regStudent('firstName')}
-                                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                                />
-                                {errorsStudent.firstName && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.firstName.message}</span>}
-                              </div>
-                              <div>
-                                <input
-                                  type="text"
-                                  placeholder="Last Name"
-                                  {...regStudent('lastName')}
-                                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                                />
-                                {errorsStudent.lastName && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.lastName.message}</span>}
-                              </div>
-                            </div>
-
-                            <div>
-                              <input
-                                type="email"
-                                placeholder="Email Address"
-                                {...regStudent('email')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                              />
-                              {errorsStudent.email && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.email.message}</span>}
-                            </div>
-
-                            <div>
-                              <input
-                                type="tel"
-                                placeholder="Phone Number"
-                                {...regStudent('phone')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                              />
-                              {errorsStudent.phone && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.phone.message}</span>}
-                            </div>
-
-                            <div>
-                              <input
-                                type="password"
-                                placeholder="Create Access Password"
-                                {...regStudent('password')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                              />
-                              {errorsStudent.password && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.password.message}</span>}
-                            </div>
-                          </motion.div>
-                        )}
-
-                        {currentStep === 2 && (
-                          <motion.div
-                            key="student-step-2"
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 10 }}
-                            className="space-y-3.5"
-                          >
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Academic Score (GPA / %)</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. 92% or GPA 3.8/4"
-                                {...regStudent('gpa')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                              />
-                              {errorsStudent.gpa && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.gpa.message}</span>}
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">English Proficiency Score</label>
-                              <input
-                                type="text"
-                                placeholder="e.g. IELTS 7.5 or TOEFL 105"
-                                {...regStudent('englishScore')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all"
-                              />
-                              {errorsStudent.englishScore && <span className="text-[10px] text-red-500 font-semibold">{errorsStudent.englishScore.message}</span>}
-                            </div>
-                          </motion.div>
-                        )}
-
-                        {currentStep === 3 && (
-                          <motion.div
-                            key="student-step-3"
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 10 }}
-                            className="space-y-3.5"
-                          >
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Target Country</label>
-                              <select 
-                                {...regStudent('desiredCountry')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all font-semibold text-gray-700"
-                              >
-                                <option value="Austria">Austria 🇦🇹</option>
-                                <option value="France">France 🇫🇷</option>
-                                <option value="Estonia">Estonia 🇪🇪</option>
-                                <option value="Cyprus">Cyprus 🇨🇾</option>
-                                <option value="USA">USA 🇺🇸</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Target Study Field</label>
-                              <select 
-                                {...regStudent('desiredSubject')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all font-semibold text-gray-700"
-                              >
-                                <option value="IT & Game Design">IT & Game Design</option>
-                                <option value="Business & Management">Business & Management</option>
-                                <option value="Medicine & Health">Medicine & Health</option>
-                                <option value="Design & Creative Arts">Design & Creative Arts</option>
-                              </select>
-                            </div>
-
-                            <div>
-                              <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Annual Tuition Budget</label>
-                              <select 
-                                {...regStudent('budgetRange')}
-                                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#FD7E14] focus:bg-white transition-all font-semibold text-gray-700"
-                              >
-                                <option value="€5,000–€10,000/year">€5,000–€10,000/year</option>
-                                <option value="€10,000–€15,000/year">€10,000–€15,000/year</option>
-                                <option value="€15,000+/year">€15,000+/year</option>
-                              </select>
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-
-                      {/* Stepper CTAs */}
-                      <div className="flex gap-3 mt-6 pt-3 border-t border-gray-100">
-                        {currentStep > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => setCurrentStep(prev => prev - 1)}
-                            className="flex items-center gap-1.5 px-4 py-3 border border-gray-200 hover:bg-gray-50 rounded-xl text-xs font-bold text-gray-500"
-                          >
-                            <ChevronLeft className="w-4 h-4" /> Back
-                          </button>
-                        )}
-                        {currentStep < 3 ? (
-                          <button
-                            type="button"
-                            onClick={handleNextStep}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white rounded-xl font-bold shadow-md hover:scale-[1.01] transition-all text-xs"
-                          >
-                            Next Step <ArrowRight className="w-4 h-4" />
-                          </button>
-                        ) : (
-                          <button
-                            type="submit"
-                            className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white rounded-xl font-bold shadow-md hover:scale-[1.01] transition-all text-xs"
-                          >
-                            Launch My Application <ArrowRight className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    </form>
-                  ) : (
-                    // Agent Single-step registration
-                    <form className="space-y-4" onSubmit={handleAgentSubmit(onAgentRegisterSubmit)}>
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="Agency Name"
-                          {...regAgent('agencyName')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
-                        />
-                        {errorsAgent.agencyName && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.agencyName.message}</span>}
-                      </div>
-
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="Agency Country (HQ)"
-                          {...regAgent('agencyCountry')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
-                        />
-                        {errorsAgent.agencyCountry && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.agencyCountry.message}</span>}
-                      </div>
-
-                      <div>
-                        <input
-                          type="text"
-                          placeholder="Business Registration Number"
-                          {...regAgent('registrationNumber')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
-                        />
-                        {errorsAgent.registrationNumber && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.registrationNumber.message}</span>}
-                      </div>
-
-                      <div>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Email Address</label>
+                      <div className="relative">
+                        <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                         <input
                           type="email"
-                          placeholder="Contact Email"
-                          {...regAgent('email')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
+                          placeholder={isStudent ? 'your@email.com' : 'agency@email.com'}
+                          value={email}
+                          onChange={(e) => setEmail(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
+                          className={`${inputClass} pl-10`}
+                          autoFocus
                         />
-                        {errorsAgent.email && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.email.message}</span>}
                       </div>
+                    </div>
 
-                      <div>
-                        <input
-                          type="tel"
-                          placeholder="Contact Phone Number"
-                          {...regAgent('phone')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
-                        />
-                        {errorsAgent.phone && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.phone.message}</span>}
-                      </div>
+                    <div className="relative flex items-center gap-3 py-0.5">
+                      <div className="flex-1 h-px bg-gray-200" />
+                      <span className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider whitespace-nowrap">or continue with</span>
+                      <div className="flex-1 h-px bg-gray-200" />
+                    </div>
 
-                      <div>
-                        <input
-                          type="password"
-                          placeholder="Create Access Password"
-                          {...regAgent('password')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all"
-                        />
-                        {errorsAgent.password && <span className="text-[10px] text-red-500 font-semibold">{errorsAgent.password.message}</span>}
-                      </div>
+                    <button
+                      type="button"
+                      onClick={() => toast.info('Google sign-in is coming soon. Please use email for now.')}
+                      className="w-full flex items-center justify-center gap-2.5 py-3 border-2 border-gray-200 hover:border-gray-300 bg-white rounded-xl text-xs font-bold text-gray-600 hover:text-gray-800 transition-all"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 24 24">
+                        <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                        <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                        <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                        <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+                      </svg>
+                      Continue with Google
+                    </button>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Partnership Scope</label>
-                        <select 
-                          {...regAgent('partnershipType')}
-                          className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-xs outline-none focus:border-[#2D1B69] focus:bg-white transition-all font-semibold text-gray-700"
-                        >
-                          <option value="exclusive">Exclusive MOU Partner (+5% Commission)</option>
-                          <option value="non_exclusive">Standard Channel Partner</option>
-                        </select>
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-[#2D1B69] to-[#3B2B85] text-white rounded-xl font-bold shadow-lg hover:scale-[1.01] transition-all text-xs"
-                      >
-                        Submit Partner Lead <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </form>
-                  )}
+                    <button
+                      type="button"
+                      onClick={handleSendOtp}
+                      disabled={loading}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 text-white rounded-xl font-bold hover:scale-[1.01] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                      style={btnStyle}
+                    >
+                      {loading
+                        ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <><Mail className="w-4 h-4" /> Send Verification Code</>
+                      }
+                    </button>
+                  </div>
 
                   <p className="text-center text-xs text-gray-400 mt-5">
                     Already registered?{' '}
-                    <Link to="/portal/login" className="text-[#FD7E14] font-bold hover:underline">
-                      Login →
+                    <Link to="/portal/login" className="font-bold hover:underline" style={{ color: themeFrom }}>
+                      Log in &rarr;
                     </Link>
                   </p>
                 </motion.div>
               )}
+
+              {/* STEP 2: OTP */}
+              {step === 2 && (
+                <motion.div
+                  key="step2"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 shadow-xl"
+                  style={{ boxShadow: `0 24px 60px ${themeGlow}` }}
+                >
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-5 mx-auto shadow-md"
+                    style={{ background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})` }}
+                  >
+                    <Mail className="w-6 h-6 text-white" />
+                  </div>
+
+                  <h2 className="text-xl font-black text-gray-900 mb-1 text-center">Check Your Email</h2>
+                  <p className="text-xs text-gray-500 mb-6 text-center leading-relaxed">
+                    We sent a 6-digit code to <span className="font-bold text-gray-700">{email}</span>
+                  </p>
+
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider text-center">Verification Code</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="000000"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        onKeyDown={(e) => e.key === 'Enter' && handleVerifyOtp()}
+                        className={`${inputClass} text-center tracking-[0.5em] font-extrabold text-xl`}
+                        autoFocus
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleVerifyOtp}
+                      disabled={loading || otpCode.length !== 6}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 text-white rounded-xl font-bold hover:scale-[1.01] transition-transform disabled:opacity-60 disabled:pointer-events-none"
+                      style={btnStyle}
+                    >
+                      {loading
+                        ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <><ShieldCheck className="w-4 h-4" /> Verify Code</>
+                      }
+                    </button>
+
+                    <div className="flex items-center justify-between text-xs pt-1">
+                      <button
+                        type="button"
+                        onClick={() => { setStep(1); setOtpCode(''); }}
+                        className="text-gray-400 hover:text-gray-600 font-semibold transition-colors"
+                      >
+                        &larr; Change email
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleResend}
+                        disabled={resending}
+                        className="flex items-center gap-1 font-bold hover:underline disabled:opacity-50 transition-colors"
+                        style={{ color: themeFrom }}
+                      >
+                        <RefreshCw className={`w-3 h-3 ${resending ? 'animate-spin' : ''}`} />
+                        Resend code
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* STEP 3: PASSWORD ONLY */}
+              {step === 3 && (
+                <motion.div
+                  key="step3"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-150 shadow-xl"
+                  style={{ boxShadow: `0 24px 60px ${themeGlow}` }}
+                >
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-5 mx-auto shadow-md"
+                    style={{ background: `linear-gradient(135deg, ${themeFrom}, ${themeTo})` }}
+                  >
+                    <Lock className="w-6 h-6 text-white" />
+                  </div>
+
+                  <h2 className="text-xl font-black text-gray-900 mb-1 text-center">Set Your Password</h2>
+                  <p className="text-xs text-gray-400 mb-5 text-center leading-relaxed">
+                    Create a strong password to secure your account.
+                  </p>
+
+                  <div className="space-y-3.5">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider">Password</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type={showPassword ? 'text' : 'password'}
+                          placeholder="Min. 8 characters"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          className={`${inputClass} pl-10 pr-11`}
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                          tabIndex={-1}
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      <PasswordStrengthBar password={password} />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1 uppercase tracking-wider">Confirm Password</label>
+                      <div className="relative">
+                        <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          placeholder="Re-enter password"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleComplete()}
+                          className={`${inputClass} pl-10 pr-11 ${
+                            confirmPassword && password !== confirmPassword ? 'border-red-400 focus:border-red-400' : ''
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword((v) => !v)}
+                          className="absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                          tabIndex={-1}
+                        >
+                          {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                      {confirmPassword && password !== confirmPassword && (
+                        <p className="text-[10px] text-red-500 font-semibold mt-1">Passwords do not match</p>
+                      )}
+                    </div>
+
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-[10px] text-gray-500 leading-relaxed">
+                      Must be 8+ characters including uppercase, lowercase, a number, and a special character.
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleComplete}
+                      disabled={loading || Boolean(confirmPassword && password !== confirmPassword)}
+                      className="w-full flex items-center justify-center gap-2 py-3.5 text-white rounded-xl font-bold hover:scale-[1.01] transition-transform disabled:opacity-60 disabled:pointer-events-none mt-1"
+                      style={btnStyle}
+                    >
+                      {loading
+                        ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        : <>{isStudent ? 'Complete Registration' : 'Submit Application'} <ArrowRight className="w-4 h-4" /></>
+                      }
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setStep(2)}
+                      className="w-full text-center text-xs text-gray-400 hover:text-gray-600 font-semibold transition-colors"
+                    >
+                      &larr; Back
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
             </AnimatePresence>
           </div>
 
@@ -686,4 +606,3 @@ export function ApplyPage() {
     </div>
   );
 }
-
