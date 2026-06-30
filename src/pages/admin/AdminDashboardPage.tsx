@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { useAuth } from '../../shared/hooks/useAuth';
+import { useStore } from '../../hooks/useStore';
 import {
   AdminApplicationDetail,
   AdminDashboardStats,
@@ -112,6 +113,7 @@ export function AdminDashboardPage() {
   const section = resolveSection(location.pathname);
   
   const { user } = useAuth();
+  const currentUser = useStore((state) => state.currentUser);
   const isSuperAdmin = user?.permissions?.includes('*') || user?.role === 'super_admin';
 
   const [dashboard, setDashboard] = useState<AdminDashboardStats | null>(null);

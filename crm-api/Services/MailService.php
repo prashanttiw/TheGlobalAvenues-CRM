@@ -29,17 +29,20 @@ class MailService
             $mail->addAddress($toEmail);
             $mail->Subject = $subject;
             $mail->isHTML(true);
-            $mail->Body = self::buildHtmlBody($rawBody);
-            $mail->AltBody = $plainBody ?? $rawBody;
+            $mail->Body    = self::wrapInEmailLayout($subject, $rawBody);
+            $mail->AltBody = $plainBody ?? strip_tags(str_replace(
+                ['<br>', '<br/>', '<br />', '</p>', '</tr>'],
+                "\n",
+                $rawBody
+            ));
             $mail->send();
             return true;
         } catch (\Throwable $e) {
-            // Log failure to security_events for admin visibility into SMTP health
             SecurityEventLogger::log(
                 'smtp_send_failure',
-                null,                                // no user_id context
-                EncryptionService::hash($toEmail),  // don't store plaintext email
-                null,                                // IP fallback in logger
+                null,
+                EncryptionService::hash($toEmail),
+                null,
                 [
                     'error'   => $e->getMessage(),
                     'method'  => 'synchronous',
@@ -51,11 +54,94 @@ class MailService
     }
 
     /**
-     * Convert plain text to HTML safely by encoding special characters and converting newlines.
+     * Wrap a body HTML fragment in the full TGA branded email layout.
+     *
+     * Logo is referenced via a public HTTPS URL (MAIL_LOGO_URL env var).
+     * This is the only approach that works across all clients without showing
+     * a fake "attachment" in the inbox list (CID embedding causes that in Gmail).
+     * The logo-light.png in Vite's public/ folder is deployed to Vercel automatically
+     * and is publicly accessible at https://portal.theglobalavenues.com/logo-light.png.
+     */
+    public static function wrapInEmailLayout(string $subject, string $bodyHtml): string
+    {
+        $year    = date('Y');
+        $logoUrl = Environment::get('MAIL_LOGO_URL') ?? '';
+
+        $logoBlock = $logoUrl !== ''
+            ? "<img src=\"{$logoUrl}\" alt=\"The Global Avenues\" width=\"260\" style=\"display:block;width:260px;height:auto;max-width:100%;\" />"
+            : '<p style="margin:0 0 4px;font-size:22px;font-weight:bold;color:#2d2580;">The Global Avenues</p>'
+              . '<p style="margin:0;font-size:11px;color:#E8651A;letter-spacing:2px;text-transform:uppercase;font-weight:bold;">Education . Consulting . Collaborations</p>';
+
+        return <<<HTML
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{$subject}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f2f5;font-family:Arial,Helvetica,sans-serif;-webkit-text-size-adjust:100%;-ms-text-size-adjust:100%;">
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f0f2f5;">
+  <tr>
+    <td align="center" style="padding:32px 16px 48px;">
+
+      <!-- ========== EMAIL CONTAINER ========== -->
+      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;width:100%;">
+
+        <!-- HEADER: white background so the full-colour TGA logo renders correctly -->
+        <tr>
+          <td style="background-color:#ffffff;border-radius:8px 8px 0 0;padding:0;border-top:4px solid #E8651A;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td align="center" style="padding:28px 40px 24px;">
+                  {$logoBlock}
+                </td>
+              </tr>
+              <tr>
+                <td style="background-color:#f0f2f5;height:1px;font-size:1px;line-height:1px;">&nbsp;</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- CONTENT AREA -->
+        <tr>
+          <td style="background-color:#ffffff;padding:40px 40px 36px;">
+            {$bodyHtml}
+          </td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td style="background-color:#f8f9fa;border-top:1px solid #e4e6ea;border-radius:0 0 8px 8px;padding:24px 40px;text-align:center;">
+            <p style="margin:0 0 6px;font-size:13px;font-weight:bold;color:#555555;">The Global Avenues</p>
+            <p style="margin:0 0 4px;font-size:12px;color:#888888;">New Delhi, India &nbsp;&bull;&nbsp; ICEF Certified Partner</p>
+            <p style="margin:0 0 10px;font-size:12px;color:#888888;">connect@theglobalavenues.com</p>
+            <p style="margin:0;font-size:11px;color:#bbbbbb;">&copy; {$year} The Global Avenues. All rights reserved.</p>
+            <p style="margin:4px 0 0;font-size:11px;color:#bbbbbb;">This is an automated message &mdash; please do not reply directly to this email.</p>
+          </td>
+        </tr>
+
+      </table>
+      <!-- ========== END EMAIL CONTAINER ========== -->
+
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>
+HTML;
+    }
+
+    /**
+     * @deprecated Body fragments from DB templates are already safe HTML.
+     * Kept for backwards compatibility with any direct callers.
      */
     public static function buildHtmlBody(string $rawBody): string
     {
-        return nl2br(htmlspecialchars($rawBody, ENT_QUOTES, 'UTF-8'));
+        return $rawBody;
     }
 
     /**
@@ -67,7 +153,7 @@ class MailService
     {
         $mail = new PHPMailer(true);
         $mail->isSMTP();
-        $mail->Timeout    = 10; // Hard cap to prevent request hanging
+        $mail->Timeout    = 10;
         $mail->Host       = Environment::get('SMTP_HOST') ?? Environment::get('MAIL_HOST') ?? '';
         $mail->SMTPAuth   = true;
         $mail->Username   = Environment::get('SMTP_USER') ?? Environment::get('MAIL_USERNAME') ?? '';

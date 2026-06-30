@@ -26,8 +26,8 @@ export default function AdminUniversitiesPage() {
       const result = await fetchAdminUniversitiesLive({ perPage: 100 })
       const universities = result.universities ?? []
       const courseCounts = await Promise.all(universities.map(async (university: any) => {
-        const courses = await fetchAdminUniversityCourses(university.public_id, { perPage: 100 })
-        return [university.public_id, courses.courses.length] as const
+        const courses = await fetchAdminUniversityCourses(university.public_id)
+        return [university.public_id, Array.isArray(courses) ? courses.length : 0] as const
       }))
       const countMap = new Map(courseCounts)
       return universities.map((university: any) => ({ ...university, courseCount: countMap.get(university.public_id) ?? 0 }))

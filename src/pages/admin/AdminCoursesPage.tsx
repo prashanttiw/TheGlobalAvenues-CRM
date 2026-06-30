@@ -35,8 +35,8 @@ export default function AdminCoursesPage() {
       const universitiesResult = await fetchAdminUniversitiesLive({ perPage: 100 })
       const universities = universitiesResult.universities ?? []
       const courseBatches = await Promise.all(universities.map(async (university: any) => {
-        const result = await fetchAdminUniversityCourses(university.public_id, { perPage: 100 })
-        return result.courses.map((course: any) => ({ ...course, university_public_id: university.public_id, university_name: university.name }))
+        const result = await fetchAdminUniversityCourses(university.public_id)
+        return (Array.isArray(result) ? result : []).map((course: any) => ({ ...course, university_public_id: university.public_id, university_name: university.name }))
       }))
       return { universities, courses: courseBatches.flat() }
     },

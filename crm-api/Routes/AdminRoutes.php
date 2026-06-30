@@ -45,6 +45,8 @@ final class AdminRoutes
         RouteRegistry::get('admin', 'get_users', [$dashCtrl, 'getUsers']);
         RouteRegistry::get('admin', 'get_user_detail', [$dashCtrl, 'getUserDetail']);
         RouteRegistry::put('admin', 'update_user', [$dashCtrl, 'updateUser']);
+        RouteRegistry::delete('admin', 'admins/:publicId', [$dashCtrl, 'deleteAdmin']);
+        RouteRegistry::get('admin', 'available-pages', [$dashCtrl, 'availablePages']);
         
         $docControllerForAdmin = new \TGA\CRM\Controllers\DocumentRequestController();
         RouteRegistry::get('admin', 'get_document_queue', [$docControllerForAdmin, 'getDocumentQueue']);
@@ -66,11 +68,14 @@ final class AdminRoutes
 
         // ── Agent Approval Workflow ──────────────────────────────────────────────
         RouteRegistry::get('admin', 'agents/pending', [$agentController, 'getPending']);
+        RouteRegistry::get('admin', 'agents/registered', [$agentController, 'getRegistered']);
+        RouteRegistry::get('admin', 'agents/drafts', [$agentController, 'getDrafts']);
         RouteRegistry::post('admin', 'agents/:publicId/approve', [$agentController, 'approve']);
         RouteRegistry::post('admin', 'agents/:publicId/reject', [$agentController, 'reject']);
         RouteRegistry::post('admin', 'agents/:publicId/suspend', [$agentController, 'suspend']);
         RouteRegistry::get('admin', 'agents', [$agentController, 'listAll']);
         RouteRegistry::get('admin', 'agents/:pid/tree', [$agentController, 'getTree']);
+        RouteRegistry::get('admin', 'agents/:pid/detail', [$agentController, 'getDetail']);
         RouteRegistry::get('admin', 'students', [$studentController, 'listAll']);
 
         // ── Reassignment Requests ────────────────────────────────────────────

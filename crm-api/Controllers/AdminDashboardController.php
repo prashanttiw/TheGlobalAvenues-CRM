@@ -7,7 +7,9 @@ namespace TGA\CRM\Controllers;
 use PDO;
 use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
+use TGA\CRM\Helpers\UlidGenerator;
 use TGA\CRM\Middleware\AuthMiddleware;
+use TGA\CRM\Services\AdminPageAccessService;
 use TGA\CRM\Services\EncryptionService;
 
 final class AdminDashboardController
@@ -74,7 +76,7 @@ final class AdminDashboardController
         // 4. Pending Documents Preview (limit 6)
         // Fixed: was referencing non-existent u.first_name/u.last_name; student names live in students.full_name
         $pendingDocsStmt = $this->pdo->query("
-            SELECT dr.public_id, dr.document_type, dr.status, dr.created_at, app.reference_number, s.full_name AS student_name
+            SELECT dr.public_id, dr.doc_label, dr.status, dr.created_at, app.reference_number, s.full_name AS student_name
             FROM document_requests dr
             JOIN applications app ON dr.application_id = app.id
             JOIN students s ON app.student_id = s.id
@@ -86,7 +88,7 @@ final class AdminDashboardController
         foreach ($pendingDocsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $pendingDocumentsPreview[] = [
                 'public_id' => $row['public_id'],
-                'document_type' => $row['document_type'],
+                'document_type' => $row['doc_label'],
                 'status' => $row['status'],
                 'created_at' => $row['created_at'],
                 'reference_number' => $row['reference_number'],
@@ -127,7 +129,7 @@ final class AdminDashboardController
             FROM admins a
             JOIN users u ON a.user_id = u.id
             LEFT JOIN roles r ON a.role_id = r.id
-            WHERE a.deleted_at IS NULL AND u.deleted_at IS NULL
+            WHERE u.deleted_at IS NULL
         ");
         $assignees = [];
         foreach ($assigneesStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
@@ -220,22 +222,35 @@ final class AdminDashboardController
         $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
         $offset = ($page - 1) * $perPage;
 
+        $status = $_GET['status'] ?? '';
+        $search = trim($_GET['q'] ?? '');
+
         $params = [];
-        $where = "WHERE u.deleted_at IS NULL";
-        
-        if ($role) {
-            if ($role === 'student' || $role === 'agent') {
-                $where .= " AND u.user_type = ?";
+
+        // Default: admin users only (for /admin/users page).
+        // Legacy: role=student or role=agent lets old dashboard query those user types.
+        if ($role === 'student' || $role === 'agent') {
+            $where = "WHERE u.deleted_at IS NULL AND u.user_type = ?";
+            $params[] = $role;
+        } else {
+            $where = "WHERE u.deleted_at IS NULL AND u.user_type = 'admin'";
+            if ($role === 'super_admin') {
+                $where .= " AND adm.is_super_admin = 1";
+            } elseif ($role && $role !== 'admin') {
+                // Filter by specific named role (e.g. 'notices_manager')
+                $where .= " AND r.name = ? AND adm.is_super_admin = 0";
                 $params[] = $role;
-            } else {
-                $where .= " AND u.user_type = 'admin'";
-                if ($role === 'super_admin') {
-                    $where .= " AND adm.is_super_admin = 1";
-                } else {
-                    $where .= " AND r.name = ? AND adm.is_super_admin = 0";
-                    $params[] = $role;
-                }
             }
+        }
+
+        if ($status) {
+            $where .= " AND u.status = ?";
+            $params[] = $status;
+        }
+
+        if ($search) {
+            $where .= " AND adm.full_name LIKE ?";
+            $params[] = '%' . $search . '%';
         }
 
         $countStmt = $this->pdo->prepare("
@@ -249,19 +264,19 @@ final class AdminDashboardController
         $total = (int)$countStmt->fetchColumn();
 
         $stmt = $this->pdo->prepare("
-            SELECT u.id, u.public_id, u.email, u.phone, u.status, u.created_at, u.user_type,
-                   COALESCE(s.full_name, a.full_name, adm.full_name) AS full_name,
-                   CASE 
-                       WHEN u.user_type = 'admin' THEN COALESCE(r.name, CASE WHEN adm.is_super_admin = 1 THEN 'super_admin' ELSE 'admin' END)
-                       ELSE u.user_type
-                   END AS role
+            SELECT u.id, u.public_id, u.email, u.phone, u.status, u.created_at, u.last_login_at,
+                   adm.full_name, adm.is_super_admin,
+                   COALESCE(r.name, CASE WHEN adm.is_super_admin = 1 THEN 'super_admin' ELSE NULL END) AS role,
+                   r.public_id AS role_public_id,
+                   GROUP_CONCAT(DISTINCT CONCAT(p.module, '.', p.action) SEPARATOR ',') AS perm_keys
             FROM users u
-            LEFT JOIN students s ON u.id = s.user_id AND s.deleted_at IS NULL
-            LEFT JOIN agents a ON u.id = a.user_id AND a.deleted_at IS NULL
             LEFT JOIN admins adm ON u.id = adm.user_id
             LEFT JOIN roles r ON adm.role_id = r.id
+            LEFT JOIN role_permissions rp ON rp.role_id = r.id
+            LEFT JOIN permissions p ON p.id = rp.permission_id
             {$where}
-            ORDER BY u.created_at DESC
+            GROUP BY u.id
+            ORDER BY adm.is_super_admin DESC, u.created_at DESC
             LIMIT ? OFFSET ?
         ");
         
@@ -280,7 +295,7 @@ final class AdminDashboardController
             try {
                 return EncryptionService::decrypt($val);
             } catch (\Throwable $e) {
-                return $val;
+                return null;
             }
         };
 
@@ -288,21 +303,37 @@ final class AdminDashboardController
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $email = $decryptMaybe($row['email']);
             $phone = $decryptMaybe($row['phone'] ?? null);
-            
+
             $fullName = (string)($row['full_name'] ?? '');
             $nameParts = preg_split('/\s+/', trim($fullName), 2) ?: [];
             $firstName = $nameParts[0] ?? '';
             $lastName = $nameParts[1] ?? '';
-            
+            $isSuperAdmin = (int)($row['is_super_admin'] ?? 0) === 1;
+
+            // Resolve page keys from the aggregated permission string
+            $pages = [];
+            if (!$isSuperAdmin && !empty($row['perm_keys'])) {
+                $rowPermKeys = explode(',', $row['perm_keys']);
+                foreach (AdminPageAccessService::PAGE_PERMISSION_MAP as $pageKey => $pagePerms) {
+                    if (!empty(array_intersect($pagePerms, $rowPermKeys))) {
+                        $pages[] = $pageKey;
+                    }
+                }
+            }
+
             $users[] = [
-                'public_id' => $row['public_id'],
-                'email' => $email ?: '',
-                'phone' => $phone,
-                'role' => $row['role'],
-                'status' => $row['status'],
-                'created_at' => $row['created_at'],
-                'firstName' => $firstName ?: 'Portal',
-                'lastName' => $lastName ?: 'User'
+                'public_id'       => $row['public_id'],
+                'email'           => $email ?: '',
+                'phone'           => $phone,
+                'role'            => $row['role'] ?? ($isSuperAdmin ? 'super_admin' : 'admin'),
+                'role_public_id'  => $row['role_public_id'] ?? null,
+                'status'          => $row['status'],
+                'is_super_admin'  => $isSuperAdmin,
+                'created_at'      => $row['created_at'],
+                'last_login_at'   => $row['last_login_at'] ?? null,
+                'firstName'       => $firstName ?: 'Portal',
+                'lastName'        => $lastName ?: 'User',
+                'pages'           => $pages,
             ];
         }
 
@@ -362,7 +393,7 @@ final class AdminDashboardController
             try {
                 return EncryptionService::decrypt($val);
             } catch (\Throwable $e) {
-                return $val;
+                return null;
             }
         };
 
@@ -458,8 +489,41 @@ final class AdminDashboardController
             }
         }
 
+        // Page-based access update (primary path for regular admins)
+        if (isset($input['pages']) && is_array($input['pages']) && $userRow['user_type'] === 'admin') {
+            if ($userId === (int)($payload['sub'] ?? 0)) {
+                Response::error('You cannot change your own access level.', 'SELF_ROLE_CHANGE', 400);
+            }
+
+            $curAdmStmt = $this->pdo->prepare("SELECT is_super_admin FROM admins WHERE user_id = ? LIMIT 1");
+            $curAdmStmt->execute([$userId]);
+            $curAdm = $curAdmStmt->fetch(PDO::FETCH_ASSOC);
+            if ($curAdm && (int)$curAdm['is_super_admin'] === 1) {
+                Response::error('Super admin access is permanent and cannot be changed.', 'SUPER_ADMIN_PROTECTED', 403);
+            }
+
+            $pages = array_values(array_filter($input['pages'], 'is_string'));
+            AdminPageAccessService::apply($this->pdo, $userId, (string)$userRow['public_id'], $pages);
+            $after['pages'] = $pages;
+        }
+
+        // Role string update — kept for super_admin promotion (legacy support)
         if (isset($input['role']) && $userRow['user_type'] === 'admin') {
             $roleName = $input['role'];
+
+            // You cannot change your own access level
+            if ($userId === (int)($payload['sub'] ?? 0)) {
+                Response::error('You cannot change your own access level.', 'SELF_ROLE_CHANGE', 400);
+            }
+
+            // Super admin access is permanent — cannot be removed through the UI
+            $curAdmStmt = $this->pdo->prepare("SELECT is_super_admin FROM admins WHERE user_id = ? LIMIT 1");
+            $curAdmStmt->execute([$userId]);
+            $curAdm = $curAdmStmt->fetch(PDO::FETCH_ASSOC);
+            if ($curAdm && (int)$curAdm['is_super_admin'] === 1 && $roleName !== 'super_admin') {
+                Response::error('Super admin access is permanent and cannot be removed.', 'SUPER_ADMIN_PROTECTED', 403);
+            }
+
             if ($roleName === 'super_admin') {
                 $upAdm = $this->pdo->prepare("UPDATE admins SET is_super_admin = 1, role_id = NULL, updated_at = NOW() WHERE user_id = ?");
                 $upAdm->execute([$userId]);
@@ -467,7 +531,7 @@ final class AdminDashboardController
                 $rStmt = $this->pdo->prepare("SELECT id FROM roles WHERE name = ?");
                 $rStmt->execute([$roleName]);
                 $roleId = $rStmt->fetchColumn();
-                
+
                 $upAdm = $this->pdo->prepare("UPDATE admins SET is_super_admin = 0, role_id = ?, updated_at = NOW() WHERE user_id = ?");
                 $upAdm->execute([$roleId ?: null, $userId]);
             }
@@ -487,5 +551,83 @@ final class AdminDashboardController
         // Fetch and return the updated user detail
         $_GET['public_id'] = $publicId;
         $this->getUserDetail();
+    }
+
+    /**
+     * Soft-delete an admin account (super_admin only, cannot self-delete)
+     */
+    public function deleteAdmin(string $publicId): void
+    {
+        AuthMiddleware::requireAuth();
+        $payload = AuthMiddleware::user();
+
+        if (($payload['utype'] ?? '') !== 'admin' && ($payload['user_type'] ?? '') !== 'admin') {
+            Response::error('Access denied.', 'FORBIDDEN', 403);
+        }
+
+        $callerStmt = $this->pdo->prepare(
+            "SELECT id, is_super_admin FROM admins WHERE user_id = ? LIMIT 1"
+        );
+        $callerStmt->execute([(int)$payload['sub']]);
+        $caller = $callerStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$caller || (int)$caller['is_super_admin'] !== 1) {
+            Response::error('Only super admins can delete admin accounts.', 'FORBIDDEN', 403);
+        }
+
+        $targetStmt = $this->pdo->prepare(
+            "SELECT u.id, u.public_id, a.is_super_admin FROM users u
+             JOIN admins a ON a.user_id = u.id
+             WHERE u.public_id = ? AND u.user_type = 'admin' AND u.deleted_at IS NULL LIMIT 1"
+        );
+        $targetStmt->execute([$publicId]);
+        $target = $targetStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$target) {
+            Response::error('Admin account not found.', 'NOT_FOUND', 404);
+        }
+
+        // Super admin accounts are protected — cannot be deleted through the UI
+        if ((int)($target['is_super_admin'] ?? 0) === 1) {
+            Response::error('Super admin accounts cannot be deleted. Demote to a regular admin role first (via database) before removing.', 'SUPER_ADMIN_PROTECTED', 403);
+        }
+
+        $callerIntId   = (int)($payload['sub'] ?? 0);
+        $callerPublicId = (string)($payload['pid'] ?? '');
+        $isSelf = ((int)$target['id'] === $callerIntId && $callerIntId > 0)
+               || ($callerPublicId !== '' && $target['public_id'] === $callerPublicId);
+        if ($isSelf) {
+            Response::error('You cannot delete your own account.', 'SELF_DELETE', 400);
+        }
+
+        $this->pdo->prepare(
+            "UPDATE users SET deleted_at = NOW(), updated_at = NOW() WHERE id = ?"
+        )->execute([(int)$target['id']]);
+
+        \TGA\CRM\Services\ActivityLogger::log(
+            'admin.deleted',
+            'user',
+            (int)$target['id'],
+            (int)$payload['sub'],
+            ['status' => 'active'],
+            ['deleted' => true]
+        );
+
+        Response::json(['success' => true, 'message' => 'Admin account deleted.']);
+    }
+
+    /**
+     * Returns the static catalogue of available admin pages and their descriptions.
+     * Used by the frontend to render the page-access checkbox grid.
+     */
+    public function availablePages(): void
+    {
+        AuthMiddleware::requireAuth();
+        $payload = AuthMiddleware::user();
+
+        if (($payload['utype'] ?? '') !== 'admin' && ($payload['user_type'] ?? '') !== 'admin') {
+            Response::error('Access denied.', 'FORBIDDEN', 403);
+        }
+
+        Response::json(['pages' => AdminPageAccessService::availablePages()]);
     }
 }

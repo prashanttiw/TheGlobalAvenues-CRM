@@ -118,8 +118,8 @@ export default function AdminIntakesPage() {
 
       const courseBatches = await Promise.all(
         universities.map(async (university) => {
-          const result = await fetchAdminUniversityCourses(university.public_id, { perPage: 100 })
-          return (result.courses ?? []).map((course: any) => ({
+          const result = await fetchAdminUniversityCourses(university.public_id)
+          return (Array.isArray(result) ? result : []).map((course: any) => ({
             ...course,
             university_public_id: university.public_id,
             university_name: university.name,
@@ -172,7 +172,7 @@ export default function AdminIntakesPage() {
   })
 
   const statusMutation = useMutation({
-    mutationFn: ({ publicId, status }: { publicId: string; status: string }) => updateAdminIntakeStatus(publicId, status),
+    mutationFn: ({ publicId, status }: { publicId: string; status: string }) => updateAdminIntakeStatus(publicId, { status }),
     onSuccess: () => {
       toast.success('Intake status updated.')
       void invalidateCatalog()
