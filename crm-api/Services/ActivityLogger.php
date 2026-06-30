@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace TGA\CRM\Services;
 
 use TGA\CRM\Config\Database;
-use TGA\CRM\Middleware\AuthMiddleware;
+use TGA\CRM\Services\JWTService;
 
 final class ActivityLogger
 {
@@ -21,17 +21,27 @@ final class ActivityLogger
         $actorUserType = null;
         $actorDisplayName = null;
 
+        // Attempt to resolve actor from JWT without calling AuthMiddleware::user()
+        // (which calls exit when no token present, bypassing any try/catch).
         try {
-            $payload = AuthMiddleware::user();
-            $currentUserId = isset($payload['id']) ? (int) $payload['id'] : (isset($payload['sub']) ? (int) $payload['sub'] : null);
-            
-            if ($userId === null || $userId === $currentUserId) {
-                $userId = $currentUserId;
-                $actorUserType = (string) ($payload['user_type'] ?? $payload['utype'] ?? 'system');
-                $actorDisplayName = isset($payload['display_name']) ? (string) $payload['display_name'] : (isset($payload['name']) ? (string) $payload['name'] : 'System');
+            $header = $_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '';
+            if (empty($header) && function_exists('getallheaders')) {
+                $headers = getallheaders();
+                $header = $headers['Authorization'] ?? $headers['authorization'] ?? '';
+            }
+            if (preg_match('/Bearer\s+(.+)$/i', (string) $header, $m)) {
+                $payload = JWTService::verifyAccessToken(trim($m[1]));
+                if (is_array($payload)) {
+                    $currentUserId = isset($payload['sub']) ? (int) $payload['sub'] : null;
+                    if ($userId === null || $userId === $currentUserId) {
+                        $userId = $currentUserId;
+                        $actorUserType = (string) ($payload['utype'] ?? $payload['user_type'] ?? 'system');
+                        $actorDisplayName = (string) ($payload['name'] ?? $payload['display_name'] ?? 'System');
+                    }
+                }
             }
         } catch (\Throwable $e) {
-            // Unauthenticated activity remains loggable; leave actor fields null unless it's a cron/system script explicitly passing userId.
+            // Best-effort: leave actor fields null for unauthenticated/system calls
         }
 
         if ($userId !== null && $actorUserType === null && PHP_SAPI === 'cli') {

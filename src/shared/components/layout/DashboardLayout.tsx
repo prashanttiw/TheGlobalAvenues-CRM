@@ -48,7 +48,7 @@ export function DashboardLayout({ sidebarItems, logo, user, onLogout }: Dashboar
         
         <main id="main-content" className="flex-1 overflow-y-auto outline-none" tabIndex={-1}>
           <div className="mx-auto max-w-7xl p-4 lg:p-8">
-            <DashboardErrorBoundary>
+            <DashboardErrorBoundary key={location.pathname}>
               <React.Suspense fallback={
                 <div className="flex items-center justify-center h-64">
                   <div className="h-8 w-8 animate-spin rounded-full border-4 border-border-warm border-t-brand-orange-accessible" />

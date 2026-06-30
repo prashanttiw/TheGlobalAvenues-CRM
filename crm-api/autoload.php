@@ -2,6 +2,11 @@
 
 declare(strict_types=1);
 
+// Load Composer vendor autoloader (PHPMailer, DomPDF, OpenSpout, etc.)
+if (is_file(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
+
 spl_autoload_register(static function (string $class): void {
     $prefix = 'TGA\\CRM\\';
 

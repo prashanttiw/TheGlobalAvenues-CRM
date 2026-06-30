@@ -5,19 +5,13 @@ import api from '../../../lib/api'
 import * as Icons from 'lucide-react'
 
 export function ActivityFeedWidget({ rolePrefix = 'admin' }: { rolePrefix?: string }) {
-  const { data: feed = [], isLoading, isError } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['activityFeed', rolePrefix],
     queryFn: () => api.get(`/${rolePrefix}/dashboard/activity-feed`).then(r => r.data.data),
     staleTime: 30_000,
   })
 
-  if (isLoading) {
-    return <div className="p-4 flex justify-center"><Activity className="animate-spin text-brand-orange-accessible w-6 h-6" /></div>
-  }
-
-  if (isError) {
-    return <div className="text-sm text-red-500 py-4 text-center border border-red-200 bg-red-50 rounded-xl">Failed to load activity feed.</div>
-  }
+  const feed = Array.isArray(data) ? data : []
 
   // Rollup logic for consecutive identical actions by the same actor
   const rolledUpFeed = React.useMemo(() => {
@@ -40,6 +34,14 @@ export function ActivityFeedWidget({ rolePrefix = 'admin' }: { rolePrefix?: stri
     if (currentGroup.length > 0) result.push(currentGroup)
     return result
   }, [feed])
+
+  if (isLoading) {
+    return <div className="p-4 flex justify-center"><Activity className="animate-spin text-brand-orange-accessible w-6 h-6" /></div>
+  }
+
+  if (isError) {
+    return <div className="text-sm text-red-500 py-4 text-center border border-red-200 bg-red-50 rounded-xl">Failed to load activity feed.</div>
+  }
 
   return (
     <div className="space-y-3">

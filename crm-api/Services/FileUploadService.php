@@ -14,8 +14,9 @@ final class FileUploadService
 {
     private const MIME_EXTENSION_MAP = [
         'application/pdf' => 'pdf',
-        'image/jpeg' => 'jpg',
-        'image/png' => 'png',
+        'image/jpeg'      => 'jpg',
+        'image/png'       => 'png',
+        'image/webp'      => 'webp',
     ];
 
     private const DOCUMENT_MIME_RULES = [
@@ -37,11 +38,13 @@ final class FileUploadService
         'police_clearance' => ['application/pdf'],
         'medical_certificate' => ['application/pdf'],
         'insurance' => ['application/pdf'],
-        'other' => ['application/pdf', 'image/jpeg', 'image/png'],
-        'logo' => ['image/jpeg', 'image/png'],
-        'business_registration' => ['application/pdf', 'image/jpeg', 'image/png'],
-        'agency_logo' => ['image/jpeg', 'image/png'],
+        'other' => ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'],
+        'logo' => ['image/jpeg', 'image/png', 'image/webp'],
+        'business_registration' => ['application/pdf', 'image/jpeg', 'image/png', 'image/webp'],
+        'agency_logo' => ['image/jpeg', 'image/png', 'image/webp'],
         'partnership_scope_doc' => ['application/pdf'],
+        'profile_photo' => ['image/jpeg', 'image/png', 'image/webp'],
+        'aadhar_card' => ['application/pdf', 'image/jpeg', 'image/png'],
     ];
 
     public function upload(
@@ -56,7 +59,8 @@ final class FileUploadService
         bool $isPublic = false,
         ?string $customStoragePath = null,
         int $versionNumber = 1,
-        ?int $previousVersionId = null
+        ?int $previousVersionId = null,
+        ?int $maxImageSizeMb = null
     ): array {
         $this->assertUploadArray($file);
         $this->assertUploadError((int) $file['error']);
@@ -65,7 +69,7 @@ final class FileUploadService
         $mimeType = $this->detectMimeType((string) $file['tmp_name']);
         $this->assertAllowedMimeType($documentType, $mimeType);
         $fileSize = (int) $file['size'];
-        $this->assertFileSize($fileSize, $mimeType);
+        $this->assertFileSize($fileSize, $mimeType, $maxImageSizeMb);
         $this->assertSafeImagePayload((string) $file['tmp_name'], $mimeType);
         $this->assertDiskSpace($fileSize);
 
@@ -122,14 +126,14 @@ final class FileUploadService
         try {
             $stmt = $pdo->prepare(
                 'INSERT INTO files
-                 (public_id, owner_type, owner_id, display_filename, stored_filename,
+                 (public_id, owner_type, owner_id, document_type, display_filename, stored_filename,
                   storage_path, is_public, mime_type, file_size_bytes, checksum_sha256,
-                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id, 
+                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id,
                   drive_sync_status, drive_folder_path, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
             );
             $stmt->execute([
-                $publicId, $ownerType, $ownerId,
+                $publicId, $ownerType, $ownerId, $documentType,
                 $displayFilename, $storedFileName, $relativePath,
                 $isPublic ? 1 : 0, $mimeType, $fileSize, $checksum,
                 $versionNumber, $previousVersionId, $uploadedByType, $uploadedById,
@@ -146,13 +150,14 @@ final class FileUploadService
         }
 
         return [
-            'public_id'     => $publicId,
-            'file_path'     => $relativePath,
-            'stored_name'   => $storedFileName,
-            'mime_type'     => $mimeType,
-            'file_size'     => $fileSize,
-            'checksum'      => $checksum,
-            'absolute_path' => $absoluteTarget,
+            'public_id'        => $publicId,
+            'file_path'        => $relativePath,
+            'stored_name'      => $storedFileName,
+            'display_filename' => $displayFilename,
+            'mime_type'        => $mimeType,
+            'file_size'        => $fileSize,
+            'checksum'         => $checksum,
+            'absolute_path'    => $absoluteTarget,
         ];
     }
 
@@ -213,9 +218,10 @@ final class FileUploadService
         }
     }
 
-    private function assertFileSize(int $size, string $mimeType): void
+    private function assertFileSize(int $size, string $mimeType, ?int $maxImageSizeMb = null): void
     {
-        $imageLimitBytes = 2 * 1024 * 1024;
+        $defaultImageLimitMb = 2;
+        $imageLimitBytes = ($maxImageSizeMb ?? $defaultImageLimitMb) * 1024 * 1024;
         $documentLimitBytes = ((int) SystemSettings::get('upload_max_size_mb', '10')) * 1024 * 1024;
         $maxSize = str_starts_with($mimeType, 'image/') ? $imageLimitBytes : $documentLimitBytes;
 
@@ -236,7 +242,7 @@ final class FileUploadService
             throw new \RuntimeException('Unable to inspect uploaded file.');
         }
 
-        if (preg_match('/<\?(php|=)?/i', $contents) === 1) {
+        if (preg_match('/<\?(php|=)/i', $contents) === 1) {
             throw new \RuntimeException('The uploaded image contains disallowed executable content.');
         }
     }
@@ -268,6 +274,7 @@ final class FileUploadService
             'application' => 'applications',
             'university'  => 'universities',
             'agent'       => 'agents',
+            'notice'      => 'notices',
         ];
         $table = $tableMap[$ownerType] ?? null;
         if (!$table) {

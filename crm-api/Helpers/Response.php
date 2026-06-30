@@ -35,7 +35,8 @@ final class Response
     public static function json(array $payload, int $status = 200): void
     {
         http_response_code($status);
-        echo json_encode($payload, JSON_UNESCAPED_SLASHES);
+        header('Content-Type: application/json; charset=UTF-8');
+        echo json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         exit;
     }
 }

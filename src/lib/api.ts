@@ -56,7 +56,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSucc
             })
       : { success: false, message: 'Request failed', code: 'INVALID_RESPONSE' };
 
-  if (!response.ok || payload.success !== true) {
+  if (!response.ok || payload.success === false) {
     const error = payload as ApiError;
     const message = error.message || 'Request failed';
     throw new Error(message);
@@ -89,14 +89,22 @@ function buildQuery(params: Record<string, string | number | boolean | undefined
 
 export type AuthUser = {
   id: number;
+  public_id: string;
   email: string;
   phone?: string;
   role: string;
+  user_type?: string;
+  utype?: string;
   status: string;
   emailVerified: boolean;
   phoneVerified: boolean;
   firstName: string;
   lastName: string;
+  name?: string;
+  permissions?: string[];
+  is_super_admin?: boolean;
+  account_status?: string;
+  two_factor_enabled?: boolean;
 };
 
 export type StudentProfileResponse = {
@@ -352,15 +360,18 @@ export type AdminDocumentQueueItem = {
 };
 
 export type AdminUserSummary = {
-  id: number;
+  public_id: string;
   email: string;
   phone: string | null;
   role: string;
+  role_public_id: string | null;
   status: string;
-  emailVerified: boolean;
-  createdAt: string;
+  is_super_admin: boolean;
+  created_at: string;
+  last_login_at: string | null;
   firstName: string | null;
   lastName: string | null;
+  pages: string[];
 };
 
 export type AdminUserDetail = {
@@ -526,8 +537,100 @@ export async function registerAgent(payload: {
   });
 }
 
+
+export type RegistrationOtpResult = {
+  session_token: string;
+  expires_in_minutes?: number;
+  otp_code_preview?: string;
+};
+
+export type AuthSessionResult = {
+  user: AuthUser;
+  accessToken: string;
+  access_token?: string;
+};
+
+export async function sendRegistrationOtp(
+  email: string,
+  role: 'student' | 'agent',
+): Promise<RegistrationOtpResult> {
+  const response = await request<RegistrationOtpResult>(
+    '/?route=auth&action=register/send-otp',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, role }),
+    },
+  );
+
+  return response.data;
+}
+
+export async function verifyRegistrationOtp(sessionToken: string, otpCode: string): Promise<void> {
+  await request(
+    '/?route=auth&action=register/verify-otp',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        otp_code: otpCode,
+      }),
+    },
+  );
+}
+
+export async function completeStudentRegistration(
+  sessionToken: string,
+  password: string,
+): Promise<AuthSessionResult> {
+  const response = await request<AuthSessionResult>(
+    '/?route=auth&action=register/complete-student',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        password,
+      }),
+    },
+  );
+
+  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  return {
+    ...response.data,
+    accessToken: extractAccessToken(response.data as Record<string, unknown>),
+  };
+}
+
+export async function completeAgentRegistration(
+  sessionToken: string,
+  payload: { password: string },
+): Promise<{ message: string; status?: string }> {
+  const response = await request<{ message: string; status?: string }>(
+    '/?route=auth&action=register/complete-agent',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        session_token: sessionToken,
+        ...payload,
+      }),
+    },
+  );
+
+  return response.data;
+}
+
+
 export async function loginWithPassword(email: string, password: string): Promise<AuthLoginResult> {
-  const response = await request<{ user: AuthUser; accessToken?: string; two_factor_required?: boolean }>(
+  const response = await request<{
+    user?: AuthUser;
+    accessToken?: string;
+    access_token?: string;
+    two_factor_required?: boolean;
+    requires_2fa?: boolean;
+    pre_auth_token?: string;
+    account_status?: string;
+    rejection_reason?: string;
+    submitted_at?: string;
+  }>(
     '/?route=auth&action=login',
     {
       method: 'POST',
@@ -535,36 +638,62 @@ export async function loginWithPassword(email: string, password: string): Promis
     }
   );
 
-  if (response.data.accessToken) {
+  if (response.data.accessToken || response.data.access_token) {
     accessToken = extractAccessToken(response.data as Record<string, unknown>);
   }
 
   return {
     user: response.data.user,
-    accessToken: response.data.accessToken,
+    accessToken: response.data.accessToken ?? response.data.access_token,
     twoFactorRequired: response.data.two_factor_required,
+    requires2fa: response.data.requires_2fa ?? response.data.two_factor_required,
+    preAuthToken: response.data.pre_auth_token,
+    accountStatus: response.data.account_status,
+    rejectionReason: response.data.rejection_reason,
+    submittedAt: response.data.submitted_at,
+    message: response.message,
   };
 }
 
-export async function requestOtpLogin(email: string): Promise<void> {
+export async function requestOtpLogin(email: string, role: 'student' | 'agent'): Promise<void> {
   await request('/?route=auth&action=otp-login/request', {
     method: 'POST',
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, role }),
   });
 }
 
-export async function verifyOtpLogin(email: string, otpCode: string): Promise<{ user: AuthUser }> {
-  const response = await request<{ user: AuthUser; accessToken: string }>(
+export async function verifyOtpLogin(
+  email: string,
+  otpCode: string,
+  role: 'student' | 'agent',
+): Promise<AuthLoginResult> {
+  const response = await request<{
+    user?: AuthUser;
+    accessToken?: string;
+    access_token?: string;
+    account_status?: string;
+    rejection_reason?: string;
+  }>(
     '/?route=auth&action=otp-login/verify',
     {
       method: 'POST',
-      body: JSON.stringify({ email, otp_code: otpCode }),
+      body: JSON.stringify({ email, otp_code: otpCode, role }),
     }
   );
 
-  accessToken = extractAccessToken(response.data as Record<string, unknown>);
-  return { user: response.data.user };
+  if (response.data.accessToken || response.data.access_token) {
+    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  }
+
+  return {
+    user: response.data.user,
+    accessToken: response.data.accessToken ?? response.data.access_token,
+    accountStatus: response.data.account_status,
+    rejectionReason: response.data.rejection_reason,
+    message: response.message,
+  };
 }
+
 
 export async function fetchCurrentUser(): Promise<AuthUser> {
   const response = await request<{ user: AuthUser }>('/?route=auth&action=me');
@@ -573,13 +702,13 @@ export async function fetchCurrentUser(): Promise<AuthUser> {
 }
 
 export async function fetchStudentProfile(): Promise<StudentProfileResponse> {
-  const response = await request<{ profile: StudentProfileResponse }>('/?route=student&action=get_profile');
+  const response = await request<{ profile: StudentProfileResponse }>('/?route=student&action=profile');
 
   return response.data.profile;
 }
 
 export async function updateStudentProfile(payload: Record<string, unknown>): Promise<StudentProfileResponse> {
-  const response = await request<{ profile: StudentProfileResponse }>('/?route=student&action=update_profile', {
+  const response = await request<{ profile: StudentProfileResponse }>('/?route=student&action=profile', {
     method: 'PUT',
     body: JSON.stringify(payload),
   });
@@ -896,16 +1025,15 @@ export async function fetchAdminUserDetail(userId: number): Promise<AdminUserDet
 }
 
 export async function updateAdminUser(payload: {
-  user_id: number;
+  public_id: string;
   status?: string;
   role?: string;
-}): Promise<AdminUserDetail> {
-  const response = await request<{ user: AdminUserDetail }>('/?route=admin&action=update_user', {
+  pages?: string[];
+}): Promise<void> {
+  await request('/?route=admin&action=update_user', {
     method: 'PUT',
     body: JSON.stringify(payload),
   });
-
-  return response.data.user;
 }
 
 export async function fetchAdminAgents(params: {
@@ -933,17 +1061,36 @@ export async function fetchAdminAgents(params: {
   };
 }
 
-export async function approveAdminAgent(payload: {
-  agent_id: number;
-  decision: 'approved' | 'rejected';
-  note?: string;
-}): Promise<AdminAgentSummary> {
-  const response = await request<{ agent: AdminAgentSummary }>('/?route=admin&action=approve_agent', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+export async function approveAdminAgent(publicId: string): Promise<{ referral_code: string }> {
+  const response = await request<{ referral_code: string }>(
+    `/?route=admin&action=agents/${encodeURIComponent(publicId)}/approve`,
+    { method: 'POST' }
+  );
+  return response.data;
+}
 
-  return response.data.agent;
+export async function rejectAdminAgent(publicId: string, reason?: string): Promise<void> {
+  await request(`/?route=admin&action=agents/${encodeURIComponent(publicId)}/reject`, {
+    method: 'POST',
+    body: JSON.stringify({ reason: reason ?? '' }),
+  });
+}
+
+export async function suspendAdminAgent(publicId: string, reason: string): Promise<void> {
+  await request(`/?route=admin&action=agents/${encodeURIComponent(publicId)}/suspend`, {
+    method: 'POST',
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function fetchAdminAgentsRegistered(): Promise<{ agents: any[] }> {
+  const response = await request<{ agents: any[] }>('/?route=admin&action=agents/registered');
+  return { agents: response.data.agents ?? [] };
+}
+
+export async function fetchAdminAgentsDrafts(): Promise<{ agents: any[] }> {
+  const response = await request<{ agents: any[] }>('/?route=admin&action=agents/drafts');
+  return { agents: response.data.agents ?? [] };
 }
 
 export async function fetchAdminUniversities(params: {
@@ -1365,20 +1512,77 @@ export async function fetchAdminAgentTree(pid: string): Promise<any> {
   return response.data;
 }
 
+export type AdminAgentDetail = {
+  public_id: string;
+  tier: number;
+  status: string;
+  full_name: string;
+  first_name: string | null;
+  last_name: string | null;
+  agency_name: string | null;
+  country: string | null;
+  address_line: string | null;
+  city: string | null;
+  state: string | null;
+  mobile_number: string | null;
+  alternate_mobile_number: string | null;
+  rejected_reason: string | null;
+  created_at: string;
+  application_submitted_at: string | null;
+  parent_agent_name: string | null;
+  parent_agent_public_id: string | null;
+  email: string | null;
+  documents: Partial<Record<AgentOnboardingDocType, AgentOnboardingDoc>>;
+};
+
+export async function fetchAdminAgentDetail(pid: string): Promise<AdminAgentDetail> {
+  const response = await request<AdminAgentDetail>(`/?route=admin&action=agents/${encodeURIComponent(pid)}/detail`);
+  return response.data;
+}
+
+export async function openAgentDocument(filePublicId: string): Promise<void> {
+  const url = `${API_BASE_URL}/?route=files&action=${encodeURIComponent(filePublicId)}/download`;
+  const headers = new Headers();
+  if (accessToken !== null) {
+    headers.set('Authorization', `Bearer ${accessToken}`);
+  }
+  const response = await fetch(url, { headers, credentials: 'include' });
+  if (!response.ok) {
+    throw new Error('Could not load document.');
+  }
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, '_blank', 'noopener,noreferrer');
+}
+
 export async function fetchAdminDashboardSummary(): Promise<any> {
   const response = await request<any>('/?route=admin&action=dashboard/summary');
   return response.data;
 }
 
 export async function inviteSubAgent(payload: {
-  name: string;
+  full_name: string;
   agency_name: string;
+  country: string;
   email: string;
-}): Promise<any> {
-  const response = await request<any>('/?route=agent&action=sub-agents/invite', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  });
+  password: string;
+  phone?: string;
+  partnership_scope?: string;
+  business_registration_number?: string;
+  first_name?: string;
+  last_name?: string;
+  address_line?: string;
+  city?: string;
+  state?: string;
+  alternate_mobile_number?: string;
+}): Promise<{ status: string; message: string; subagent: { id: string; tier: number } }> {
+  const response = await request<{ status: string; message: string; subagent: { id: string; tier: number } }>(
+    '/?route=agent&action=sub-agents/invite',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
   return response.data;
 }
 
@@ -1410,7 +1614,8 @@ const api = {
   },
   post: <T = any>(path: string, data?: any, config?: { headers?: Record<string, string> }) => {
     const formatted = formatPath(path);
-    return request<T>(formatted, { method: 'POST', body: JSON.stringify(data), headers: config?.headers });
+    const body = data instanceof FormData ? data : (data !== undefined ? JSON.stringify(data) : undefined);
+    return request<T>(formatted, { method: 'POST', body, headers: config?.headers });
   },
   put: <T = any>(path: string, data?: any, config?: { headers?: Record<string, string> }) => {
     const formatted = formatPath(path);
@@ -1439,29 +1644,120 @@ export class ApiRequestError extends Error {
 }
 
 export type AuthLoginResult = {
-  user: AuthUser;
+  user?: AuthUser;
   accessToken?: string;
   twoFactorRequired?: boolean;
+  requires2fa?: boolean;
+  preAuthToken?: string;
+  accountStatus?: string;
+  rejectionReason?: string;
+  submittedAt?: string;
+  message?: string;
 };
 
-export async function verifyTwoFactorLogin(email: string, code: string): Promise<AuthLoginResult> {
-  const response = await request<{ user: AuthUser; accessToken?: string; two_factor_required?: boolean }>(
-    '/?route=auth&action=login/2fa',
+export async function requestAdminOtpLogin(email: string): Promise<void> {
+  await request('/?route=auth&action=admin-otp-login/request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function verifyAdminOtpLogin(email: string, otpCode: string): Promise<AuthLoginResult> {
+  const response = await request<{ user: AuthUser; accessToken?: string; access_token?: string }>(
+    '/?route=auth&action=admin-otp-login/verify',
     {
       method: 'POST',
-      body: JSON.stringify({ email, code }),
+      body: JSON.stringify({ email, otp_code: otpCode }),
     }
   );
-  if (response.data.accessToken) {
+
+  if (response.data.accessToken || response.data.access_token) {
+    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  }
+
+  return {
+    user: response.data.user,
+    accessToken: response.data.accessToken ?? response.data.access_token,
+    message: response.message,
+  };
+}
+
+export async function verifyTwoFactorLogin(preAuthToken: string, code: string): Promise<AuthLoginResult> {
+  const response = await request<{ user: AuthUser; accessToken?: string; access_token?: string }>(
+    '/?route=auth&action=verify-2fa',
+    {
+      method: 'POST',
+      body: JSON.stringify({ pre_auth_token: preAuthToken, otp_code: code }),
+    }
+  );
+  if (response.data.accessToken || response.data.access_token) {
     accessToken = extractAccessToken(response.data as Record<string, unknown>);
   }
   return {
     user: response.data.user,
-    accessToken: response.data.accessToken,
-    twoFactorRequired: response.data.two_factor_required,
+    accessToken: response.data.accessToken ?? response.data.access_token,
+    message: response.message,
   };
 }
 
+export async function resend2faCode(preAuthToken: string): Promise<void> {
+  await request('/?route=auth&action=resend-2fa', {
+    method: 'POST',
+    body: JSON.stringify({ pre_auth_token: preAuthToken }),
+  });
+}
+
+
+export async function changePassword(payload: {
+  current_password: string;
+  new_password: string;
+  confirm_password: string;
+}): Promise<void> {
+  await request('/?route=auth&action=change-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+export async function requestForgotPassword(
+  email: string,
+  role: 'student' | 'agent' | 'admin',
+): Promise<void> {
+  await request('/?route=auth&action=forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export async function verifyForgotPasswordOtp(
+  email: string,
+  otpCode: string,
+  role: 'student' | 'agent' | 'admin',
+): Promise<string> {
+  const response = await request<{ reset_token: string }>(
+    '/?route=auth&action=forgot-password/verify-otp',
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, otp_code: otpCode, role }),
+    }
+  );
+
+  return response.data.reset_token;
+}
+
+export async function confirmForgotPassword(
+  resetToken: string,
+  newPassword: string,
+  confirmPassword: string,
+): Promise<void> {
+  await request('/?route=auth&action=forgot-password/reset', {
+    method: 'POST',
+    body: JSON.stringify({
+      reset_token: resetToken,
+      new_password: newPassword,
+      confirm_password: confirmPassword,
+    }),
+  });
+}
 export async function refreshAuthSession(): Promise<AuthSessionResult> {
   const response = await request<AuthSessionResult>('/?route=auth&action=refresh', { method: 'POST' });
   if (response.data.accessToken) {
@@ -1510,6 +1806,17 @@ export async function fetchAdminActivityLogs(params: Record<string, any> = {}): 
   return { logs: response.data.logs, meta: response.data.meta as PaginationMeta };
 }
 
+
+export async function fetchAdminNoticesFeed(params: Record<string, any> = {}): Promise<{ notices: any[], meta?: PaginationMeta }> {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.append(key, String(value));
+    }
+  });
+  const response = await api.get(`/?route=admin&action=notices/feed&` + searchParams.toString());
+  return { notices: response.data.notices || [], meta: response.data.meta };
+}
 export async function fetchStudentNoticesFeed(params: Record<string, any> = {}): Promise<{ notices: any[], meta?: PaginationMeta }> {
   const searchParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -1517,7 +1824,7 @@ export async function fetchStudentNoticesFeed(params: Record<string, any> = {}):
       searchParams.append(key, String(value));
     }
   });
-  const response = await api.get(`/?route=student&action=notices&` + searchParams.toString());
+  const response = await api.get(`/?route=student&action=notices/feed&` + searchParams.toString());
   return { notices: response.data.notices || [], meta: response.data.meta };
 }
 
@@ -1527,8 +1834,6 @@ export function setUnauthorizedHandler(handler: () => void): void {
 
 
 // --- AUTO-GENERATED MOCKS TO FIX TRUNCATED FILE ---
-export const rejectAdminAgent = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const suspendAdminAgent = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const createAdminApplicationDocumentRequest = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const createAdminApplicationPaymentRequest = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const fetchAdminApplications = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
@@ -1546,19 +1851,140 @@ export const fetchAdminCourseIntakes = async (...args: any[]): Promise<any> => {
 export const updateAdminIntakeLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const updateAdminIntakeStatus = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const getAccessToken = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAdminRoles = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+export async function fetchAdminRoles(): Promise<{ id: number; public_id: string; name: string; description: string | null; admin_count: number; permissions: string[] }[]> {
+  const response = await request<{ roles: any[] }>('/?route=admin&action=roles');
+  return response.data.roles ?? [];
+}
 export const fetchAdminSecurityEvents = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const createAdminUniversityLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const deleteAdminUniversityLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const updateAdminUniversityLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const uploadUniversityLogo = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const createAdminStaffAccount = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+export async function createAdminStaffAccount(payload: {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone?: string;
+  password: string;
+  is_super_admin?: boolean;
+  pages?: string[];
+}): Promise<void> {
+  await request('/?route=auth&action=register/admin', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteAdminUser(publicId: string): Promise<void> {
+  await request(`/?route=admin&action=admins/${encodeURIComponent(publicId)}`, {
+    method: 'DELETE',
+  });
+}
 export const fetchAgentApplications = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAgentNoticesFeed = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAgentOnboardingStatus = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const uploadAgentOnboardingDocument = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+export async function fetchAgentNoticesFeed(params: Record<string, any> = {}): Promise<{ notices: any[], meta?: PaginationMeta }> {
+  const searchParams = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.append(key, String(value));
+    }
+  });
+  const response = await api.get(`/?route=agent&action=notices/feed&` + searchParams.toString());
+  return { notices: response.data.notices || [], meta: response.data.meta };
+}
+export type AgentOnboardingDocType = 'profile_photo' | 'aadhar_card' | 'cv_resume';
+
+export type AgentOnboardingDoc = {
+  public_id: string;
+  filename: string;
+  uploaded_at: string;
+};
+
+export type AgentOnboardingStatus = {
+  agent: {
+    public_id: string;
+    first_name: string | null;
+    last_name: string | null;
+    full_name: string;
+    agency_name: string | null;
+    address_line: string | null;
+    city: string | null;
+    state: string | null;
+    mobile_number: string | null;
+    alternate_mobile_number: string | null;
+    country: string | null;
+    status: 'registered' | 'draft' | 'pending' | 'approved' | 'rejected' | 'suspended';
+    rejected_reason: string | null;
+    created_at: string;
+  };
+  documents: Partial<Record<AgentOnboardingDocType, AgentOnboardingDoc>>;
+};
+
+export async function fetchAgentOnboardingStatus(): Promise<AgentOnboardingStatus> {
+  const response = await request<AgentOnboardingStatus>('/?route=agent&action=onboarding/status');
+  return response.data;
+}
+
+export async function uploadAgentOnboardingDocument(
+  file: File,
+  docType: AgentOnboardingDocType
+): Promise<{ public_id: string; document_type: string; filename: string }> {
+  const formData = new FormData();
+  formData.set('document_type', docType);
+  formData.set('file', file);
+
+  const response = await request<{ public_id: string; document_type: string; filename: string }>(
+    '/?route=agent&action=onboarding/documents',
+    { method: 'POST', body: formData }
+  );
+  return response.data;
+}
+
+export type AgentOnboardingDraftPayload = {
+  first_name?: string;
+  last_name?: string;
+  address_line?: string;
+  city?: string;
+  state?: string;
+  mobile_number?: string;
+  alternate_mobile_number?: string;
+};
+
+export async function saveAgentOnboardingDraft(
+  payload: AgentOnboardingDraftPayload
+): Promise<{ status: string }> {
+  const response = await request<{ status: string }>('/?route=agent&action=onboarding/draft', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function submitAgentOnboardingApplication(
+  payload: AgentOnboardingDraftPayload = {}
+): Promise<{ status: string }> {
+  const response = await request<{ status: string }>('/?route=agent&action=onboarding/submit', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  return response.data;
+}
+
+export async function uploadSubAgentDocument(
+  pid: string,
+  file: File,
+  docType: AgentOnboardingDocType
+): Promise<{ public_id: string; document_type: string; filename: string }> {
+  const formData = new FormData();
+  formData.set('document_type', docType);
+  formData.set('file', file);
+
+  const response = await request<{ public_id: string; document_type: string; filename: string }>(
+    `/?route=agent&action=sub-agents/${encodeURIComponent(pid)}/documents`,
+    { method: 'POST', body: formData }
+  );
+  return response.data;
+}
+
 export const fetchStudentApplicationsList = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const fetchStudentDocumentRequests = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
 export const submitStudentDocumentRequest = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export type AgentOnboardingDoc = any;
-export type AuthSessionResult = any;
