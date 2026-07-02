@@ -4,25 +4,15 @@ import { COMPANY } from '@/data/company';
 
 const columns = [
   {
-    title: 'Explore',
+    title: 'Connect',
     links: [
-      { label: 'Destinations', href: '/destinations' },
-      { label: 'Courses', href: '/courses' },
-      { label: 'Partners', href: '/partners' },
-    ],
-  },
-  {
-    title: 'Company',
-    links: [
-      { label: 'About', href: '/about' },
-      { label: 'Services', href: '/services' },
       { label: 'Contact', href: '/contact' },
+      { label: 'Apply Now', href: '/apply' },
     ],
   },
   {
     title: 'Portal',
     links: [
-      { label: 'Apply Now', href: '/apply' },
       { label: 'Student Login', href: '/portal/login' },
       { label: 'Student Dashboard', href: '/portal/student' },
       { label: 'Agent Dashboard', href: '/portal/agent' },
@@ -75,7 +65,7 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-3">
+          <div className="grid gap-8 sm:grid-cols-2">
             {columns.map((column) => (
               <div key={column.title}>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/82">{column.title}</h3>

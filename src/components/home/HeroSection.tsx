@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Search, Sparkles, ArrowRight, GraduationCap, Globe2, CheckCircle2, Users, ChevronDown } from 'lucide-react';
-import { motion, useScroll, useTransform, AnimatePresence } from 'motion/react';
+import { ArrowRight, CheckCircle2, ChevronDown, Globe2, GraduationCap, Users } from 'lucide-react';
+import { AnimatePresence, motion, useScroll, useTransform } from 'motion/react';
 
 const HERO_SLIDES = [
   {
@@ -26,15 +26,15 @@ const HERO_SLIDES = [
 
 const STATS = [
   { icon: GraduationCap, value: '100+', label: 'Partner Universities', color: '#FD7E14' },
-  { icon: Globe2,        value: '40+',  label: 'Countries',            color: '#FFC107' },
-  { icon: CheckCircle2,  value: '98%',  label: 'Visa Success',         color: '#4CAF50' },
-  { icon: Users,         value: '4K+',  label: 'Students Recruited',   color: '#D32F2F' },
+  { icon: Globe2, value: '40+', label: 'Countries', color: '#FFC107' },
+  { icon: CheckCircle2, value: '98%', label: 'Visa Success', color: '#4CAF50' },
+  { icon: Users, value: '4K+', label: 'Students Recruited', color: '#D32F2F' },
 ];
 
 const FLOATING_BADGES = [
-  { text: '🇬🇧 UK Visa Approved', delay: 0, x: '8%', y: '30%' },
-  { text: '🎓 Offer from ICN France', delay: 1.5, x: '78%', y: '22%' },
-  { text: '✅ Scholarship Secured', delay: 3, x: '82%', y: '65%' },
+  { text: 'UK Visa Approved', delay: 0, x: '8%', y: '30%' },
+  { text: 'Offer from ICN France', delay: 1.5, x: '78%', y: '22%' },
+  { text: 'Scholarship Secured', delay: 3, x: '82%', y: '65%' },
 ];
 
 const SPARKLE_POINTS = [
@@ -55,15 +55,14 @@ const SPARKLE_POINTS = [
 
 export function HeroSection() {
   const [slide, setSlide] = useState(0);
-  const [search, setSearch] = useState('');
   const heroRef = useRef<HTMLElement>(null);
   const { scrollYProgress } = useScroll({ target: heroRef, offset: ['start start', 'end start'] });
-  const bgY   = useTransform(scrollYProgress, [0, 1], ['0%', '30%']);
+  const bgY = useTransform(scrollYProgress, [0, 1], ['0%', '30%']);
   const textY = useTransform(scrollYProgress, [0, 1], ['0%', '15%']);
   const opacity = useTransform(scrollYProgress, [0, 0.6], [1, 0]);
 
   useEffect(() => {
-    const t = setInterval(() => setSlide(s => (s + 1) % HERO_SLIDES.length), 6000);
+    const t = setInterval(() => setSlide((s) => (s + 1) % HERO_SLIDES.length), 6000);
     return () => clearInterval(t);
   }, []);
 
@@ -71,8 +70,6 @@ export function HeroSection() {
 
   return (
     <section ref={heroRef} className="relative min-h-screen flex items-center justify-center overflow-hidden">
-
-      {/* ── Parallax background images ── */}
       <motion.div className="absolute inset-0" style={{ y: bgY }}>
         {HERO_SLIDES.map((s, i) => (
           <div
@@ -85,13 +82,11 @@ export function HeroSection() {
         ))}
       </motion.div>
 
-      {/* ── Multi-layer gradient overlay ── */}
       <div className="absolute inset-0 bg-gradient-to-br from-[#0D0500]/85 via-[#1A0800]/70 to-[#FD7E14]/15" />
       <div className="absolute inset-0 bg-gradient-to-t from-[#FFFCF5] via-transparent to-transparent opacity-[0.08]" />
       <div className="absolute inset-0 dot-grid opacity-25 pointer-events-none" />
       <div className="absolute inset-0 noise pointer-events-none" />
 
-      {/* Subtle sparkle layer for the original hero atmosphere */}
       <div className="absolute inset-0 pointer-events-none hidden md:block">
         {SPARKLE_POINTS.map((point, i) => (
           <motion.span
@@ -118,7 +113,6 @@ export function HeroSection() {
         ))}
       </div>
 
-      {/* ── Animated mesh gradient orbs ── */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
           className="absolute w-[600px] h-[600px] rounded-full"
@@ -140,7 +134,6 @@ export function HeroSection() {
         />
       </div>
 
-      {/* ── Floating notification badges ── */}
       <div className="absolute inset-0 pointer-events-none hidden lg:block">
         {FLOATING_BADGES.map((badge, i) => (
           <motion.div
@@ -158,24 +151,18 @@ export function HeroSection() {
         ))}
       </div>
 
-      {/* Subtle colorful backdrop glow aura behind text content */}
       <div className="absolute top-[30%] left-1/2 -translate-x-1/2 w-[350px] sm:w-[500px] h-[150px] sm:h-[200px] bg-gradient-to-r from-[#FD7E14]/15 to-[#FFC107]/10 rounded-full blur-[90px] sm:blur-[130px] pointer-events-none z-0" />
 
-      {/* ── Main content ── */}
       <motion.div
         className="relative z-10 mx-auto w-full max-w-5xl px-4 pt-24 pb-10 text-center sm:px-6 sm:pt-28 sm:pb-16"
         style={{ y: textY, opacity }}
       >
-        {/* Trust badge */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
-          animate={{ 
-            opacity: 1, 
-            y: [0, -6, 0] 
-          }}
-          transition={{ 
+          animate={{ opacity: 1, y: [0, -6, 0] }}
+          transition={{
             opacity: { duration: 0.7 },
-            y: { duration: 5, repeat: Infinity, ease: "easeInOut" }
+            y: { duration: 5, repeat: Infinity, ease: 'easeInOut' },
           }}
           className="mb-8 inline-flex max-w-full items-center justify-center gap-2.5 rounded-full border border-white/20 px-4 py-2 text-center glass sm:mb-10 sm:px-5 sm:py-2.5 shadow-[0_4px_24px_rgba(253,126,20,0.15)] hover:border-[#FD7E14]/40 hover:shadow-[0_4px_30px_rgba(253,126,20,0.25)] transition-all duration-300"
         >
@@ -183,10 +170,9 @@ export function HeroSection() {
             <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-[#FFC107] opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-[#FFC107]" />
           </span>
-          <span className="min-w-0 whitespace-normal text-xs font-medium leading-snug text-white/90 sm:text-sm">✦ Asia's Trusted Global Education Partner · ICEF Certified</span>
+          <span className="min-w-0 whitespace-normal text-xs font-medium leading-snug text-white/90 sm:text-sm">Asia's Trusted Global Education Partner . ICEF Certified</span>
         </motion.div>
 
-        {/* Headline with slide transition */}
         <div className="mb-5 flex min-h-[132px] flex-col items-center justify-center sm:mb-6 sm:min-h-[160px] md:min-h-[200px]">
           <AnimatePresence mode="wait">
             <motion.div
@@ -208,7 +194,6 @@ export function HeroSection() {
           </AnimatePresence>
         </div>
 
-        {/* Slide indicators */}
         <div className="flex items-center justify-center gap-2 mb-10">
           {HERO_SLIDES.map((_, i) => (
             <button
@@ -219,39 +204,6 @@ export function HeroSection() {
           ))}
         </div>
 
-        {/* Search bar */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.3 }}
-          className="mx-auto mb-8 w-full max-w-2xl"
-        >
-          <div className="flex flex-col gap-2 rounded-2xl bg-white/95 p-2 shadow-[0_8px_40px_rgba(253,126,20,0.35),0_0_0_1px_rgba(253,126,20,0.15)] focus-within:shadow-[0_12px_48px_rgba(253,126,20,0.45),0_0_0_2px_rgba(253,126,20,0.35)] focus-within:scale-[1.01] hover:scale-[1.005] hover:shadow-[0_10px_44px_rgba(253,126,20,0.4)] backdrop-blur-2xl transition-all duration-300 sm:flex-row sm:items-center">
-            <div className="flex w-full min-w-0 items-center">
-              <Search className="ml-3 h-5 w-5 flex-shrink-0 text-[#9CA3AF]" />
-              <input
-                type="text"
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (window.location.href = `/partners${search ? `?q=${encodeURIComponent(search)}` : ''}`)}
-                placeholder="Search universities, courses, or countries..."
-                className="min-w-0 flex-1 bg-transparent py-2 pl-3 text-sm text-[#1C1C1E] outline-none placeholder:text-[#9CA3AF] sm:py-1"
-              />
-            </div>
-            <Link
-              to={`/partners${search ? `?q=${encodeURIComponent(search)}` : ''}`}
-              className="flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] px-5 py-2.5 text-sm font-bold text-white shadow-[0_4px_16px_rgba(253,126,20,0.5)] transition-all hover:scale-105 hover:shadow-[0_6px_24px_rgba(253,126,20,0.7)] sm:w-auto"
-            >
-              <Sparkles className="w-4 h-4" />
-              Search
-            </Link>
-          </div>
-          <p className="mt-2 hidden text-center text-xs text-white/50 sm:block">
-            Popular: <button onClick={() => setSearch('MBA')} className="hover:text-white/80 transition-colors">MBA</button> · <button onClick={() => setSearch('Computer Science')} className="hover:text-white/80 transition-colors">Computer Science</button> · <button onClick={() => setSearch('UK')} className="hover:text-white/80 transition-colors">UK</button> · <button onClick={() => setSearch('France')} className="hover:text-white/80 transition-colors">France</button>
-          </p>
-        </motion.div>
-
-        {/* CTA buttons */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -265,15 +217,8 @@ export function HeroSection() {
             Start My Journey
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
           </Link>
-          <Link
-            to="/partners"
-            className="flex w-full max-w-sm items-center justify-center gap-2 rounded-2xl px-8 py-4 text-base font-bold text-white transition-all glass hover:bg-white/15 sm:w-auto"
-          >
-            View Our Partners
-          </Link>
         </motion.div>
 
-        {/* Stats grid */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -300,7 +245,6 @@ export function HeroSection() {
         </motion.div>
       </motion.div>
 
-      {/* ── Scroll indicator ── */}
       <motion.div
         className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 z-30"
         animate={{ y: [0, 8, 0] }}
@@ -310,10 +254,7 @@ export function HeroSection() {
         <ChevronDown className="w-5 h-5 text-white/40" />
       </motion.div>
 
-      {/* ── Sleek Razor-Thin Gold Accent Separator ── */}
       <div className="absolute bottom-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-[#FD7E14]/30 to-transparent pointer-events-none z-20" />
-
-
     </section>
   );
 }

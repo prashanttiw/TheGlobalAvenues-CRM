@@ -1,38 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Menu, X, ChevronDown, Globe, User, Phone } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Menu, X, User, Phone } from 'lucide-react';
 import { COMPANY, NAV_LINKS } from '@/data/company';
-
-const DROPDOWN_ITEMS: Record<string, { label: string; href: string; desc: string }[]> = {
-  Destinations: [
-    { label: 'All Destinations', href: '/destinations', desc: 'Verified study destinations' },
-    { label: 'Austria', href: '/destinations/austria', desc: 'FH Kufstein Tirol pathways' },
-    { label: 'Estonia', href: '/destinations/estonia', desc: 'EUAS business, IT and design' },
-    { label: 'France', href: '/destinations/france', desc: 'ICN, CEFAM and MJM options' },
-    { label: 'Cyprus', href: '/destinations/cyprus', desc: 'Mesoyios and KES College' },
-    { label: 'United States', href: '/destinations/united-states', desc: 'IAU and US partner pathways' },
-  ],
-  Courses: [
-    { label: 'All Courses', href: '/courses', desc: 'English-taught partner programs' },
-    { label: 'Business & Management', href: '/courses/business-mba', desc: 'Bachelor, master and MBA routes' },
-    { label: 'IT & Game Design', href: '/courses/computer-science', desc: 'EUAS and EPITECH-aligned tracks' },
-    { label: 'Medicine & Health', href: '/courses/medicine-health', desc: 'SGU medical pathways' },
-    { label: 'Design & Creative Arts', href: '/courses/arts-design', desc: 'MJM and creative programs' },
-  ],
-  Services: [
-    { label: 'All Services', href: '/services', desc: 'End-to-end student recruitment support' },
-    { label: 'In-Country Representation', href: '/services/representation', desc: 'Local presence for institutions' },
-    { label: 'Marketing & Promotion', href: '/services/marketing', desc: 'Targeted market outreach' },
-    { label: 'Agent Management', href: '/services/agent-management', desc: 'Channel partner development' },
-    { label: 'Administrative Services', href: '/services/administrative-services', desc: 'Applications, visa and support' },
-  ],
-};
 
 export function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [activeDropdown, setActiveDropdown] = useState<string | null>(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -43,7 +16,6 @@ export function Header() {
 
   useEffect(() => {
     setMobileOpen(false);
-    setActiveDropdown(null);
   }, [location]);
 
   const isHome = location.pathname === '/';
@@ -56,7 +28,6 @@ export function Header() {
           : 'bg-transparent border-transparent shadow-none'
       }`}
     >
-      {/* Top bar */}
       <div className={`hidden xl:block border-b transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'border-[#FD7E14]/10 bg-[#FFFCF5]' : 'border-white/10 bg-black/20'}`}>
         <div className="max-w-[88rem] mx-auto px-6 lg:px-8 py-1.5 flex items-center justify-between">
           <div className="flex items-center gap-6 text-xs">
@@ -71,28 +42,24 @@ export function Header() {
           <div className="flex items-center gap-4 text-xs">
             <span className={`flex items-center gap-1 transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'text-[#666]' : 'text-white/70'}`}>
               <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              ICEF Certified · AIRC Member
+              ICEF Certified . AIRC Member
             </span>
           </div>
         </div>
       </div>
 
-      {/* Main nav */}
       <div className="max-w-[88rem] mx-auto px-4 sm:px-6 lg:px-8 py-2.5 sm:py-3">
         <div className="flex items-center justify-between gap-3 xl:gap-5">
-          {/* Logo */}
           <Link to="/" className="flex flex-shrink-0 items-center relative h-10 sm:h-12 w-44 sm:w-52">
-            {/* White transparent logo (Visible when transparent/top of Home) */}
-            <img 
-              src="/logo-footer-white-transparent.png" 
+            <img
+              src="/logo-footer-white-transparent.png"
               alt="The Global Avenues"
               className={`absolute inset-y-0 left-0 h-full w-auto object-contain transition-all duration-500 ease-in-out ${
                 scrolled || !isHome ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'
               }`}
             />
-            {/* Original colored logo (Visible when scrolled or on subpages) */}
-            <img 
-              src="/logo-light.png" 
+            <img
+              src="/logo-light.png"
               alt="The Global Avenues"
               className={`absolute inset-y-0 left-0 h-full w-auto object-contain transition-all duration-500 ease-in-out ${
                 scrolled || !isHome ? 'opacity-100 scale-100' : 'opacity-0 scale-95 pointer-events-none'
@@ -100,81 +67,27 @@ export function Header() {
             />
           </Link>
 
-          {/* Desktop Nav */}
           <nav className="hidden flex-1 items-center justify-center gap-0.5 xl:flex 2xl:gap-1">
             {NAV_LINKS.map((link) => {
-              const hasDropdown = link.label in DROPDOWN_ITEMS;
               const isActive = location.pathname.startsWith(link.href) && link.href !== '/';
               return (
-                <div
+                <Link
                   key={link.label}
-                  className="relative"
-                  onMouseEnter={() => hasDropdown && setActiveDropdown(link.label)}
-                  onMouseLeave={() => setActiveDropdown(null)}
+                  to={link.href}
+                  className={`flex items-center whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-500 ease-in-out 2xl:px-3 ${
+                    isActive
+                      ? 'text-[#FD7E14] bg-[#FD7E14]/10'
+                      : scrolled || !isHome
+                      ? 'text-[#333] hover:text-[#FD7E14] hover:bg-[#FD7E14]/8'
+                      : 'text-white/90 hover:text-white hover:bg-white/10'
+                  }`}
                 >
-                  {hasDropdown ? (
-                    <button
-                      className={`flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-500 ease-in-out 2xl:px-3 ${
-                        isActive
-                          ? 'text-[#FD7E14] bg-[#FD7E14]/10'
-                          : scrolled || !isHome
-                          ? 'text-[#333] hover:text-[#FD7E14] hover:bg-[#FD7E14]/8'
-                          : 'text-white/90 hover:text-white hover:bg-white/10'
-                      }`}
-                    >
-                      {link.label}
-                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${activeDropdown === link.label ? 'rotate-180' : ''}`} />
-                    </button>
-                  ) : (
-                    <Link
-                      to={link.href}
-                      className={`flex items-center whitespace-nowrap rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-500 ease-in-out 2xl:px-3 ${
-                        isActive
-                          ? 'text-[#FD7E14] bg-[#FD7E14]/10'
-                          : scrolled || !isHome
-                          ? 'text-[#333] hover:text-[#FD7E14] hover:bg-[#FD7E14]/8'
-                          : 'text-white/90 hover:text-white hover:bg-white/10'
-                      }`}
-                    >
-                      {link.label}
-                    </Link>
-                  )}
-
-                  {/* Dropdown */}
-                  <AnimatePresence>
-                    {hasDropdown && activeDropdown === link.label && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 8, scale: 0.97 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 8, scale: 0.97 }}
-                        transition={{ duration: 0.15 }}
-                        className="absolute top-full left-0 mt-1 w-64 bg-white rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.12)] border border-[#FD7E14]/10 overflow-hidden"
-                      >
-                        <div className="p-2">
-                          {DROPDOWN_ITEMS[link.label].map((item) => (
-                            <Link
-                              key={item.href}
-                              to={item.href}
-                              className="flex items-start gap-3 px-3 py-2.5 rounded-xl hover:bg-[#FFFCF5] group transition-colors"
-                            >
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-semibold text-[#333] group-hover:text-[#FD7E14] transition-colors">
-                                  {item.label}
-                                </div>
-                                <div className="text-xs text-[#999] mt-0.5">{item.desc}</div>
-                              </div>
-                            </Link>
-                          ))}
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
+                  {link.label}
+                </Link>
               );
             })}
           </nav>
 
-          {/* CTA Buttons */}
           <div className="hidden flex-shrink-0 items-center gap-2 xl:flex 2xl:gap-3">
             <Link
               to="/portal/login"
@@ -195,7 +108,6 @@ export function Header() {
             </Link>
           </div>
 
-          {/* Mobile menu button */}
           <button
             type="button"
             onClick={() => setMobileOpen(!mobileOpen)}
@@ -208,37 +120,29 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile Menu */}
-      <AnimatePresence>
-        {mobileOpen && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain border-t border-[#FD7E14]/10 bg-white xl:hidden"
-          >
-            <div className="mx-auto max-w-[88rem] space-y-1 px-4 py-4 sm:px-6">
-              {NAV_LINKS.map((link) => (
-                <Link
-                  key={link.label}
-                  to={link.href}
-                  className="flex items-center justify-between px-4 py-3 rounded-xl text-[#333] hover:text-[#FD7E14] hover:bg-[#FFFCF5] font-medium transition-colors"
-                >
-                  {link.label}
-                </Link>
-              ))}
-              <div className="pt-3 border-t border-[#FD7E14]/10 flex flex-col gap-2">
-                <Link to="/portal/login" className="w-full text-center px-4 py-3 rounded-xl border border-[#FD7E14]/30 text-[#FD7E14] font-semibold">
-                  Login
-                </Link>
-                <Link to="/apply" className="w-full text-center px-4 py-3 rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white font-bold">
-                  Start Application
-                </Link>
-              </div>
+      {mobileOpen && (
+        <div className="max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain border-t border-[#FD7E14]/10 bg-white xl:hidden">
+          <div className="mx-auto max-w-[88rem] space-y-1 px-4 py-4 sm:px-6">
+            {NAV_LINKS.map((link) => (
+              <Link
+                key={link.label}
+                to={link.href}
+                className="flex items-center justify-between px-4 py-3 rounded-xl text-[#333] hover:text-[#FD7E14] hover:bg-[#FFFCF5] font-medium transition-colors"
+              >
+                {link.label}
+              </Link>
+            ))}
+            <div className="pt-3 border-t border-[#FD7E14]/10 flex flex-col gap-2">
+              <Link to="/portal/login" className="w-full text-center px-4 py-3 rounded-xl border border-[#FD7E14]/30 text-[#FD7E14] font-semibold">
+                Login
+              </Link>
+              <Link to="/apply" className="w-full text-center px-4 py-3 rounded-xl bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white font-bold">
+                Start Application
+              </Link>
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

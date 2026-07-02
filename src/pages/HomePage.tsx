@@ -1,21 +1,10 @@
 import { lazy, Suspense } from 'react';
 import { HeroSection } from '@/components/home/HeroSection';
-import { PartnerTicker } from '@/components/home/PartnerTicker';
 import { HowItWorks } from '@/components/home/HowItWorks';
-import { DestinationsSection } from '@/components/home/DestinationsSection';
 import { InnovationBar } from '@/app/components/innovation-bar';
 
-const CourseCategorySection = lazy(() =>
-  import('@/components/home/CourseCategorySection').then((module) => ({ default: module.CourseCategorySection }))
-);
-const GlobeSection = lazy(() =>
-  import('@/components/home/GlobeSection').then((module) => ({ default: module.GlobeSection }))
-);
 const AIMatcherWidget = lazy(() =>
   import('@/app/components/ai-matcher-widget').then((module) => ({ default: module.AIMatcherWidget }))
-);
-const ExclusivePartnersSection = lazy(() =>
-  import('@/components/home/ExclusivePartnersSection').then((module) => ({ default: module.ExclusivePartnersSection }))
 );
 const StatsSection = lazy(() =>
   import('@/components/home/StatsSection').then((module) => ({ default: module.StatsSection }))
@@ -38,9 +27,6 @@ const DocumentButler = lazy(() =>
 const StudentDashboardPreview = lazy(() =>
   import('@/app/components/student-dashboard-preview').then((module) => ({ default: module.StudentDashboardPreview }))
 );
-const ServicesSection = lazy(() =>
-  import('@/components/home/ServicesSection').then((module) => ({ default: module.ServicesSection }))
-);
 const CTABanner = lazy(() =>
   import('@/components/home/CTABanner').then((module) => ({ default: module.CTABanner }))
 );
@@ -54,15 +40,10 @@ export function HomePage() {
     <>
       <HeroSection />
       <InnovationBar />
-      <PartnerTicker />
       <HowItWorks />
-      <DestinationsSection />
 
       <Suspense fallback={<SectionFallback />}>
-        <CourseCategorySection />
-        <GlobeSection />
         <AIMatcherWidget />
-        <ExclusivePartnersSection />
         <StatsSection />
         <TestimonialsSection />
         <CostOfLivingSlider />
@@ -70,7 +51,6 @@ export function HomePage() {
         <DailyDrillWidget />
         <DocumentButler />
         <StudentDashboardPreview />
-        <ServicesSection />
         <CTABanner />
       </Suspense>
     </>
