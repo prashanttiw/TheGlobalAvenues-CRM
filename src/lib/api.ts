@@ -25,6 +25,10 @@ export type PaginationMeta = {
 
 let accessToken: string | null = null;
 
+export function getAccessToken(): string | null {
+  return accessToken;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSuccess<T>> {
   const headers = new Headers(init.headers ?? {});
   const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
@@ -127,18 +131,20 @@ export type StudentProfileResponse = {
 };
 
 export type AgentProfileResponse = {
-  id: number;
-  user_id: number;
+  public_id: string;
+  full_name: string;
   agency_name: string;
-  agency_country: string;
-  registration_number?: string | null;
-  partnership_type: 'exclusive' | 'non_exclusive';
-  tier: 'bronze' | 'silver' | 'gold';
+  tier: number;
+  referral_code: string | null;
   status: 'pending' | 'approved' | 'rejected' | 'suspended' | 'inactive';
+  country: string | null;
+  created_at: string;
+  pending_student_requests?: number;
 };
 
 export type CatalogUniversity = {
-  id: number;
+  id: string;
+  public_id: string;
   name: string;
   shortName: string | null;
   country: string;
@@ -149,10 +155,13 @@ export type CatalogUniversity = {
   startingTuition: number | null;
   startingTuitionCurrency: string | null;
   startingTuitionLabel: string | null;
+  logoUrl: string | null;
+  logoThumbUrl: string | null;
 };
 
 export type CatalogProgram = {
-  id: number;
+  id: string;
+  public_id: string;
   name: string;
   degreeLevel: string;
   subjectArea: string | null;
@@ -161,7 +170,8 @@ export type CatalogProgram = {
   tuitionLabel: string | null;
   intakeMonths: string[];
   university: {
-    id: number;
+    id: string;
+    public_id: string;
     name: string;
     shortName: string | null;
     country: string;
@@ -169,26 +179,6 @@ export type CatalogProgram = {
     partnershipType: 'exclusive' | 'non_exclusive';
     isExclusive: boolean;
   };
-};
-
-export type StudentApplicationSummary = {
-  id: number;
-  reference_number: string;
-  status: string;
-  priority: string;
-  intake_month: number;
-  intake_year: number;
-  created_at: string;
-  university_name: string;
-  program_name: string;
-};
-
-export type StudentDashboardStats = {
-  profileCompletion: number;
-  points: number;
-  applicationCount: number;
-  recentApplications: StudentApplicationSummary[];
-  unreadNotifications: number;
 };
 
 export type AdminPermissionSummary = {
@@ -247,7 +237,7 @@ export type AdminDashboardStats = {
 };
 
 export type AdminPipelineItem = {
-  id: number;
+  id: string;
   reference_number: string;
   status: string;
   priority: string;
@@ -260,13 +250,13 @@ export type AdminPipelineItem = {
   updated_at: string;
   student_name: string;
   student_email: string;
-  university_id: number;
+  university_id: string;
   university_name: string;
   university_country: string;
-  program_id: number;
+  program_id: string;
   program_name: string;
   degree_level: string;
-  agent_id: number | null;
+  agent_id: string | null;
   agency_name: string | null;
   assignee_email: string | null;
   document_count: number | string;
@@ -274,12 +264,13 @@ export type AdminPipelineItem = {
 };
 
 export type AdminApplicationDetail = {
-  id: number;
+  id: string;
+  public_id?: string;
   reference_number: string;
   student_user_id: number;
-  agent_id: number | null;
-  program_id: number;
-  university_id: number;
+  agent_id: string | null;
+  program_id: string;
+  university_id: string;
   status: string;
   priority: string;
   intake_month: number;
@@ -305,8 +296,8 @@ export type AdminApplicationDetail = {
   agent_email: string | null;
   assignee_email: string | null;
   documents: Array<{
-    id: number;
-    application_id: number;
+    id: string;
+    application_id: string;
     uploaded_by: number;
     document_type: string;
     file_name: string;
@@ -341,8 +332,8 @@ export type AdminApplicationDetail = {
 };
 
 export type AdminDocumentQueueItem = {
-  id: number;
-  application_id: number;
+  id: string;
+  application_id: string;
   document_type: string;
   file_name: string;
   file_path: string;
@@ -403,7 +394,7 @@ export type AdminAgentSummary = {
 };
 
 export type AdminUniversityRecord = {
-  id: number;
+  id: string;
   name: string;
   shortName: string | null;
   country: string;
@@ -412,11 +403,13 @@ export type AdminUniversityRecord = {
   isActive: boolean;
   programCount: number;
   createdAt: string;
+  logoUrl: string | null;
+  logoThumbUrl: string | null;
 };
 
 export type AdminProgramRecord = {
-  id: number;
-  universityId: number;
+  id: string;
+  universityId: string;
   universityName: string;
   name: string;
   degreeLevel: string;
@@ -445,23 +438,32 @@ export type AuditLogEntry = {
 
 export type ApplicationDetailResponse = {
   id: number;
+  public_id?: string;
   reference_number: string;
-  student_user_id: number;
+  student_id?: number;
+  student_user_id?: number;
   agent_id?: number | null;
+  agent_id_at_submission?: number | null;
   sub_agent_id?: number | null;
-  program_id: number;
-  university_id: number;
+  intake_id?: number;
+  program_id?: number;
+  university_id?: number;
   status: string;
-  priority: string;
-  intake_month: number;
-  intake_year: number;
-  source: string;
+  priority?: string;
+  preference_rank?: number | null;
+  created_by_type?: 'student' | 'agent' | 'admin';
+  intake_month?: number;
+  intake_year?: number;
+  source?: string;
+  notes?: string | null;
+  withdrawal_reason?: string | null;
+  submitted_at?: string | null;
   created_at: string;
-  updated_at: string;
-  university_name: string;
-  program_name: string;
-  degree_level: string;
-  history: Array<{
+  updated_at?: string;
+  university_name?: string;
+  program_name?: string;
+  degree_level?: string;
+  history?: Array<{
     id: number;
     from_status: string | null;
     to_status: string;
@@ -469,7 +471,7 @@ export type ApplicationDetailResponse = {
     note: string | null;
     created_at: string;
   }>;
-  documents: Array<{
+  documents?: Array<{
     id: number;
     document_type: string;
     file_name: string;
@@ -553,12 +555,14 @@ export type AuthSessionResult = {
 export async function sendRegistrationOtp(
   email: string,
   role: 'student' | 'agent',
+  fullName: string,
+  phone: string,
 ): Promise<RegistrationOtpResult> {
   const response = await request<RegistrationOtpResult>(
     '/?route=auth&action=register/send-otp',
     {
       method: 'POST',
-      body: JSON.stringify({ email, role }),
+      body: JSON.stringify({ email, role, full_name: fullName, phone }),
     },
   );
 
@@ -619,7 +623,11 @@ export async function completeAgentRegistration(
 }
 
 
-export async function loginWithPassword(email: string, password: string): Promise<AuthLoginResult> {
+export async function loginWithPassword(
+  email: string,
+  password: string,
+  role?: 'student' | 'agent' | 'admin',
+): Promise<AuthLoginResult> {
   const response = await request<{
     user?: AuthUser;
     accessToken?: string;
@@ -634,7 +642,7 @@ export async function loginWithPassword(email: string, password: string): Promis
     '/?route=auth&action=login',
     {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify(role ? { email, password, role } : { email, password }),
     }
   );
 
@@ -717,18 +725,16 @@ export async function updateStudentProfile(payload: Record<string, unknown>): Pr
 }
 
 export async function fetchAgentProfile(): Promise<AgentProfileResponse> {
-  const response = await request<{ profile: AgentProfileResponse }>('/?route=agent&action=get_profile');
+  const response = await request<AgentProfileResponse>('/?route=agent&action=profile');
 
-  return response.data.profile;
+  return response.data;
 }
 
-export async function updateAgentProfile(payload: Record<string, unknown>): Promise<AgentProfileResponse> {
-  const response = await request<{ profile: AgentProfileResponse }>('/?route=agent&action=update_profile', {
+export async function updateAgentProfile(payload: Record<string, unknown>): Promise<void> {
+  await request('/?route=agent&action=profile', {
     method: 'PUT',
     body: JSON.stringify(payload),
   });
-
-  return response.data.profile;
 }
 
 export async function fetchUniversities(params: {
@@ -750,135 +756,94 @@ export async function fetchUniversities(params: {
     degree_level: params.degreeLevel,
   });
 
-  const response = await request<{ universities: CatalogUniversity[] }>(`/?${query}`);
+  const response = await request<any[]>(`/?${query}`);
+  const rows = (Array.isArray(response.data) ? response.data : []) as any[];
 
   return {
-    universities: response.data.universities,
+    universities: rows.map((row) => ({
+      id: row.public_id,
+      public_id: row.public_id,
+      name: row.name,
+      shortName: null,
+      country: row.country,
+      city: row.city,
+      partnershipType: row.partnership_type,
+      isExclusive: row.partnership_type === 'exclusive',
+      programCount: row.course_count ?? 0,
+      startingTuition: null,
+      startingTuitionCurrency: null,
+      startingTuitionLabel: null,
+      logoUrl: row.logo_url ?? null,
+      logoThumbUrl: row.logo_thumb_url ?? null,
+    })),
     meta: response.meta as PaginationMeta,
   };
 }
 
-export async function fetchPrograms(params: {
-  page?: number;
-  perPage?: number;
-  q?: string;
-  country?: string;
-  subjectArea?: string;
-  degreeLevel?: string;
-  universityId?: number;
-  budgetMax?: number;
-} = {}): Promise<{ programs: CatalogProgram[]; meta: PaginationMeta }> {
-  const query = buildQuery({
-    route: 'university',
-    action: 'search',
-    page: params.page,
-    per_page: params.perPage,
-    q: params.q,
-    country: params.country,
-    subject_area: params.subjectArea,
-    degree_level: params.degreeLevel,
-    university_id: params.universityId,
-    budget_max: params.budgetMax,
-  });
+export type UniversityDetailCourse = {
+  public_id: string;
+  name: string;
+  degree_level: string;
+  duration_months: number | null;
+  language: string | null;
+  description: string | null;
+  open_intake_count: number;
+  min_tuition_fee?: number | string | null;
+  max_tuition_fee?: number | string | null;
+  tuition_fee_currency?: string | null;
+};
 
-  const response = await request<{ programs: CatalogProgram[] }>(`/?${query}`);
-
-  return {
-    programs: response.data.programs,
-    meta: response.meta as PaginationMeta,
-  };
-}
-
-export async function fetchUniversityDetail(universityId: number): Promise<CatalogUniversity & { programs: CatalogProgram[] }> {
-  const query = buildQuery({
-    route: 'university',
-    action: 'get_detail',
-    id: universityId,
-  });
-
-  const response = await request<{ university: CatalogUniversity & { programs: CatalogProgram[] } }>(`/?${query}`);
+export async function fetchUniversityDetail(universityPublicId: string): Promise<any & { courses: UniversityDetailCourse[] }> {
+  const response = await request<{ university: any }>(
+    `/?route=universities&action=${encodeURIComponent(universityPublicId)}`
+  );
 
   return response.data.university;
 }
 
-export async function fetchStudentDashboard(): Promise<StudentDashboardStats> {
-  const response = await request<{ stats: StudentDashboardStats }>('/?route=student&action=get_dashboard');
-
-  return response.data.stats;
-}
-
-export async function fetchStudentApplications(): Promise<StudentApplicationSummary[]> {
-  const response = await request<{ applications: StudentApplicationSummary[] }>('/?route=student&action=get_applications');
-
-  return response.data.applications;
-}
-
-export async function fetchApplicationDetail(applicationId: number): Promise<ApplicationDetailResponse> {
-  const query = buildQuery({
-    route: 'application',
-    action: 'get_detail',
-    id: applicationId,
-  });
-
-  const response = await request<{ application: ApplicationDetailResponse }>(`/?${query}`);
-
-  return response.data.application;
+export async function fetchProgramIntakes(coursePublicId: string): Promise<any[]> {
+  const response = await request<{ intakes: any[] }>(`/?route=courses&action=${encodeURIComponent(coursePublicId)}/intakes`);
+  return response.data.intakes ?? [];
 }
 
 export async function createApplication(payload: {
-  programId: number;
-  universityId?: number;
+  programId: string;
+  universityId?: string;
   intakeMonth: number;
   intakeYear: number;
   source?: 'direct' | 'agent' | 'referral' | 'website';
-  studentUserId?: number;
-}): Promise<ApplicationDetailResponse> {
-  const response = await request<{ application: ApplicationDetailResponse }>('/?route=application&action=create', {
+  studentUserId?: string;
+}): Promise<{ application: ApplicationDetailResponse; autoSubmitted: boolean }> {
+  const response = await request<{ application: ApplicationDetailResponse; auto_submitted: boolean }>('/?route=application&action=create', {
     method: 'POST',
     body: JSON.stringify({
       program_id: payload.programId,
-      university_id: payload.universityId,
       intake_month: payload.intakeMonth,
       intake_year: payload.intakeYear,
-      source: payload.source ?? 'website',
-      student_user_id: payload.studentUserId,
     }),
   });
 
-  return response.data.application;
+  return { application: response.data.application, autoSubmitted: response.data.auto_submitted };
 }
 
-export async function uploadApplicationDocument(payload: {
-  applicationId: number;
-  documentType: string;
-  file: File;
-}): Promise<ApplicationDetailResponse['documents'][number]> {
-  const formData = new FormData();
-  formData.set('application_id', String(payload.applicationId));
-  formData.set('document_type', payload.documentType);
-  formData.set('file', payload.file);
-
-  const response = await request<{ document: ApplicationDetailResponse['documents'][number] }>(
-    '/?route=application&action=upload_document',
-    {
-      method: 'POST',
-      body: formData,
-    }
-  );
-
-  return response.data.document;
+export async function reorderApplicationPreferences(order: string[]): Promise<void> {
+  await request('/?route=student&action=applications/reorder', {
+    method: 'PUT',
+    body: JSON.stringify({ order }),
+  });
 }
 
-export async function deleteApplicationDocument(documentId: number): Promise<void> {
-  const query = buildQuery({
-    route: 'application',
-    action: 'delete_document',
-    id: documentId,
+export async function agentCreateApplication(studentPid: string, intakePid: string, notes?: string): Promise<{ application: ApplicationDetailResponse; autoSubmitted: boolean }> {
+  const response = await request<{ application: ApplicationDetailResponse; auto_submitted: boolean }>('/?route=agent&action=applications', {
+    method: 'POST',
+    body: JSON.stringify({ student_pid: studentPid, intake_pid: intakePid, notes }),
   });
 
-  await request<{}>(`/?${query}`, {
-    method: 'DELETE',
-  });
+  return { application: response.data.application, autoSubmitted: response.data.auto_submitted };
+}
+
+export async function agentSubmitApplication(applicationPublicId: string): Promise<void> {
+  await request(`/?route=agent&action=applications/${encodeURIComponent(applicationPublicId)}/submit`, { method: 'PUT' });
 }
 
 export function clearAuthSession(): void {
@@ -891,51 +856,138 @@ export async function fetchAdminDashboardStats(): Promise<AdminDashboardStats> {
   return response.data.stats;
 }
 
+// NOTE: fetchAdminPipeline / fetchAdminApplicationDetail / updateAdminApplication are legacy-shaped
+// adapters kept for AdminDashboardPage.tsx's pipeline widget. They call the same real
+// ApplicationController endpoints as the primary fetchAdminApplications/updateAdminApplicationStatus
+// functions below and reshape the response into the AdminPipelineItem/AdminApplicationDetail types.
+// Fields that don't exist in the real schema (priority, assigned_to, is_flagged, source) are
+// display-only defaults — there is no backend column to persist them.
 export async function fetchAdminPipeline(params: {
   page?: number;
   perPage?: number;
   q?: string;
   status?: string;
-  country?: string;
-  universityId?: number;
-  agentId?: number;
-  assignedTo?: number;
 } = {}): Promise<{ applications: AdminPipelineItem[]; meta: PaginationMeta }> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'get_pipeline',
-    page: params.page,
-    per_page: params.perPage,
-    q: params.q,
-    status: params.status,
-    country: params.country,
-    university_id: params.universityId,
-    agent_id: params.agentId,
-    assigned_to: params.assignedTo,
+  const response = await api.get<any[]>('admin/applications', {
+    params: { page: params.page, per_page: params.perPage, status: params.status },
   });
+  const rows = (Array.isArray(response.data) ? response.data : []) as any[];
+  const q = (params.q ?? '').toLowerCase();
+  const filtered = q
+    ? rows.filter((row) =>
+        [row.student_name, row.university_name, row.course_name, row.reference_number]
+          .filter(Boolean)
+          .some((v: string) => v.toLowerCase().includes(q))
+      )
+    : rows;
 
-  const response = await request<{ applications: AdminPipelineItem[] }>(`/?${query}`);
+  const applications: AdminPipelineItem[] = filtered.map((row) => ({
+    id: row.public_id,
+    reference_number: row.reference_number,
+    status: row.status,
+    priority: 'normal',
+    intake_month: row.intake_month,
+    intake_year: row.intake_year,
+    assigned_to: null,
+    is_flagged: false,
+    flag_reason: null,
+    created_at: row.created_at,
+    updated_at: row.created_at,
+    student_name: row.student_name,
+    student_email: '',
+    university_id: row.university_name,
+    university_name: row.university_name,
+    university_country: '',
+    program_id: row.course_name,
+    program_name: row.course_name,
+    degree_level: row.course_level,
+    agent_id: row.agent_name ? row.agent_name : null,
+    agency_name: row.agent_name ?? null,
+    assignee_email: null,
+    document_count: 0,
+    latest_note_at: null,
+  }));
 
-  return {
-    applications: response.data.applications,
-    meta: response.meta as PaginationMeta,
-  };
+  return { applications, meta: response.meta as PaginationMeta };
 }
 
-export async function fetchAdminApplicationDetail(applicationId: number): Promise<AdminApplicationDetail> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'get_application_detail',
-    id: applicationId,
-  });
+export async function fetchAdminApplicationDetail(applicationPublicId: string): Promise<AdminApplicationDetail> {
+  const response = await api.get<{ application: any }>(`admin/applications/${encodeURIComponent(applicationPublicId)}`);
+  const app = response.data.application;
 
-  const response = await request<{ application: AdminApplicationDetail }>(`/?${query}`);
-
-  return response.data.application;
+  return {
+    id: app.public_id,
+    public_id: app.public_id,
+    reference_number: app.reference_number,
+    student_user_id: 0,
+    agent_id: null,
+    program_id: app.course_name,
+    university_id: app.university_name,
+    status: app.status,
+    priority: 'normal',
+    intake_month: app.intake_month,
+    intake_year: app.intake_year,
+    assigned_to: null,
+    is_flagged: false,
+    flag_reason: null,
+    source: 'website',
+    created_at: app.created_at,
+    updated_at: app.created_at,
+    student_name: app.student_name,
+    student_email: '',
+    student_phone: null,
+    nationality: null,
+    desired_country: null,
+    desired_subject: null,
+    profile_completion: null,
+    university_name: app.university_name,
+    university_country: '',
+    program_name: app.course_name,
+    degree_level: app.course_level,
+    agency_name: app.agent_name ?? null,
+    agent_email: null,
+    assignee_email: null,
+    documents: (app.document_requests ?? []).map((d: any) => ({
+      id: d.public_id,
+      application_id: app.public_id,
+      uploaded_by: 0,
+      document_type: d.doc_label,
+      file_name: d.doc_label,
+      file_path: '',
+      file_size: null,
+      mime_type: null,
+      file_uuid: d.public_id,
+      status: d.status,
+      rejection_reason: d.rejection_reason ?? null,
+      verified_by: null,
+      verified_at: null,
+      created_at: app.created_at,
+    })),
+    history: (app.timeline ?? [])
+      .filter((t: any) => t.item_type === 'status_change')
+      .map((t: any, idx: number) => ({
+        id: idx,
+        from_status: null,
+        to_status: app.status,
+        changed_by: 0,
+        note: t.content,
+        created_at: t.created_at,
+        changed_by_email: null,
+      })),
+    notes: (app.timeline ?? []).map((t: any, idx: number) => ({
+      id: idx,
+      note: t.content,
+      is_internal: !t.is_visible_to_agent,
+      created_at: t.created_at,
+      author_id: 0,
+      author_email: '',
+      author_role: t.direction,
+    })),
+  } as unknown as AdminApplicationDetail;
 }
 
 export async function updateAdminApplication(payload: {
-  application_id: number;
+  application_id: string;
   status?: string;
   priority?: string;
   assigned_to?: number | null;
@@ -943,48 +995,75 @@ export async function updateAdminApplication(payload: {
   is_flagged?: boolean;
   flag_reason?: string;
 }): Promise<AdminApplicationDetail> {
-  const response = await request<{ application: AdminApplicationDetail }>('/?route=admin&action=update_application', {
-    method: 'PUT',
-    body: JSON.stringify(payload),
-  });
-
-  return response.data.application;
+  if (payload.status) {
+    await api.post(`admin/applications/${encodeURIComponent(payload.application_id)}/status`, {
+      status: payload.status,
+      note: payload.note,
+    });
+  }
+  return fetchAdminApplicationDetail(payload.application_id);
 }
 
-export async function fetchAdminDocumentQueue(params: {
+export async function fetchAdminDocumentQueue(_params: {
   page?: number;
   perPage?: number;
   q?: string;
   status?: string;
 } = {}): Promise<{ documents: AdminDocumentQueueItem[]; meta: PaginationMeta }> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'get_document_queue',
-    page: params.page,
-    per_page: params.perPage,
-    q: params.q,
-    status: params.status,
-  });
+  const response = await api.get<{ queue: any[] }>('admin/get_document_queue');
+  const rows = response.data.queue ?? [];
 
-  const response = await request<{ documents: AdminDocumentQueueItem[] }>(`/?${query}`);
+  const documents: AdminDocumentQueueItem[] = rows.map((row: any) => ({
+    id: row.public_id,
+    application_id: row.application_pid,
+    document_type: row.doc_label,
+    file_name: row.file_name ?? row.doc_label,
+    file_path: '',
+    file_size: null,
+    mime_type: null,
+    status: row.status,
+    rejection_reason: null,
+    created_at: row.created_at,
+    reference_number: row.application_reference,
+    application_status: row.status,
+    student_name: row.student_name,
+    student_email: row.student_email,
+    university_name: '',
+    program_name: '',
+  }));
 
   return {
-    documents: response.data.documents,
-    meta: response.meta as PaginationMeta,
+    documents,
+    meta: { current_page: 1, per_page: documents.length || 1, total: documents.length, total_pages: 1, has_next: false, has_prev: false },
   };
 }
 
 export async function reviewAdminDocument(payload: {
-  document_id: number;
+  document_id: string;
   decision: 'verified' | 'rejected';
   reason?: string;
 }): Promise<AdminDocumentQueueItem> {
-  const response = await request<{ document: AdminDocumentQueueItem }>('/?route=admin&action=review_document', {
-    method: 'PUT',
-    body: JSON.stringify(payload),
-  });
+  const response = await api.post<{ document_request: any }>('admin/review_document', payload);
+  const d = response.data.document_request;
 
-  return response.data.document;
+  return {
+    id: d.public_id,
+    application_id: '',
+    document_type: d.doc_label,
+    file_name: d.doc_label,
+    file_path: '',
+    file_size: null,
+    mime_type: null,
+    status: d.status,
+    rejection_reason: d.rejection_reason ?? null,
+    created_at: '',
+    reference_number: '',
+    application_status: '',
+    student_name: '',
+    student_email: '',
+    university_name: '',
+    program_name: '',
+  } as unknown as AdminDocumentQueueItem;
 }
 
 export async function fetchAdminUsers(params: {
@@ -1093,25 +1172,63 @@ export async function fetchAdminAgentsDrafts(): Promise<{ agents: any[] }> {
   return { agents: response.data.agents ?? [] };
 }
 
+export async function fetchAdminAgentsPending(): Promise<{ agents: any[] }> {
+  const response = await request<{ agents: any[] }>('/?route=admin&action=agents/pending');
+  return { agents: response.data.agents ?? [] };
+}
+
+// NOTE: fetchAdminUniversities / createAdminUniversity / updateAdminUniversity / deleteAdminUniversity
+// and their program counterparts below are legacy-shaped adapters kept for AdminDashboardPage.tsx's
+// quick-edit widgets. They delegate to the same real UniversityController/CourseController endpoints
+// as fetchAdminUniversitiesLive/fetchAdminUniversityCourses etc. further down this file, reshaping
+// the response into the AdminUniversityRecord/AdminProgramRecord legacy types (id = public_id string).
+function toAdminUniversityRecord(row: any): AdminUniversityRecord {
+  return {
+    id: row.public_id,
+    name: row.name,
+    shortName: null,
+    country: row.country,
+    city: row.city ?? null,
+    partnershipType: row.partnership_type,
+    isActive: row.status === 'active',
+    programCount: row.course_count ?? 0,
+    createdAt: row.created_at,
+    logoUrl: row.logo_url ?? null,
+    logoThumbUrl: row.logo_thumb_url ?? null,
+  };
+}
+
+function toAdminProgramRecord(row: any, universityId: string, universityName: string): AdminProgramRecord {
+  return {
+    id: row.public_id,
+    universityId,
+    universityName,
+    name: row.name,
+    degreeLevel: row.degree_level,
+    subjectArea: null,
+    tuitionFee: row.tuition_fee_amount ?? null,
+    tuitionCurrency: row.tuition_fee_currency ?? null,
+    intakeMonths: [],
+    isActive: row.status === 'active',
+    createdAt: row.created_at,
+  };
+}
+
 export async function fetchAdminUniversities(params: {
   page?: number;
   perPage?: number;
   q?: string;
   status?: string;
 } = {}): Promise<{ universities: AdminUniversityRecord[]; meta: PaginationMeta }> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'get_universities',
-    page: params.page,
-    per_page: params.perPage,
-    q: params.q,
-    status: params.status,
+  const response = await api.get<any[]>('admin/universities', {
+    params: { page: params.page, per_page: params.perPage, status: params.status },
   });
-
-  const response = await request<{ universities: AdminUniversityRecord[] }>(`/?${query}`);
+  const rows = (Array.isArray(response.data) ? response.data : []) as any[];
+  const q = (params.q ?? '').toLowerCase();
+  const filtered = q ? rows.filter((r) => String(r.name).toLowerCase().includes(q)) : rows;
 
   return {
-    universities: response.data.universities,
+    universities: filtered.map(toAdminUniversityRecord),
     meta: response.meta as PaginationMeta,
   };
 }
@@ -1124,16 +1241,18 @@ export async function createAdminUniversity(payload: {
   partnership_type?: 'exclusive' | 'non_exclusive';
   is_active?: boolean;
 }): Promise<AdminUniversityRecord> {
-  const response = await request<{ university: AdminUniversityRecord }>('/?route=admin&action=create_university', {
-    method: 'POST',
-    body: JSON.stringify(payload),
+  const response = await api.post<{ university: any }>('admin/universities', {
+    name: payload.name,
+    country: payload.country,
+    city: payload.city,
+    partnership_type: payload.partnership_type,
   });
 
-  return response.data.university;
+  return toAdminUniversityRecord(response.data.university);
 }
 
 export async function updateAdminUniversity(payload: {
-  id: number;
+  id: string;
   name?: string;
   short_name?: string;
   country?: string;
@@ -1141,26 +1260,19 @@ export async function updateAdminUniversity(payload: {
   partnership_type?: 'exclusive' | 'non_exclusive';
   is_active?: boolean;
 }): Promise<AdminUniversityRecord> {
-  const response = await request<{ university: AdminUniversityRecord }>('/?route=admin&action=update_university', {
-    method: 'PUT',
-    body: JSON.stringify(payload),
+  const response = await api.put<{ university: any }>(`admin/universities/${encodeURIComponent(payload.id)}`, {
+    name: payload.name,
+    country: payload.country,
+    city: payload.city,
+    partnership_type: payload.partnership_type,
+    status: payload.is_active === undefined ? undefined : payload.is_active ? 'active' : 'inactive',
   });
 
-  return response.data.university;
+  return toAdminUniversityRecord(response.data.university);
 }
 
-export async function deleteAdminUniversity(universityId: number): Promise<AdminUniversityRecord> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'delete_university',
-    id: universityId,
-  });
-
-  const response = await request<{ university: AdminUniversityRecord }>(`/?${query}`, {
-    method: 'DELETE',
-  });
-
-  return response.data.university;
+export async function deleteAdminUniversity(universityId: string): Promise<void> {
+  await api.delete(`admin/universities/${encodeURIComponent(universityId)}`);
 }
 
 export async function fetchAdminPrograms(params: {
@@ -1168,30 +1280,38 @@ export async function fetchAdminPrograms(params: {
   perPage?: number;
   q?: string;
   status?: string;
-  universityId?: number;
+  universityId?: string;
   degreeLevel?: string;
 } = {}): Promise<{ programs: AdminProgramRecord[]; meta: PaginationMeta }> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'get_programs',
-    page: params.page,
-    per_page: params.perPage,
-    q: params.q,
-    status: params.status,
-    university_id: params.universityId,
-    degree_level: params.degreeLevel,
-  });
+  const universitiesResult = await fetchAdminUniversities({ perPage: 100 });
+  const universities = params.universityId
+    ? universitiesResult.universities.filter((u) => u.id === params.universityId)
+    : universitiesResult.universities;
 
-  const response = await request<{ programs: AdminProgramRecord[] }>(`/?${query}`);
+  const batches = await Promise.all(
+    universities.map(async (university) => {
+      const courses = await fetchAdminUniversityCourses(university.id);
+      return courses.map((course: any) => toAdminProgramRecord(course, university.id, university.name));
+    })
+  );
+
+  let programs = batches.flat();
+  const q = (params.q ?? '').toLowerCase();
+  if (q) {
+    programs = programs.filter((p) => p.name.toLowerCase().includes(q));
+  }
+  if (params.degreeLevel) {
+    programs = programs.filter((p) => p.degreeLevel === params.degreeLevel);
+  }
 
   return {
-    programs: response.data.programs,
-    meta: response.meta as PaginationMeta,
+    programs,
+    meta: { current_page: 1, per_page: programs.length || 1, total: programs.length, total_pages: 1, has_next: false, has_prev: false },
   };
 }
 
 export async function createAdminProgram(payload: {
-  university_id: number;
+  university_id: string;
   name: string;
   degree_level: string;
   subject_area?: string;
@@ -1200,17 +1320,17 @@ export async function createAdminProgram(payload: {
   intake_months?: string[];
   is_active?: boolean;
 }): Promise<AdminProgramRecord> {
-  const response = await request<{ program: AdminProgramRecord }>('/?route=admin&action=create_program', {
-    method: 'POST',
-    body: JSON.stringify(payload),
+  const response = await api.post<{ course: any }>(`admin/universities/${encodeURIComponent(payload.university_id)}/courses`, {
+    name: payload.name,
+    degree_level: payload.degree_level,
   });
 
-  return response.data.program;
+  return toAdminProgramRecord(response.data.course, payload.university_id, '');
 }
 
 export async function updateAdminProgram(payload: {
-  id: number;
-  university_id?: number;
+  id: string;
+  university_id?: string;
   name?: string;
   degree_level?: string;
   subject_area?: string;
@@ -1219,26 +1339,17 @@ export async function updateAdminProgram(payload: {
   intake_months?: string[];
   is_active?: boolean;
 }): Promise<AdminProgramRecord> {
-  const response = await request<{ program: AdminProgramRecord }>('/?route=admin&action=update_program', {
-    method: 'PUT',
-    body: JSON.stringify(payload),
+  const response = await api.put<{ course: any }>(`admin/courses/${encodeURIComponent(payload.id)}`, {
+    name: payload.name,
+    degree_level: payload.degree_level,
+    status: payload.is_active === undefined ? undefined : payload.is_active ? 'active' : 'inactive',
   });
 
-  return response.data.program;
+  return toAdminProgramRecord(response.data.course, payload.university_id ?? '', '');
 }
 
-export async function deleteAdminProgram(programId: number): Promise<AdminProgramRecord> {
-  const query = buildQuery({
-    route: 'admin',
-    action: 'delete_program',
-    id: programId,
-  });
-
-  const response = await request<{ program: AdminProgramRecord }>(`/?${query}`, {
-    method: 'DELETE',
-  });
-
-  return response.data.program;
+export async function deleteAdminProgram(programId: string): Promise<void> {
+  await api.delete(`admin/courses/${encodeURIComponent(programId)}`);
 }
 
 export async function fetchAdminAuditLog(params: {
@@ -1453,6 +1564,7 @@ export async function fetchAdminStudents(params: {
   perPage?: number;
   status?: string;
   search?: string;
+  agentScope?: string;
 } = {}): Promise<{ students: any[]; meta: PaginationMeta }> {
   const query = buildQuery({
     route: 'admin',
@@ -1461,12 +1573,95 @@ export async function fetchAdminStudents(params: {
     per_page: params.perPage,
     status: params.status,
     search: params.search,
+    agent_scope: params.agentScope,
   });
   const response = await request<any>(`/?${query}`);
   return {
     students: response.data.students || response.data || [],
     meta: (response.meta || response.data?.meta) as PaginationMeta,
   };
+}
+
+export async function fetchAdminStudentDetail(pid: string): Promise<any> {
+  const response = await request<any>(`/?route=admin&action=students/${encodeURIComponent(pid)}/detail`);
+  return response.data;
+}
+
+// ── Student custom fields (admin-defined data-collection fields) ──────────
+
+export type CustomFieldOption = { value: string; label: string };
+
+export type CustomFieldDefinition = {
+  public_id: string;
+  label: string;
+  field_type: 'text' | 'textarea' | 'number' | 'date' | 'select' | 'file';
+  options: CustomFieldOption[] | null;
+  is_required: boolean;
+  display_order: number;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CustomFieldValueRow = {
+  definition_public_id: string;
+  label: string;
+  field_type: CustomFieldDefinition['field_type'];
+  options: CustomFieldOption[] | null;
+  is_required: boolean;
+  value_text: string | null;
+  file: { public_id: string; display_filename: string } | null;
+};
+
+export async function fetchAdminCustomFieldDefinitions(): Promise<CustomFieldDefinition[]> {
+  const response = await api.get<{ definitions: CustomFieldDefinition[] }>('admin/student-custom-fields');
+  return response.data.definitions ?? [];
+}
+
+export async function createAdminCustomFieldDefinition(payload: {
+  label: string;
+  field_type: CustomFieldDefinition['field_type'];
+  options?: string[];
+  is_required?: boolean;
+}): Promise<CustomFieldDefinition> {
+  const response = await api.post<{ definition: CustomFieldDefinition }>('admin/student-custom-fields', payload);
+  return response.data.definition;
+}
+
+export async function updateAdminCustomFieldDefinition(
+  pid: string,
+  payload: Partial<{ label: string; field_type: string; options: string[]; is_required: boolean; is_active: boolean; display_order: number }>,
+): Promise<CustomFieldDefinition> {
+  const response = await api.put<{ definition: CustomFieldDefinition }>(`admin/student-custom-fields/${encodeURIComponent(pid)}`, payload);
+  return response.data.definition;
+}
+
+export async function deleteAdminCustomFieldDefinition(pid: string): Promise<void> {
+  await api.delete(`admin/student-custom-fields/${encodeURIComponent(pid)}`);
+}
+
+export async function reorderAdminCustomFieldDefinitions(order: { public_id: string; display_order: number }[]): Promise<void> {
+  await api.post('admin/student-custom-fields/reorder', { order });
+}
+
+export async function fetchStudentCustomFields(): Promise<CustomFieldValueRow[]> {
+  const response = await api.get<{ definitions: CustomFieldValueRow[] }>('student/custom-fields');
+  return response.data.definitions ?? [];
+}
+
+export async function submitStudentCustomFieldValue(definitionPublicId: string, value: string): Promise<void> {
+  await api.post('student/custom-fields/value', { definition_public_id: definitionPublicId, value });
+}
+
+export async function uploadStudentCustomFieldFile(definitionPublicId: string, file: File): Promise<{ file_public_id: string; display_filename: string }> {
+  const formData = new FormData();
+  formData.set('definition_public_id', definitionPublicId);
+  formData.set('file', file);
+  const response = await request<{ value: { file_public_id: string; display_filename: string } }>('/?route=student&action=custom-fields/file', {
+    method: 'POST',
+    body: formData,
+  });
+  return response.data.value;
 }
 
 export async function fetchApplicationCommissions(applicationPid: string): Promise<any[]> {
@@ -1833,33 +2028,226 @@ export function setUnauthorizedHandler(handler: () => void): void {
 }
 
 
-// --- AUTO-GENERATED MOCKS TO FIX TRUNCATED FILE ---
-export const createAdminApplicationDocumentRequest = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const createAdminApplicationPaymentRequest = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAdminApplications = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const updateAdminApplicationStatus = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const createAdminUniversityCourse = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const deleteAdminCourseLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAdminUniversitiesLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAdminUniversityCourses = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const updateAdminCourseLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const eraseAdminFile = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const cloneAdminIntake = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const createAdminCourseIntake = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const deleteAdminIntakeLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchAdminCourseIntakes = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const updateAdminIntakeLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const updateAdminIntakeStatus = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const getAccessToken = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+// --- Applications (admin/agent/student) — real ApplicationController / DocumentRequestController / PaymentTrackingController wiring ---
+
+export async function createAdminApplicationDocumentRequest(
+  applicationPublicId: string,
+  payload: { doc_label: string; description?: string; deadline?: string }
+): Promise<any> {
+  const response = await api.post<{ document_request: any }>(
+    `admin/applications/${encodeURIComponent(applicationPublicId)}/document-requests`,
+    payload
+  );
+  return response.data.document_request;
+}
+
+export async function createAdminApplicationPaymentRequest(
+  applicationPublicId: string,
+  payload: { label: string; amount?: number; currency?: string; payment_link?: string; due_date?: string }
+): Promise<any> {
+  const response = await api.post<{ payment_request: any }>(
+    `admin/applications/${encodeURIComponent(applicationPublicId)}/payment-requests`,
+    payload
+  );
+  return response.data.payment_request;
+}
+
+export async function fetchAdminApplications(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  universityPid?: string;
+} = {}): Promise<{ applications: any[]; meta: PaginationMeta }> {
+  const response = await api.get<any[]>('admin/applications', {
+    params: { page: params.page, per_page: params.perPage, status: params.status, university_pid: params.universityPid },
+  });
+  return {
+    applications: Array.isArray(response.data) ? response.data : [],
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+export async function fetchAdminApplicationByPublicId(applicationPublicId: string): Promise<any> {
+  const response = await api.get<{ application: any }>(`admin/applications/${encodeURIComponent(applicationPublicId)}`);
+  return response.data.application;
+}
+
+export async function updateAdminApplicationStatus(
+  applicationPublicId: string,
+  status: string,
+  note?: string
+): Promise<any> {
+  const response = await api.post<{ application: any }>(`admin/applications/${encodeURIComponent(applicationPublicId)}/status`, {
+    status,
+    note,
+  });
+  return response.data.application;
+}
+
+export async function adminWithdrawApplication(applicationPublicId: string, withdrawalReason?: string): Promise<any> {
+  const response = await api.put<{ application: any }>(`admin/applications/${encodeURIComponent(applicationPublicId)}/withdraw`, {
+    withdrawal_reason: withdrawalReason,
+  });
+  return response.data.application;
+}
+
+export async function adminReviewDocumentRequest(
+  documentRequestPublicId: string,
+  payload: { status: 'approved' | 'rejected'; rejection_reason?: string }
+): Promise<any> {
+  const response = await api.put<{ document_request: any }>(
+    `admin/document-requests/${encodeURIComponent(documentRequestPublicId)}/review`,
+    payload
+  );
+  return response.data.document_request;
+}
+
+export async function adminCancelDocumentRequest(documentRequestPublicId: string): Promise<any> {
+  const response = await api.put<{ document_request: any }>(
+    `admin/document-requests/${encodeURIComponent(documentRequestPublicId)}/cancel`,
+    {}
+  );
+  return response.data.document_request;
+}
+
+export async function adminVerifyPayment(
+  paymentPublicId: string,
+  payload: { status: 'confirmed' | 'disputed'; note?: string }
+): Promise<any> {
+  const response = await api.put<{ payment_request: any }>(`admin/payment-requests/${encodeURIComponent(paymentPublicId)}/verify`, payload);
+  return response.data.payment_request;
+}
+
+export async function adminResolvePayment(paymentPublicId: string, payload: { status: 'confirmed' | 'cancelled'; note?: string }): Promise<any> {
+  const response = await api.put<{ payment_request: any }>(`admin/payment-requests/${encodeURIComponent(paymentPublicId)}/resolve`, payload);
+  return response.data.payment_request;
+}
+
+// --- Universities / Courses / Intakes (admin catalog CRUD) — real UniversityController/CourseController/IntakeController wiring ---
+
+export async function fetchAdminUniversitiesLive(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+} = {}): Promise<{ universities: any[]; meta: PaginationMeta }> {
+  const response = await api.get<any[]>('admin/universities', {
+    params: { page: params.page, per_page: params.perPage, status: params.status },
+  });
+  return { universities: Array.isArray(response.data) ? response.data : [], meta: response.meta as PaginationMeta };
+}
+
+export async function fetchAdminUniversityLive(publicId: string): Promise<any> {
+  const response = await api.get<{ university: any }>(`admin/universities/${encodeURIComponent(publicId)}`);
+  return response.data.university;
+}
+
+export async function createAdminUniversityLive(payload: Record<string, unknown>): Promise<any> {
+  const response = await api.post<{ university: any }>('admin/universities', payload);
+  return response.data.university;
+}
+
+export async function updateAdminUniversityLive(publicId: string, payload: Record<string, unknown>): Promise<any> {
+  const response = await api.put<{ university: any }>(`admin/universities/${encodeURIComponent(publicId)}`, payload);
+  return response.data.university;
+}
+
+export async function deleteAdminUniversityLive(publicId: string): Promise<void> {
+  await api.delete(`admin/universities/${encodeURIComponent(publicId)}`);
+}
+
+export async function uploadUniversityLogo(publicId: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.set('logo', file);
+  const response = await request<{ university: any }>(`/?route=admin&action=universities/${encodeURIComponent(publicId)}/logo`, {
+    method: 'POST',
+    body: formData,
+  });
+  return response.data.university;
+}
+
+export async function fetchAdminUniversityCourses(universityPublicId: string): Promise<any[]> {
+  const response = await api.get<any[]>(`admin/universities/${encodeURIComponent(universityPublicId)}/courses`);
+  return Array.isArray(response.data) ? response.data : [];
+}
+
+export async function createAdminUniversityCourse(universityPublicId: string, payload: Record<string, unknown>): Promise<any> {
+  const response = await api.post<{ course: any }>(`admin/universities/${encodeURIComponent(universityPublicId)}/courses`, payload);
+  return response.data.course;
+}
+
+export async function updateAdminCourseLive(coursePublicId: string, payload: Record<string, unknown>): Promise<any> {
+  const response = await api.put<{ course: any }>(`admin/courses/${encodeURIComponent(coursePublicId)}`, payload);
+  return response.data.course;
+}
+
+export async function updateAdminCourseFee(coursePublicId: string, amount: number, currency = 'EUR'): Promise<any> {
+  const response = await api.put<any>(`admin/courses/${encodeURIComponent(coursePublicId)}/fee`, { amount, currency });
+  return response.data;
+}
+
+export async function deleteAdminCourseLive(coursePublicId: string): Promise<void> {
+  await api.delete(`admin/courses/${encodeURIComponent(coursePublicId)}`);
+}
+
+export async function fetchAdminCourseIntakes(
+  coursePublicId: string,
+  params: { page?: number; perPage?: number } = {}
+): Promise<{ intakes: any[]; meta: PaginationMeta }> {
+  const response = await api.get<any[]>(`admin/courses/${encodeURIComponent(coursePublicId)}/intakes`, {
+    params: { page: params.page, per_page: params.perPage },
+  });
+  return { intakes: Array.isArray(response.data) ? response.data : [], meta: response.meta as PaginationMeta };
+}
+
+export async function createAdminCourseIntake(coursePublicId: string, payload: Record<string, unknown>): Promise<any> {
+  const response = await api.post<{ intake: any }>(`admin/courses/${encodeURIComponent(coursePublicId)}/intakes`, payload);
+  return response.data.intake;
+}
+
+export async function updateAdminIntakeLive(intakePublicId: string, payload: Record<string, unknown>): Promise<any> {
+  const response = await api.put<{ intake: any }>(`admin/intakes/${encodeURIComponent(intakePublicId)}`, payload);
+  return response.data.intake;
+}
+
+export async function deleteAdminIntakeLive(intakePublicId: string): Promise<void> {
+  await api.delete(`admin/intakes/${encodeURIComponent(intakePublicId)}`);
+}
+
+export async function cloneAdminIntake(intakePublicId: string, payload?: { name?: string }): Promise<any> {
+  const response = await api.post<{ intake: any }>(`admin/intakes/${encodeURIComponent(intakePublicId)}/clone`, payload ?? {});
+  return response.data.intake;
+}
+
+export async function updateAdminIntakeStatus(intakePublicId: string, payload: { status: string }): Promise<any> {
+  const response = await api.put<{ intake: any }>(`admin/intakes/${encodeURIComponent(intakePublicId)}/status`, payload);
+  return response.data.intake;
+}
+
+export async function eraseAdminFile(filePublicId: string, reason: string): Promise<{ message: string }> {
+  const response = await request<{ message?: string }>(`/?route=admin&action=files/${encodeURIComponent(filePublicId)}/erase`, {
+    method: 'DELETE',
+    body: JSON.stringify({ reason }),
+  });
+  return { message: response.message || response.data?.message || 'File permanently erased successfully.' };
+}
 export async function fetchAdminRoles(): Promise<{ id: number; public_id: string; name: string; description: string | null; admin_count: number; permissions: string[] }[]> {
   const response = await request<{ roles: any[] }>('/?route=admin&action=roles');
   return response.data.roles ?? [];
 }
-export const fetchAdminSecurityEvents = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const createAdminUniversityLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const deleteAdminUniversityLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const updateAdminUniversityLive = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const uploadUniversityLogo = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+
+export async function fetchAdminSecurityEvents(params: {
+  page?: number;
+  perPage?: number;
+  eventType?: string;
+  dateFrom?: string;
+  dateTo?: string;
+} = {}): Promise<{ events: any[]; meta: PaginationMeta }> {
+  const response = await api.get<any[]>('admin/security-events', {
+    params: { page: params.page, per_page: params.perPage, event_type: params.eventType, date_from: params.dateFrom, date_to: params.dateTo },
+  });
+  return { events: Array.isArray(response.data) ? response.data : [], meta: response.meta as PaginationMeta };
+}
+
 export async function createAdminStaffAccount(payload: {
   first_name: string;
   last_name: string;
@@ -1880,7 +2268,22 @@ export async function deleteAdminUser(publicId: string): Promise<void> {
     method: 'DELETE',
   });
 }
-export const fetchAgentApplications = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+export async function fetchAgentApplications(params: {
+  page?: number;
+  perPage?: number;
+  status?: string;
+  agentPid?: string;
+} = {}): Promise<{ applications: any[]; meta: PaginationMeta }> {
+  const response = await api.get<any[]>('agent/applications', {
+    params: { page: params.page, per_page: params.perPage, status: params.status, agent_pid: params.agentPid },
+  });
+  return { applications: Array.isArray(response.data) ? response.data : [], meta: response.meta as PaginationMeta };
+}
+
+export async function fetchAgentApplicationDetail(applicationPublicId: string): Promise<any> {
+  const response = await api.get<{ application: any }>(`agent/applications/${encodeURIComponent(applicationPublicId)}`);
+  return response.data.application;
+}
 export async function fetchAgentNoticesFeed(params: Record<string, any> = {}): Promise<{ notices: any[], meta?: PaginationMeta }> {
   const searchParams = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -1985,6 +2388,157 @@ export async function uploadSubAgentDocument(
   return response.data;
 }
 
-export const fetchStudentApplicationsList = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const fetchStudentDocumentRequests = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
-export const submitStudentDocumentRequest = async (...args: any[]): Promise<any> => { throw new Error('Not implemented'); };
+export async function fetchStudentApplicationsList(): Promise<any[]> {
+  const response = await api.get<{ applications: any[] }>('student/applications');
+  const rows = response.data.applications ?? [];
+  // StudentController::listApplications aliases courses.name as program_name;
+  // the applications table/detail view (built against admin/agent naming) reads course_name.
+  return rows.map((row) => ({ ...row, course_name: row.program_name }));
+}
+
+export async function fetchStudentApplicationDetail(applicationPublicId: string): Promise<any> {
+  const response = await api.get<{ application: any }>(`student/applications/${encodeURIComponent(applicationPublicId)}`);
+  return response.data.application;
+}
+
+export async function studentWithdrawApplication(applicationPublicId: string, withdrawalReason?: string): Promise<any> {
+  const response = await api.put<{ application: any }>(`student/applications/${encodeURIComponent(applicationPublicId)}/withdraw`, {
+    withdrawal_reason: withdrawalReason,
+  });
+  return response.data.application;
+}
+
+export async function studentSubmitApplication(applicationPublicId: string): Promise<any> {
+  const response = await api.put<{ application: any }>(`student/applications/${encodeURIComponent(applicationPublicId)}/submit`, {});
+  return response.data.application;
+}
+
+export async function fetchStudentDocumentRequests(): Promise<any[]> {
+  const response = await api.get<{ document_requests: any[] }>('student/document-requests');
+  return response.data.document_requests ?? [];
+}
+
+export async function submitStudentDocumentRequest(requestPublicId: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.set('file', file);
+  const response = await request<{ document_request: any }>(
+    `/?route=student&action=document-requests/${encodeURIComponent(requestPublicId)}/submit`,
+    { method: 'POST', body: formData }
+  );
+  return response.data.document_request;
+}
+
+export async function markPaymentPaid(paymentPublicId: string): Promise<any> {
+  const response = await api.put<{ payment_request: any }>(`student/payments/${encodeURIComponent(paymentPublicId)}/mark-paid`, {});
+  return response.data.payment_request;
+}
+
+export async function fetchReadiness(): Promise<any> {
+  const response = await api.get<{ readiness: any }>('student/readiness');
+  return response.data.readiness;
+}
+
+export async function saveReadinessDraft(payload: Record<string, unknown>): Promise<void> {
+  await api.put('student/readiness/draft', payload);
+}
+
+export async function uploadReadinessDocument(category: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.set('category', category);
+  formData.set('file', file);
+  const response = await request<{ document: any }>('/?route=student&action=readiness/documents', {
+    method: 'POST',
+    body: formData,
+  });
+  return response.data.document;
+}
+
+export async function submitReadiness(applicationPid?: string): Promise<{ message: string }> {
+  const response = await api.post<{ message?: string }>('student/readiness/submit', applicationPid ? { application_pid: applicationPid } : {});
+  return { message: response.message };
+}
+
+// ── Agent-assisted readiness (same endpoints, scoped to a student in the agent's network) ──
+
+export async function fetchAgentStudentReadiness(studentPid: string): Promise<any> {
+  const response = await api.get<{ readiness: any }>(`agent/students/${encodeURIComponent(studentPid)}/readiness`);
+  return response.data.readiness;
+}
+
+export async function saveAgentStudentReadinessDraft(studentPid: string, payload: Record<string, unknown>): Promise<void> {
+  await api.put(`agent/students/${encodeURIComponent(studentPid)}/readiness/draft`, payload);
+}
+
+export async function uploadAgentStudentReadinessDocument(studentPid: string, category: string, file: File): Promise<any> {
+  const formData = new FormData();
+  formData.set('category', category);
+  formData.set('file', file);
+  const response = await request<{ document: any }>(`/?route=agent&action=students/${encodeURIComponent(studentPid)}/readiness/documents`, {
+    method: 'POST',
+    body: formData,
+  });
+  return response.data.document;
+}
+
+export async function submitAgentStudentReadiness(studentPid: string, applicationPid?: string): Promise<{ message: string }> {
+  const response = await api.post<{ message?: string }>(`agent/students/${encodeURIComponent(studentPid)}/readiness/submit`, applicationPid ? { application_pid: applicationPid } : {});
+  return { message: response.message };
+}
+
+export async function agentCreateStudent(payload: { full_name: string; email: string; mobile: string }): Promise<{ public_id: string; full_name: string }> {
+  const response = await api.post<{ student: { public_id: string; full_name: string } }>('agent/students', payload);
+  return response.data.student;
+}
+
+// ── Academic history + English test scores ──────────────────────────────────
+
+export async function fetchStudentAcademicProfile(): Promise<{ academics: any[]; test_scores: any[] }> {
+  const response = await api.get<{ academics: any[]; test_scores: any[] }>('student/academic-profile');
+  return response.data;
+}
+
+export async function addStudentAcademic(payload: Record<string, unknown>): Promise<string> {
+  const response = await api.post<{ public_id: string }>('student/academic-profile/academics', payload);
+  return response.data.public_id;
+}
+
+export async function deleteStudentAcademic(recordPid: string): Promise<void> {
+  await api.delete(`student/academic-profile/academics/${encodeURIComponent(recordPid)}`);
+}
+
+export async function addStudentTestScore(payload: Record<string, unknown>): Promise<string> {
+  const response = await api.post<{ public_id: string }>('student/academic-profile/test-scores', payload);
+  return response.data.public_id;
+}
+
+export async function deleteStudentTestScore(recordPid: string): Promise<void> {
+  await api.delete(`student/academic-profile/test-scores/${encodeURIComponent(recordPid)}`);
+}
+
+export async function fetchAgentStudentAcademicProfile(studentPid: string): Promise<{ academics: any[]; test_scores: any[] }> {
+  const response = await api.get<{ academics: any[]; test_scores: any[] }>(`agent/students/${encodeURIComponent(studentPid)}/academic-profile`);
+  return response.data;
+}
+
+export async function addAgentStudentAcademic(studentPid: string, payload: Record<string, unknown>): Promise<string> {
+  const response = await api.post<{ public_id: string }>(`agent/students/${encodeURIComponent(studentPid)}/academic-profile/academics`, payload);
+  return response.data.public_id;
+}
+
+export async function deleteAgentStudentAcademic(studentPid: string, recordPid: string): Promise<void> {
+  await api.delete(`agent/students/${encodeURIComponent(studentPid)}/academic-profile/academics/${encodeURIComponent(recordPid)}`);
+}
+
+export async function addAgentStudentTestScore(studentPid: string, payload: Record<string, unknown>): Promise<string> {
+  const response = await api.post<{ public_id: string }>(`agent/students/${encodeURIComponent(studentPid)}/academic-profile/test-scores`, payload);
+  return response.data.public_id;
+}
+
+export async function deleteAgentStudentTestScore(studentPid: string, recordPid: string): Promise<void> {
+  await api.delete(`agent/students/${encodeURIComponent(studentPid)}/academic-profile/test-scores/${encodeURIComponent(recordPid)}`);
+}
+
+export async function fetchAgentDirectory(query?: string): Promise<any[]> {
+  const response = await api.get<{ agents: any[] }>('student/agents/directory', { params: { q: query } });
+  return response.data.agents ?? [];
+}

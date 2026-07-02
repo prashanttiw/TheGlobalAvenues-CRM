@@ -33,6 +33,7 @@ final class AuthController
         $email = trim((string) ($input['email'] ?? ''));
         $password = (string) ($input['password'] ?? '');
         $otpCode = isset($input['otp_code']) ? trim((string) $input['otp_code']) : null;
+        $role = trim((string) ($input['role'] ?? ''));
 
         if ($email === '' || $password === '') {
             Response::error('Email and password required', 'VALIDATION_ERROR', 400);
@@ -44,8 +45,16 @@ final class AuthController
         $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
         RateLimitMiddleware::assertAllowed("login_email_{$emailHash}", 'login_email', 10, 900);
 
-        $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
-        $stmt->execute([$emailHash]);
+        // Same email can exist as separate accounts per portal (unique key is
+        // email_hash + user_type). Without scoping by role, LIMIT 1 can return
+        // the wrong portal's account when more than one exists for this email.
+        if ($role !== '' && in_array($role, ['student', 'agent', 'admin'], true)) {
+            $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND user_type = ? AND deleted_at IS NULL LIMIT 1');
+            $stmt->execute([$emailHash, $role]);
+        } else {
+            $stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+            $stmt->execute([$emailHash]);
+        }
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         $hashToVerify = $user ? $user['password_hash'] : self::DUMMY_HASH;
@@ -1008,7 +1017,7 @@ final class AuthController
         $userType = (string) ($payload['user_type'] ?? $payload['utype'] ?? 'unknown');
 
         $adminStmt = $this->pdo->prepare(
-            'SELECT id, public_id, is_super_admin FROM admins WHERE user_id = ? AND deleted_at IS NULL LIMIT 1'
+            'SELECT id, public_id, is_super_admin FROM admins WHERE user_id = ? LIMIT 1'
         );
         $adminStmt->execute([$userId]);
         $admin = $adminStmt->fetch(PDO::FETCH_ASSOC);

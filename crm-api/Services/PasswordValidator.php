@@ -35,4 +35,14 @@ final class PasswordValidator
             'errors' => $errors
         ];
     }
+
+    /**
+     * Generates a random password satisfying validate() above, for accounts created
+     * directly by staff/agents where the password is never shown to or transmitted
+     * to the account owner — they log in via OTP or set their own via Forgot Password.
+     */
+    public static function generateRandom(): string
+    {
+        return bin2hex(random_bytes(9)) . 'Aa1!';
+    }
 }

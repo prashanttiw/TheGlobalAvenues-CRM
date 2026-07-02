@@ -571,12 +571,20 @@ final class RegistrationController
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $email = strtolower(trim($input['email'] ?? ''));
         $role = trim($input['role'] ?? '');
+        $fullName = trim((string) ($input['full_name'] ?? ''));
+        $phone = trim((string) ($input['phone'] ?? ''));
 
         if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             Response::error('Valid email required', 'VALIDATION_ERROR', 400);
         }
         if (!in_array($role, ['student', 'agent'], true)) {
             Response::error('Role must be student or agent', 'VALIDATION_ERROR', 400);
+        }
+        if ($fullName === '' || mb_strlen($fullName) < 2) {
+            Response::error('Full name is required', 'VALIDATION_ERROR', 400);
+        }
+        if ($phone === '' || !preg_match('/^[0-9+\-\s()]{7,20}$/', $phone)) {
+            Response::error('A valid mobile number is required', 'VALIDATION_ERROR', 400);
         }
 
         $emailHash = EncryptionService::hash($email);
@@ -612,7 +620,13 @@ final class RegistrationController
             Response::json(['success' => false, 'error' => 'EMAIL_DELIVERY_FAILED', 'message' => 'Could not send verification code. Please try again.'], 502);
         }
 
-        $token = $pendingSvc->store($role, $email, ['email' => $email, 'role' => $role, 'otp_verified' => false]);
+        $token = $pendingSvc->store($role, $email, [
+            'email' => $email,
+            'role' => $role,
+            'full_name' => $fullName,
+            'phone' => $phone,
+            'otp_verified' => false,
+        ]);
 
         $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_initiated', ?, ?, NOW())")->execute([$emailHash, $ip]);
 
@@ -704,10 +718,12 @@ final class RegistrationController
             $studentPublicId = UlidGenerator::generate();
 
             $encryptedEmail = EncryptionService::encrypt($email);
-            // Phone and name collected post-login via profile flow — not accepted at registration
-            $phoneHash = null;
-            $encryptedPhone = null;
-            $fullName = '';
+            // Name and phone are captured at registration (see sendRegistrationOtp) and
+            // are locked everywhere else until changed from the student's profile page.
+            $fullName = trim((string) ($data['full_name'] ?? ''));
+            $phone = trim((string) ($data['phone'] ?? ''));
+            $phoneHash = $phone !== '' ? EncryptionService::hash($phone) : null;
+            $encryptedPhone = $phone !== '' ? EncryptionService::encrypt($phone) : null;
             $passwordHash = password_hash($password, PASSWORD_ARGON2ID, [
                 'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
                 'time_cost'   => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
@@ -772,12 +788,12 @@ final class RegistrationController
             Response::error('Session token and password required', 'VALIDATION_ERROR', 400);
         }
 
-        // Profile fields (full_name, agency_name, country, phone, etc.) are NOT
-        // accepted at registration — they are collected post-login via the onboarding flow.
-        $fullName = '';
+        // Agency/business fields are NOT accepted at registration — they are collected
+        // post-login via the onboarding flow. Name and mobile number ARE captured at
+        // registration (see sendRegistrationOtp) and are locked in the onboarding form
+        // until changed from the agent's profile page.
         $agencyName = '';
         $country = 'India';
-        $phone = '';
         $partnershipScope = 'non_exclusive';
         $businessRegNumber = null;
         $referralCode = null;
@@ -806,6 +822,12 @@ final class RegistrationController
             Response::error('Session consumed or expired', 'SESSION_EXPIRED', 400);
         }
 
+        $fullName = trim((string) ($data['full_name'] ?? ''));
+        $phone = trim((string) ($data['phone'] ?? ''));
+        $nameParts = $fullName !== '' ? (preg_split('/\s+/', $fullName, 2) ?: []) : [];
+        $firstName = $nameParts[0] ?? '';
+        $lastName = $nameParts[1] ?? '';
+
         try {
             $this->pdo->beginTransaction();
 
@@ -815,6 +837,7 @@ final class RegistrationController
             $encryptedEmail = EncryptionService::encrypt($email);
             $phoneHash = $phone ? EncryptionService::hash($phone) : null;
             $encryptedPhone = $phone ? EncryptionService::encrypt($phone) : null;
+            $encryptedMobile = $phone !== '' ? EncryptionService::encrypt($phone) : null;
             $passwordHash = password_hash($password, PASSWORD_ARGON2ID, [
                 'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
                 'time_cost'   => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
@@ -843,8 +866,8 @@ final class RegistrationController
             }
 
             $this->pdo->prepare(
-                "INSERT INTO agents (public_id, user_id, tier, parent_agent_id, root_agent_id, full_name, agency_name, country, business_reg_number, partnership_scope, referral_code, status, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'registered', NOW())"
-            )->execute([$agentPublicId, $userId, $tier, $parentAgentId, $rootAgentId, $fullName, $agencyName, $country, $businessRegNumber ?: null, $partnershipScope]);
+                "INSERT INTO agents (public_id, user_id, tier, parent_agent_id, root_agent_id, full_name, first_name, last_name, agency_name, country, business_reg_number, partnership_scope, mobile_number, referral_code, status, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 'registered', NOW())"
+            )->execute([$agentPublicId, $userId, $tier, $parentAgentId, $rootAgentId, $fullName, $firstName ?: null, $lastName ?: null, $agencyName, $country, $businessRegNumber ?: null, $partnershipScope, $encryptedMobile]);
 
             $agentId = (int)$this->pdo->lastInsertId();
 

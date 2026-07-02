@@ -40,6 +40,7 @@ interface AuthState {
   establishSession: (session: AuthSessionResult) => Promise<void>
   clearSession: (sessionExpired?: boolean) => void
   logout: () => Promise<void>
+  updateAgentStatus: (status: string) => void
 }
 
 let restorePromise: Promise<void> | null = null
@@ -237,6 +238,16 @@ export const useAuth = create<AuthState>((set, get) => ({
     } finally {
       get().clearSession(false)
     }
+  },
+
+  // Keeps RoleGuard's redirect decisions in sync immediately after an
+  // onboarding draft-save/submit, without waiting for the next full
+  // session restore. The onboarding endpoints return the new status
+  // directly, so there's no need to re-fetch the profile.
+  updateAgentStatus: (status) => {
+    const current = get().user
+    if (!current) return
+    set({ user: { ...current, agentStatus: status } })
   },
 }))
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   User, Briefcase, ArrowRight, CheckCircle, Globe,
-  Eye, EyeOff, Mail, Lock, RefreshCw, ShieldCheck,
+  Eye, EyeOff, Mail, Lock, RefreshCw, ShieldCheck, Phone,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast, Toaster } from 'sonner';
@@ -18,7 +18,7 @@ type Role = 'student' | 'agent';
 type Step = 1 | 2 | 3 | 4;
 
 const STEPS = [
-  { label: 'Verify Email', desc: 'Enter email & get OTP' },
+  { label: 'Your Details', desc: 'Name, mobile & email' },
   { label: 'Confirm Code', desc: 'Enter 6-digit OTP' },
   { label: 'Set Password', desc: 'Secure your account' },
 ];
@@ -60,6 +60,8 @@ export function ApplyPage() {
   const [resending, setResending] = useState(false);
 
   // Step 1
+  const [fullName, setFullName] = useState('');
+  const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
 
   // Step 2
@@ -84,13 +86,22 @@ export function ApplyPage() {
   const inputClass = `w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50 text-sm outline-none ${focusBorder} focus:bg-white focus:ring-4 ${focusRing} transition-all placeholder:text-gray-400`;
 
   const handleSendOtp = async () => {
+    if (!fullName.trim() || fullName.trim().length < 2) {
+      toast.error('Please enter your full name.');
+      return;
+    }
+    const phoneDigits = phone.replace(/\D/g, '');
+    if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+      toast.error('Please enter a valid mobile number.');
+      return;
+    }
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       toast.error('Please enter a valid email address.');
       return;
     }
     setLoading(true);
     try {
-      const result = await sendRegistrationOtp(email, role);
+      const result = await sendRegistrationOtp(email, role, fullName.trim(), phone.trim());
       setSessionToken(result.session_token);
       toast.success('Verification code sent to your email.');
       setStep(2);
@@ -113,7 +124,7 @@ export function ApplyPage() {
     if (resending) return;
     setResending(true);
     try {
-      const result = await sendRegistrationOtp(email, role);
+      const result = await sendRegistrationOtp(email, role, fullName.trim(), phone.trim());
       setSessionToken(result.session_token);
       setOtpCode('');
       toast.success('New verification code sent.');
@@ -358,10 +369,41 @@ export function ApplyPage() {
                     {isStudent ? 'Create Student Account' : 'Apply as Agency Partner'}
                   </h2>
                   <p className="text-xs text-gray-400 mb-6 leading-relaxed">
-                    Enter your email and we'll send you a 6-digit verification code.
+                    Tell us a bit about yourself and we'll send a 6-digit verification code to your email.
                   </p>
 
                   <div className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Full Name</label>
+                      <div className="relative">
+                        <User className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder="Your full name"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
+                          className={`${inputClass} pl-10`}
+                          autoFocus
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Mobile Number</label>
+                      <div className="relative">
+                        <Phone className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="tel"
+                          placeholder="10-digit mobile number"
+                          value={phone}
+                          onChange={(e) => setPhone(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
+                          className={`${inputClass} pl-10`}
+                        />
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-[10px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">Email Address</label>
                       <div className="relative">
@@ -373,7 +415,6 @@ export function ApplyPage() {
                           onChange={(e) => setEmail(e.target.value)}
                           onKeyDown={(e) => e.key === 'Enter' && handleSendOtp()}
                           className={`${inputClass} pl-10`}
-                          autoFocus
                         />
                       </div>
                     </div>

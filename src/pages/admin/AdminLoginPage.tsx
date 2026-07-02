@@ -65,7 +65,7 @@ export default function AdminLoginPage() {
         ? await verifyTwoFactorLogin(twoFactorToken, otpCode)
         : method === 'otp'
           ? await verifyAdminOtpLogin(email, otpCode)
-          : await loginWithPassword(email, password);
+          : await loginWithPassword(email, password, 'admin');
 
       if (result.requires2fa) {
         if (!result.preAuthToken) {

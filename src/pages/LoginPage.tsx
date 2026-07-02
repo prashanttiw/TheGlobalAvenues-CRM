@@ -77,7 +77,7 @@ export function LoginPage() {
         ? await verifyTwoFactorLogin(twoFactorToken, otpCode)
         : method === 'otp'
           ? await verifyOtpLogin(email, otpCode, portalHint)
-          : await loginWithPassword(email, password);
+          : await loginWithPassword(email, password, portalHint);
 
       if (result.requires2fa) {
         if (!result.preAuthToken) {
