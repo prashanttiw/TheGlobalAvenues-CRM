@@ -193,7 +193,7 @@ class FileController
         $user = AuthMiddleware::user();
 
         // 1. Enforce super-admin-only restriction
-        $adminStmt = $this->pdo->prepare('SELECT id, is_super_admin FROM admins WHERE user_id = ? AND deleted_at IS NULL LIMIT 1');
+        $adminStmt = $this->pdo->prepare('SELECT id, is_super_admin FROM admins WHERE user_id = ? LIMIT 1');
         $adminStmt->execute([$user['id']]);
         $admin = $adminStmt->fetch(PDO::FETCH_ASSOC);
 

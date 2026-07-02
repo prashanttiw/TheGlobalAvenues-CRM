@@ -47,7 +47,7 @@ class DocumentRequestController
             Response::error('Document label is required', 'VALIDATION_ERROR', 400);
         }
 
-        $stmt = $this->pdo->prepare("SELECT id FROM admins WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt = $this->pdo->prepare("SELECT id FROM admins WHERE user_id = ?");
         $stmt->execute([$user['id']]);
         $adminId = $stmt->fetchColumn();
 
@@ -279,7 +279,7 @@ class DocumentRequestController
             Response::error('Rejection reason is required', 'VALIDATION_ERROR', 400);
         }
 
-        $stmt = $this->pdo->prepare("SELECT id FROM admins WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt = $this->pdo->prepare("SELECT id FROM admins WHERE user_id = ?");
         $stmt->execute([$user['id']]);
         $adminId = $stmt->fetchColumn();
 

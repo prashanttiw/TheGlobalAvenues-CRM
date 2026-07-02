@@ -26,7 +26,7 @@ class SystemSettingsController
     {
         RBACMiddleware::requirePermission('system_settings', 'view');
 
-        $settings = SystemSettingModel::findAllGrouped();
+        $settings = SystemSettingModel::findAllGrouped($this->pdo);
         Response::json(['data' => $settings]);
     }
 
@@ -55,7 +55,7 @@ class SystemSettingsController
                 continue;
             }
 
-            $setting = SystemSettingModel::findByKey((string)$item['key']);
+            $setting = SystemSettingModel::findByKey($this->pdo, (string)$item['key']);
             if (!$setting || !(int)$setting['is_editable']) {
                 continue;
             }
@@ -93,7 +93,7 @@ class SystemSettingsController
             }
 
             if ((string)$val !== (string)$before) {
-                SystemSettingModel::updateByKey($key, (string)$val, (int)$admin['id']);
+                SystemSettingModel::updateByKey($this->pdo, $key, (string)$val, (int)$admin['id']);
                 ActivityLogger::log('system_setting.changed', 'system_setting', (int)$setting['id'], $userId,
                     ['key' => $key, 'value' => $before],
                     ['key' => $key, 'value' => (string)$val]

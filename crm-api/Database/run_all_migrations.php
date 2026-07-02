@@ -10,7 +10,7 @@ Environment::load(__DIR__ . '/../.env');
 
 try {
     $pdo = Database::getConnection();
-    echo "Running missing migrations (060 to 069)...\n";
+    echo "Running missing migrations (060 to 070)...\n";
 
     $migrationsDir = __DIR__ . '/migrations';
     $files = scandir($migrationsDir);
@@ -18,7 +18,7 @@ try {
     sort($files);
 
     foreach ($files as $file) {
-        if (preg_match('/^(06[0-9])_.*\.sql$/', $file, $matches)) {
+        if (preg_match('/^(06[0-9]|070)_.*\.sql$/', $file, $matches)) {
             $num = (int)$matches[1];
             echo "Applying migration: $file\n";
             $sql = file_get_contents($migrationsDir . '/' . $file);

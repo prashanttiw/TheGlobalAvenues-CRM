@@ -45,6 +45,9 @@ final class FileUploadService
         'partnership_scope_doc' => ['application/pdf'],
         'profile_photo' => ['image/jpeg', 'image/png', 'image/webp'],
         'aadhar_card' => ['application/pdf', 'image/jpeg', 'image/png'],
+        'academic_marksheet' => ['application/pdf'],
+        'noi' => ['application/pdf'],
+        'phd_thesis' => ['application/pdf'],
     ];
 
     public function upload(

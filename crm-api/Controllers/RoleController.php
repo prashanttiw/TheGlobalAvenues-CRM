@@ -31,7 +31,7 @@ final class RoleController
             'SELECT r.id, r.public_id, r.name, r.description, r.created_at,
                     COUNT(a.id) AS admin_count
              FROM roles r
-             LEFT JOIN admins a ON a.role_id = r.id AND a.deleted_at IS NULL
+             LEFT JOIN admins a ON a.role_id = r.id
              GROUP BY r.id
              ORDER BY r.name ASC'
         );
@@ -154,7 +154,7 @@ final class RoleController
         }
 
         // Guard: Cannot delete a role that has admins assigned
-        $countStmt = $this->pdo->prepare('SELECT COUNT(*) FROM admins WHERE role_id = ? AND deleted_at IS NULL');
+        $countStmt = $this->pdo->prepare('SELECT COUNT(*) FROM admins WHERE role_id = ?');
         $countStmt->execute([(int) $role['id']]);
         $count = (int) $countStmt->fetchColumn();
 

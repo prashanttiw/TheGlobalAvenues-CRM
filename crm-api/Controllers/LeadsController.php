@@ -316,7 +316,7 @@ class LeadsController
 
         $assignedAdminId = null;
         if ($assignedTo) {
-            $adminStmt = $this->pdo->prepare("SELECT id FROM admins WHERE public_id = ? AND deleted_at IS NULL");
+            $adminStmt = $this->pdo->prepare("SELECT id FROM admins WHERE public_id = ?");
             $adminStmt->execute([$assignedTo]);
             $assignedAdminId = $adminStmt->fetchColumn();
             if ($assignedAdminId) {
