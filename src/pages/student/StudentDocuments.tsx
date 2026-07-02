@@ -126,7 +126,7 @@ export default function StudentDocuments() {
   ]
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader
         title="Documents Vault"
         subtitle="Manage real document requests and upload required files."
@@ -149,8 +149,8 @@ export default function StudentDocuments() {
       )}
 
       {activeUploadId && (
-        <Card className="border border-brand-orange-accessible/35 bg-brand-orange-accessible/5">
-          <CardHeader>
+        <Card className="border-brand-orange-accessible/35 bg-brand-orange-accessible/5 shadow-warm-md">
+          <CardHeader className="border-b border-brand-orange-accessible/20 pb-3">
             <CardTitle className="text-sm font-semibold text-brand-navy">
               Upload Document for: {requests.find((r) => r.public_id === activeUploadId)?.doc_label}
             </CardTitle>
@@ -158,7 +158,7 @@ export default function StudentDocuments() {
           <CardContent>
             <FileUpload
               onFileSelect={(file) => submitMutation.mutate({ requestPid: activeUploadId, file })}
-              className="max-w-md"
+              className="max-w-xl"
             />
           </CardContent>
         </Card>

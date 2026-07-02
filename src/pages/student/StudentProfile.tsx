@@ -57,7 +57,7 @@ function FieldDisplay({ value }: { value: string }) {
   const hasValue = value.trim().length > 0
 
   return (
-    <div className="flex min-h-[42px] items-center rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy">
+    <div className="flex min-h-[42px] items-center rounded-button border border-border-warm bg-surface-card px-3.5 py-2 text-sm text-brand-navy shadow-sm">
       {hasValue ? <span className="font-semibold text-brand-navy">{value}</span> : <span aria-hidden="true" className="opacity-0">empty</span>}
     </div>
   )
@@ -89,7 +89,7 @@ function PasswordField({
         value={value}
         onChange={onChange}
         disabled={disabled}
-        className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 pr-11 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none disabled:cursor-not-allowed disabled:opacity-70"
+        className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 pr-11 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20 disabled:cursor-not-allowed disabled:opacity-70"
       />
       <button
         type="button"
@@ -247,13 +247,13 @@ export default function StudentProfile() {
   }
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader
         title={titleName ? `Student Profile - ${titleName}` : 'Student Profile'}
         subtitle="Manage your personal credentials, study profile, and account security."
         actions={
           isEditing ? (
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button variant="secondary" onClick={handleCancel} disabled={savingProfile}>Cancel</Button>
               <Button variant="primary" onClick={handleSave} isLoading={savingProfile}>Save Changes</Button>
             </div>
@@ -265,7 +265,7 @@ export default function StudentProfile() {
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>
-          <CardHeader className="flex flex-row items-center gap-3 border-b border-border-warm pb-2">
+          <CardHeader className="flex flex-row items-center gap-3 border-b border-border-warm pb-3">
             <User className="h-5 w-5 text-brand-orange-accessible" />
             <CardTitle className="text-base font-semibold text-brand-navy">Personal Details</CardTitle>
           </CardHeader>
@@ -279,7 +279,7 @@ export default function StudentProfile() {
                     name="first_name"
                     value={formData.first_name}
                     onChange={handleChange}
-                    className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                    className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                   />
                 ) : (
                   <FieldDisplay value={formData.first_name} />
@@ -293,7 +293,7 @@ export default function StudentProfile() {
                     name="last_name"
                     value={formData.last_name}
                     onChange={handleChange}
-                    className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                    className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                   />
                 ) : (
                   <FieldDisplay value={formData.last_name} />
@@ -309,7 +309,7 @@ export default function StudentProfile() {
                   name="dob"
                   value={formData.dob}
                   onChange={handleChange}
-                  className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                 />
               ) : (
                 <FieldDisplay value={formData.dob} />
@@ -324,7 +324,7 @@ export default function StudentProfile() {
                   name="nationality"
                   value={formData.nationality}
                   onChange={handleChange}
-                  className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                 />
               ) : (
                 <FieldDisplay value={formData.nationality} />
@@ -339,7 +339,7 @@ export default function StudentProfile() {
                   name="passport_number"
                   value={formData.passport_number}
                   onChange={handleChange}
-                  className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                 />
               ) : (
                 <FieldDisplay value={formData.passport_number} />
@@ -354,7 +354,7 @@ export default function StudentProfile() {
                   name="passport_expiry"
                   value={formData.passport_expiry}
                   onChange={handleChange}
-                  className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                 />
               ) : (
                 <FieldDisplay value={formData.passport_expiry} />
@@ -365,7 +365,7 @@ export default function StudentProfile() {
 
         <Card className="flex flex-col justify-between">
           <div>
-            <CardHeader className="flex flex-row items-center gap-3 border-b border-border-warm pb-2">
+            <CardHeader className="flex flex-row items-center gap-3 border-b border-border-warm pb-3">
               <Shield className="h-5 w-5 text-brand-navy" />
               <CardTitle className="text-base font-semibold text-brand-navy">Account Settings</CardTitle>
             </CardHeader>
@@ -378,7 +378,7 @@ export default function StudentProfile() {
                     name="email"
                     value={formData.email}
                     onChange={handleChange}
-                    className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                    className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                   />
                 ) : (
                   <FieldDisplay value={formData.email} />
@@ -393,7 +393,7 @@ export default function StudentProfile() {
                     name="phone"
                     value={formData.phone}
                     onChange={handleChange}
-                    className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy focus:border-brand-orange-accessible focus:outline-none"
+                    className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                   />
                 ) : (
                   <FieldDisplay value={formData.phone} />
@@ -402,7 +402,7 @@ export default function StudentProfile() {
             </CardContent>
           </div>
 
-          <CardContent className="mt-auto border-t border-border-warm pt-6">
+          <CardContent className="mt-auto border-t border-border-warm pt-5">
             {isPasswordOpen ? (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-brand-navy">
@@ -436,7 +436,7 @@ export default function StudentProfile() {
                   onChange={handlePasswordChange}
                   onToggle={() => setShowPassword((prev) => ({ ...prev, confirm_password: !prev.confirm_password }))}
                 />
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button variant="secondary" className="flex-1" onClick={() => {
                     setIsPasswordOpen(false)
                     resetPasswordForm()

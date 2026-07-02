@@ -63,8 +63,8 @@ export default function StudentAgentPage() {
 
   if (loading) {
     return (
-      <PageWrapper className="flex items-center justify-center min-h-[300px]">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-navy"></div>
+      <PageWrapper className="flex min-h-[320px] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-border-warm border-t-brand-orange-accessible"></div>
       </PageWrapper>
     );
   }
@@ -72,7 +72,7 @@ export default function StudentAgentPage() {
   if (!data) {
     return (
       <PageWrapper>
-        <div className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+        <div className="flex items-start justify-between gap-4 rounded-card border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive shadow-sm">
           <div>
             <p className="font-semibold">Failed to retrieve agent settings.</p>
             {loadError && <p className="mt-1 text-xs text-red-600">{loadError}</p>}
@@ -89,7 +89,7 @@ export default function StudentAgentPage() {
   const { current_agent, agent_lock_status, can_request_reassignment, pending_reassignment } = data;
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <Toaster position="top-center" richColors />
       <PageHeader 
         title="My Consultant & Agency" 
@@ -98,11 +98,11 @@ export default function StudentAgentPage() {
 
       {/* Lock Status Alert */}
       {agent_lock_status === 'locked' && (
-        <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-800">
-          <AlertCircle className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+        <div className="flex items-start gap-3 rounded-card border border-brand-navy/10 bg-brand-navy/5 p-4 text-sm text-brand-navy shadow-sm">
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-brand-navy" />
           <div>
             <p className="font-semibold">Assignment locked</p>
-            <p className="mt-1 text-xs text-blue-700 leading-relaxed">
+            <p className="mt-1 text-xs leading-relaxed text-brand-navy/75">
               Your agent assignment is locked because you have been admitted or enrolled in a university program.
               Reassignment requests are disabled at this stage.
             </p>
@@ -112,7 +112,7 @@ export default function StudentAgentPage() {
 
       {/* Pending Reassignment Request */}
       {pending_reassignment && (
-        <div className="rounded-xl border border-amber-100 bg-amber-50/50 p-5 space-y-3">
+        <div className="space-y-3 rounded-card border border-amber-200 bg-amber-50/70 p-5 shadow-sm">
           <div className="flex items-center gap-2 text-sm font-semibold text-amber-800">
             <Clock className="h-4 w-4 text-amber-600" />
             Pending Reassignment Request
@@ -132,8 +132,8 @@ export default function StudentAgentPage() {
 
       {current_agent ? (
         <Card>
-          <CardHeader className="flex flex-row items-center space-x-4 pb-2">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-navy/10 text-brand-navy shrink-0">
+          <CardHeader className="flex flex-row items-center gap-4 border-b border-border-warm pb-4">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-brand-navy/10 bg-brand-navy/10 text-brand-navy">
               <UserCheck className="h-6 w-6" />
             </div>
             <div>
@@ -143,8 +143,8 @@ export default function StudentAgentPage() {
               </p>
             </div>
           </CardHeader>
-          <CardContent className="mt-4 border-t border-border-warm pt-4 space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <CardContent className="space-y-6 pt-5">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <p className="text-xs text-muted-foreground">Consultant Name</p>
                 <p className="font-semibold text-brand-navy">{current_agent.full_name}</p>
@@ -182,9 +182,9 @@ export default function StudentAgentPage() {
           </CardContent>
         </Card>
       ) : (
-        <Card className="border-dashed border-border-warm bg-surface-warm/50 py-12">
+        <Card className="border-dashed border-border-warm bg-surface-card/80 py-12">
           <CardContent className="flex flex-col items-center justify-center text-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-50 text-red-600 mb-4">
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-destructive/15 bg-destructive/5 text-destructive">
               <AlertCircle className="h-6 w-6" />
             </div>
             <h3 className="text-lg font-semibold text-brand-navy">No consultant assigned</h3>
@@ -203,14 +203,14 @@ export default function StudentAgentPage() {
 
       {/* Reassignment Request Form */}
       {isFormOpen && (
-        <Card className="border border-brand-navy/10 bg-gray-50/50">
+        <Card className="border-brand-navy/10 bg-surface-card shadow-warm-md">
           <CardHeader>
-            <CardTitle className="text-lg font-bold">Request Consultant Assignment Change</CardTitle>
+            <CardTitle className="text-lg font-bold text-brand-navy">Request Consultant Assignment Change</CardTitle>
           </CardHeader>
           <CardContent>
             <form onSubmit={handleRequestChange} className="space-y-4">
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="mb-1.5 block text-xs font-semibold text-brand-navy">
                   Preferred Agent Code (Optional)
                 </label>
                 <input 
@@ -218,13 +218,13 @@ export default function StudentAgentPage() {
                   placeholder="e.g. TGA-XXX999"
                   value={requestedAgentCode}
                   onChange={(e) => setRequestedAgentCode(e.target.value)}
-                  className="w-full sm:max-w-xs px-3 py-2 bg-white border border-gray-300 rounded-md text-sm text-brand-navy focus:outline-none focus:border-brand-navy"
+                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20 sm:max-w-xs"
                 />
-                <p className="text-[11px] text-gray-500 mt-1">Leave empty if you want TGA head office to auto-assign a consultant.</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">Leave empty if you want TGA head office to auto-assign a consultant.</p>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="mb-1.5 block text-xs font-semibold text-brand-navy">
                   Reason for Request *
                 </label>
                 <textarea 
@@ -233,11 +233,11 @@ export default function StudentAgentPage() {
                   placeholder="Please describe why you are requesting a reassignment (at least 10 characters)..."
                   value={requestReason}
                   onChange={(e) => setRequestReason(e.target.value)}
-                  className="w-full px-3 py-2 bg-white border border-gray-300 rounded-md text-sm text-brand-navy focus:outline-none focus:border-brand-navy"
+                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
                 />
               </div>
 
-              <div className="flex gap-2 justify-end">
+              <div className="flex flex-col-reverse gap-2 border-t border-border-warm pt-4 sm:flex-row sm:justify-end">
                 <Button variant="secondary" type="button" onClick={() => setIsFormOpen(false)} disabled={submitting}>
                   Cancel
                 </Button>

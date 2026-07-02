@@ -92,14 +92,14 @@ export default function StudentOverviewPage() {
   const firstName = user?.name?.split(' ')[0] ?? 'there'
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader
         title={`Welcome back, ${firstName}`}
         subtitle="Here's where your study-abroad journey stands right now."
       />
 
       {readinessQuery.isLoading ? null : ready ? (
-        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+        <div className="flex items-start gap-3 rounded-card border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 shadow-sm">
           <CheckCircle2 className="h-5 w-5 shrink-0" />
           <div>
             <p className="font-semibold">Your profile is complete.</p>
@@ -115,7 +115,7 @@ export default function StudentOverviewPage() {
         <ProfileCompletionPanel />
       )}
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Total Applications" value={stats.total} icon={FileText} color="navy" isLoading={applicationsQuery.isLoading} />
         <StatCard label="Open / In Progress" value={stats.open} icon={Inbox} color="amber" isLoading={applicationsQuery.isLoading} />
         <StatCard label="In Review" value={stats.inReview} icon={Sparkles} color="orange" isLoading={applicationsQuery.isLoading} />
@@ -123,9 +123,9 @@ export default function StudentOverviewPage() {
         <StatCard label="Unread Notices" value={unreadQuery.data?.count ?? 0} icon={Mail} color="navy" isLoading={unreadQuery.isLoading} />
       </div>
 
-      <div className="grid lg:grid-cols-[1.4fr_0.9fr] gap-6">
+      <div className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border-warm pb-3">
             <CardTitle className="text-base font-semibold text-brand-navy">Recent Applications</CardTitle>
             <Button variant="secondary" size="sm" onClick={() => navigate('/portal/student/applications')}>
               View all
@@ -150,7 +150,7 @@ export default function StudentOverviewPage() {
               recentApplications.map((app: any) => (
                 <div
                   key={app.public_id}
-                  className="flex items-center justify-between gap-4 rounded-lg border border-border-warm bg-surface-warm/40 px-4 py-3"
+                  className="flex items-center justify-between gap-4 rounded-card border border-border-warm bg-surface-card px-4 py-3 shadow-sm transition-colors hover:border-brand-orange-accessible/25 hover:bg-brand-orange-accessible/5"
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-brand-navy truncate">{app.program_name}</p>
@@ -168,14 +168,14 @@ export default function StudentOverviewPage() {
 
         <div className="space-y-6">
           <Card>
-            <CardContent className="p-5">
+            <CardContent className="p-5 sm:p-6">
               {ready ? (
                 <>
                   <div className="flex items-center gap-2 text-brand-navy">
                     <Globe className="h-4 w-4" />
                     <p className="text-sm font-semibold">Browse Universities</p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">Explore partner universities, programs, and open intakes.</p>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">Explore partner universities, programs, and open intakes.</p>
                   <Button className="w-full mt-4" onClick={() => navigate('/portal/student/universities')}>
                     Browse now
                   </Button>
@@ -186,7 +186,7 @@ export default function StudentOverviewPage() {
                     <Lock className="h-4 w-4" />
                     <p className="text-sm font-semibold">Applications locked</p>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
                     You can still browse universities and programs, but complete your profile above before applying.
                   </p>
                   <Button className="w-full mt-4" variant="secondary" onClick={() => navigate('/portal/student/universities')}>

@@ -6,30 +6,30 @@ import { FileText, Clock, CreditCard } from 'lucide-react'
 
 export default function StudentDashboard() {
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader 
         title="Welcome back, Amit!" 
         subtitle="Here's a quick overview of your study abroad journey." 
       />
       
       {/* Status Pipeline Strip */}
-      <Card className="bg-brand-navy text-white overflow-hidden">
-        <div className="flex flex-col md:flex-row items-center p-6 gap-4">
-          <div className="shrink-0 flex items-center justify-center w-12 h-12 rounded-full bg-brand-orange-accessible/20 border border-brand-orange-accessible/50">
+      <Card className="overflow-hidden border-brand-navy/20 bg-brand-navy text-white shadow-warm-lg">
+        <div className="flex flex-col items-center gap-4 p-5 text-center sm:p-6 md:flex-row md:text-left">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-brand-orange-accessible/50 bg-brand-orange-accessible/20 shadow-sm">
             <div className="w-3 h-3 rounded-full bg-brand-orange-accessible animate-pulse"></div>
           </div>
-          <div className="flex-1 text-center md:text-left">
-            <h3 className="font-display text-lg font-semibold">Stage 2: Application Processing</h3>
-            <p className="text-sm text-white/70 mt-1">We are currently verifying your documents before final submission to University of Toronto.</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-display text-lg font-semibold leading-tight">Stage 2: Application Processing</h3>
+            <p className="mt-1 text-sm leading-6 text-white/75">We are currently verifying your documents before final submission to University of Toronto.</p>
           </div>
         </div>
       </Card>
       
-      <div className="grid gap-6 md:grid-cols-3">
+      <div className="grid gap-4 sm:gap-6 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Applications</CardTitle>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-brand-navy/5 text-brand-navy">
+            <div className="flex h-10 w-10 items-center justify-center rounded-button border border-brand-navy/10 bg-brand-navy/5 text-brand-navy">
               <FileText className="h-5 w-5" />
             </div>
           </CardHeader>
@@ -42,7 +42,7 @@ export default function StudentDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Pending Tasks</CardTitle>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-button border border-amber-500/15 bg-amber-500/10 text-amber-600">
               <Clock className="h-5 w-5" />
             </div>
           </CardHeader>
@@ -55,7 +55,7 @@ export default function StudentDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Upcoming Payments</CardTitle>
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600">
+            <div className="flex h-10 w-10 items-center justify-center rounded-button border border-emerald-500/15 bg-emerald-500/10 text-emerald-600">
               <CreditCard className="h-5 w-5" />
             </div>
           </CardHeader>

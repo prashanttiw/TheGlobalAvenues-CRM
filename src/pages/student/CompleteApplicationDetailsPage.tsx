@@ -9,7 +9,7 @@ export default function CompleteApplicationDetailsPage() {
   const navigate = useNavigate()
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader
         title="Complete Application Details"
         subtitle={pid ? 'Finish your profile to submit this application.' : 'Update the details behind every application you submit.'}

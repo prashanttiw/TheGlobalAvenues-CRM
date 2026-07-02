@@ -48,14 +48,14 @@ export default function StudentNoticesPage() {
   const totalPages = meta?.total_pages ?? 1
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader
         title="Notices & Events"
         subtitle="Important updates and upcoming events from The Global Avenues."
       />
 
       {/* Toolbar */}
-      <div className="flex flex-wrap items-center gap-3 bg-surface-card border border-border-warm rounded-xl p-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-card border border-border-warm bg-surface-card p-3 shadow-card">
         {/* Type filter */}
         <div className="flex gap-1.5">
           {(['all', 'notice', 'event'] as const).map((val) => (
@@ -74,7 +74,7 @@ export default function StudentNoticesPage() {
         <select
           value={sortDir}
           onChange={(e) => setSortDir(e.target.value as 'asc' | 'desc')}
-          className="px-3 py-1.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+          className="rounded-button border border-border-warm bg-surface-warm px-3 py-1.5 text-sm text-brand-navy shadow-sm focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
         >
           <option value="desc">Latest First</option>
           <option value="asc">Oldest First</option>
@@ -88,7 +88,7 @@ export default function StudentNoticesPage() {
         )}
 
         {/* View toggle */}
-        <div className="ml-auto flex rounded-lg border border-border-warm overflow-hidden">
+        <div className="ml-auto flex overflow-hidden rounded-button border border-border-warm shadow-sm">
           <button
             type="button"
             onClick={() => handleViewMode('grid')}
@@ -96,7 +96,7 @@ export default function StudentNoticesPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
               viewMode === 'grid'
                 ? 'bg-brand-orange-accessible text-white'
-                : 'bg-surface-warm text-muted-foreground hover:text-brand-navy'
+                : 'bg-surface-card text-muted-foreground hover:bg-surface-warm hover:text-brand-navy'
             }`}
           >
             <LayoutGrid className="h-4 w-4" />
@@ -109,7 +109,7 @@ export default function StudentNoticesPage() {
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-l border-border-warm transition-colors ${
               viewMode === 'table'
                 ? 'bg-brand-orange-accessible text-white'
-                : 'bg-surface-warm text-muted-foreground hover:text-brand-navy'
+                : 'bg-surface-card text-muted-foreground hover:bg-surface-warm hover:text-brand-navy'
             }`}
           >
             <List className="h-4 w-4" />
@@ -127,9 +127,9 @@ export default function StudentNoticesPage() {
           action={<Button onClick={() => noticesQuery.refetch()}>Retry</Button>}
         />
       ) : notices.length === 0 && !noticesQuery.isLoading ? (
-        <Card className="border-dashed border-border-warm py-12">
+        <Card className="border-dashed border-border-warm bg-surface-card/80 py-12">
           <CardContent className="flex flex-col items-center justify-center text-center">
-            <Bell className="mb-4 h-10 w-10 text-muted-foreground" />
+            <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-border-warm bg-surface-warm text-muted-foreground"><Bell className="h-7 w-7" /></div>
             <h3 className="text-lg font-semibold text-brand-navy">No notices yet</h3>
             <p className="mt-1 text-sm text-muted-foreground">
               There are no {filter !== 'all' ? filter + 's' : 'notices or events'} right now. Check back later.

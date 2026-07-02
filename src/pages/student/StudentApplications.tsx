@@ -43,8 +43,8 @@ function PreferenceRow({ application, rank }: { application: StudentApplication;
   const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
 
   return (
-    <div ref={setNodeRef} style={style} className="flex items-center gap-3 p-3 rounded-lg border border-border-warm bg-surface-warm/40">
-      <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground hover:text-brand-navy shrink-0" title="Drag to reorder">
+    <div ref={setNodeRef} style={style} className="flex items-center gap-3 rounded-card border border-border-warm bg-surface-card p-3 shadow-sm transition-colors hover:border-brand-orange-accessible/25 hover:bg-brand-orange-accessible/5">
+      <button {...attributes} {...listeners} className="shrink-0 cursor-grab rounded-button p-1 text-muted-foreground transition-colors hover:bg-surface-warm hover:text-brand-navy focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible" title="Drag to reorder">
         <GripVertical className="h-4 w-4" />
       </button>
       <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-orange-accessible text-xs font-bold text-white">{rank}</span>
@@ -207,16 +207,16 @@ export default function StudentApplications() {
   const canWithdraw = detail && !['withdrawn', 'enrolled', 'rejected'].includes(detail.status)
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader title="My Applications" subtitle="Track the status of your real university applications." />
 
       {orderedActiveApplications.length > 1 && (
         <Card>
-          <CardHeader className="border-b border-border-warm pb-2">
+          <CardHeader className="border-b border-border-warm pb-3">
             <CardTitle className="text-base font-semibold text-brand-navy">Your Preference Order</CardTitle>
             <p className="text-xs text-muted-foreground">Drag to rank your active applications — this is for your own planning and is visible to your consultant.</p>
           </CardHeader>
-          <CardContent className="mt-3">
+          <CardContent className="pt-4">
             <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
               <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
                 <div className="space-y-2">
@@ -250,7 +250,7 @@ export default function StudentApplications() {
       <PreviewDrawer open={!!selectedPid} onOpenChange={(open) => !open && setSelectedPid(null)}>
         <PreviewDrawerContent>
           {detailQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Loading application…</div>
+            <div className="p-6 text-sm text-muted-foreground">Loading application�</div>
           ) : detail ? (
             <>
               <PreviewDrawerHeader title={detail.university_name} badge={renderStatus(detail.status)}>
@@ -258,8 +258,8 @@ export default function StudentApplications() {
               </PreviewDrawerHeader>
               <PreviewDrawerBody>
                 <div className="space-y-6">
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Course Details</h4>
+                  <div className="rounded-card border border-border-warm bg-surface-card p-4 shadow-sm">
+                    <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Course Details</h4>
                     <div className="flex items-start gap-3">
                       <GraduationCap className="h-5 w-5 text-brand-orange-accessible mt-0.5 shrink-0" />
                       <div>
@@ -273,11 +273,11 @@ export default function StudentApplications() {
                   </div>
 
                   {(detail.document_requests ?? []).length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Document Requests</h4>
+                    <div className="rounded-card border border-border-warm bg-surface-card p-4 shadow-sm">
+                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Document Requests</h4>
                       <div className="space-y-2">
                         {detail.document_requests.map((doc: any) => (
-                          <div key={doc.public_id} className="flex items-center justify-between p-2 rounded-md border border-border-warm">
+                          <div key={doc.public_id} className="flex items-center justify-between gap-3 rounded-button border border-border-warm bg-surface-warm/50 p-3">
                             <div>
                               <p className="text-sm font-medium text-brand-navy flex items-center gap-1"><FileText className="h-3 w-3" />{doc.doc_label}</p>
                               <p className="text-[10px] text-muted-foreground">{formatStatusLabel(doc.status)}{doc.deadline ? ` · Due ${formatDate(doc.deadline)}` : ''}</p>
@@ -292,11 +292,11 @@ export default function StudentApplications() {
                   )}
 
                   {(detail.payments ?? []).length > 0 && (
-                    <div>
-                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Payments</h4>
+                    <div className="rounded-card border border-border-warm bg-surface-card p-4 shadow-sm">
+                      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Payments</h4>
                       <div className="space-y-2">
                         {detail.payments.map((payment: any) => (
-                          <div key={payment.public_id} className="flex items-center justify-between p-2 rounded-md border border-border-warm">
+                          <div key={payment.public_id} className="flex items-center justify-between gap-3 rounded-button border border-border-warm bg-surface-warm/50 p-3">
                             <div>
                               <p className="text-sm font-medium text-brand-navy flex items-center gap-1"><CreditCard className="h-3 w-3" />{payment.label}</p>
                               <p className="text-[10px] text-muted-foreground">
@@ -320,8 +320,8 @@ export default function StudentApplications() {
                     </div>
                   )}
 
-                  <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Timeline</h4>
+                  <div className="rounded-card border border-border-warm bg-surface-card p-4 shadow-sm">
+                    <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Timeline</h4>
                     {(detail.history ?? []).length === 0 ? (
                       <p className="text-xs text-muted-foreground">No activity yet.</p>
                     ) : (
@@ -355,7 +355,7 @@ export default function StudentApplications() {
               <PreviewDrawerFooter />
             </>
           ) : (
-            <div className="p-6 text-sm text-red-600">Application could not be loaded.</div>
+            <div className="p-6 text-sm font-medium text-destructive">Application could not be loaded.</div>
           )}
         </PreviewDrawerContent>
       </PreviewDrawer>

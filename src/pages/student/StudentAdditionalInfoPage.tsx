@@ -22,7 +22,7 @@ function FieldInput({ field, value, onChange }: { field: CustomFieldValueRow; va
         value={value}
         onChange={(e) => onChange(e.target.value)}
         rows={4}
-        className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+        className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2.5 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
       />
     )
   }
@@ -32,7 +32,7 @@ function FieldInput({ field, value, onChange }: { field: CustomFieldValueRow; va
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+        className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2.5 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
       >
         <option value="">Select…</option>
         {(field.options ?? []).map((opt) => (
@@ -47,7 +47,7 @@ function FieldInput({ field, value, onChange }: { field: CustomFieldValueRow; va
       type={field.field_type === 'number' ? 'number' : field.field_type === 'date' ? 'date' : 'text'}
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+      className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2.5 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20"
     />
   )
 }
@@ -58,7 +58,7 @@ function FileFieldSlot({ field, onUpload, uploading }: { field: CustomFieldValue
   if (field.file && !replacing) {
     return (
       <div className="space-y-2">
-        <div className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2.5">
+        <div className="flex items-center gap-2 rounded-button border border-emerald-200 bg-emerald-50 px-3 py-2.5 shadow-sm">
           <FileCheck className="h-4 w-4 text-emerald-600 shrink-0" />
           <span className="text-sm text-emerald-800 truncate flex-1">{field.file.display_filename}</span>
           <button type="button" className="text-[11px] text-brand-orange-accessible font-semibold shrink-0" onClick={() => setReplacing(true)}>
@@ -126,7 +126,7 @@ export default function StudentAdditionalInfoPage() {
   const nonFileFields = fields.filter((f) => f.field_type !== 'file')
 
   return (
-    <PageWrapper className="space-y-6">
+    <PageWrapper className="space-y-6 sm:space-y-8">
       <PageHeader
         title="Additional Information"
         subtitle="Extra details your consultancy has asked you to fill in. This is optional and won't block your applications."
@@ -142,10 +142,10 @@ export default function StudentAdditionalInfoPage() {
         />
       ) : (
         <Card>
-          <CardContent className="pt-6 space-y-6">
+          <CardContent className="space-y-6 pt-6">
             {fields.map((field) => (
-              <div key={field.definition_public_id}>
-                <label className="text-xs font-semibold text-brand-navy block mb-1.5">
+              <div key={field.definition_public_id} className="rounded-card border border-border-warm bg-surface-warm/30 p-4">
+                <label className="mb-2 block text-xs font-semibold text-brand-navy">
                   {field.label}
                   {field.is_required && <span className="text-red-500 ml-1">*</span>}
                 </label>
@@ -166,7 +166,7 @@ export default function StudentAdditionalInfoPage() {
             ))}
 
             {nonFileFields.length > 0 && (
-              <div className="pt-4 border-t border-border-warm flex justify-end">
+              <div className="flex justify-end border-t border-border-warm pt-4">
                 <Button variant="primary" onClick={() => saveMutation.mutate(fields)} disabled={saveMutation.isPending}>
                   {saveMutation.isPending ? 'Saving…' : 'Save'}
                 </Button>
