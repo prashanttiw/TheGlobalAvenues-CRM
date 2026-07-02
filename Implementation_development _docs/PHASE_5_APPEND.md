@@ -1915,4 +1915,338 @@ Full welcome + KYC upload page. Accessible only to authenticated agents (inside 
 - `php -l crm-api/Controllers/AgentController.php`: PASS
 - `php -l crm-api/Routes/AgentRoutes.php`: PASS
 
+---
+
+## 17. AGENT SELF-ONBOARDING REBUILD + ADMIN AGENTS PAGE REBUILD (2026-07-01)
+
+**Context**: The onboarding implementation documented in §"AgentOnboardingPage.tsx (new file, 237 lines)" above
+was never actually functional end-to-end — `fetchAgentOnboardingStatus()` and `uploadAgentOnboardingDocument()`
+in `api.ts` were stub functions that threw `Error('Not implemented')`, and `AgentController::getOnboardingStatus()`
+queried `files.document_type`, a column that did not exist in any migration. The admin-side `/portal/admin/agents`
+route also rendered the generic `AdminDashboardPage` instead of the dedicated `AdminAgentsPage.tsx`. This session
+replaced both halves: a real applicant profile form (name/address/city/state/mobile/docs) with draft-save +
+submit, and a sectioned admin Agents page (Registered / Drafts / Submitted / All Agents / Hierarchy) with a
+document-review modal and approve/reject(+optional reason) actions.
+
+### Database — Migrations 072–073
+
+- **072** (`agents` table): added `first_name`, `last_name`, `address_line`, `city`, `state`, `mobile_number`,
+  `alternate_mobile_number`, `application_submitted_at`, `draft_updated_at`. Extended the `status` lifecycle
+  with two new values: `registered` (new default — just signed up, no application started) and `draft`
+  (form started, saved, not submitted). `pending` now means "fully submitted, awaiting review" — previously
+  it was set immediately at registration. Existing `pending` rows (which had no real profile data) were
+  re-baselined to `registered`. Also added `files.document_type VARCHAR(50)` + composite index — this is the
+  column the broken endpoint above was already querying.
+- **073** (`agents` table): changed `mobile_number` / `alternate_mobile_number` from plain `VARCHAR` to `BLOB`
+  (XSalsa20-Poly1305 encrypted via `EncryptionService`), matching the existing `students.phone_in_profile`
+  precedent (migration 011) — found during a self-review pass after first shipping these as plain text. No
+  lookup-hash column, matching that same precedent (never used in a WHERE clause).
+
+### Backend — New / Changed Endpoints
+
+| Route | Method | Controller::method | Purpose |
+|---|---|---|---|
+| `agent&action=onboarding/status` | GET | `AgentController::getOnboardingStatus` | Fixed (was erroring on missing column); now also returns profile fields + decrypted mobile numbers |
+| `agent&action=onboarding/draft` | PUT | `AgentController::saveOnboardingDraft` | **NEW** — no required fields, sets `status='draft'` |
+| `agent&action=onboarding/submit` | POST | `AgentController::submitOnboardingApplication` | **NEW** — validates all fields + all 3 docs present, sets `status='pending'`, fires `agent.onboarding_submitted` to admins |
+| `agent&action=onboarding/documents` | POST | `AgentController::uploadOnboardingDocument` | Doc types changed from `business_registration/agency_logo/partnership_scope_doc` to `profile_photo/aadhar_card/cv_resume` (old ones never matched what the product actually needed) |
+| `agent&action=sub-agents/:pid/documents` | POST | `SubAgentController::uploadDocument` | **NEW** — parent agent uploads onboarding docs for a sub-agent they just created (direct-child only, verified via `parent_agent_id`) |
+| `admin&action=agents/registered` | GET | `AdminAgentController::getRegistered` | **NEW** |
+| `admin&action=agents/drafts` | GET | `AdminAgentController::getDrafts` | **NEW** |
+| `admin&action=agents/:pid/detail` | GET | `AdminAgentController::getDetail` | **NEW** — full profile + documents for the review modal |
+| `admin&action=agents/pending` | GET | `AdminAgentController::getPending` | Extended to return `tier`, `parent_agent_name`, `uploaded_doc_types[]` |
+| `admin&action=agents/:publicId/reject` | POST | `AdminAgentController::reject` | `reason` is now optional (was a hard 400 if blank) |
+
+### Critical Bugs Found and Fixed Mid-Implementation
+
+These were pre-existing bugs, surfaced only because this was the first time these code paths were actually
+exercised end-to-end (via curl + live browser testing, not just code reading):
+
+1. **`FileUploadService::upload()` never returned `display_filename`** in its return array (only `file_path`,
+   `stored_name`, etc.), even though `AgentController`/`SubAgentController` callers read
+   `$fileRecord['display_filename']`. Every onboarding document upload was a 500 `Undefined array key`.
+   Fixed by adding the key to the return array (purely additive — checked the 4 other callers of `->upload()`,
+   none relied on the old shape).
+2. **`FileUploadService::upload()`'s INSERT never wrote `document_type`** to the `files` table at all — the
+   column was simply never in the column list. Every previously-uploaded onboarding document had
+   `document_type = NULL`, making admin's `uploaded_doc_types` count always show 0/3. Fixed by adding the
+   column to the INSERT.
+3. **`SubAgentController::invite()` inserted into `users.registered_by_type` / `users.registered_by_id`** —
+   columns that only exist on the `students` table, never on `users`. Sub-agent invite has therefore never
+   worked, ever, in this codebase (`SQLSTATE[42S22]: Column not found`). Fixed by removing those two columns
+   from the INSERT.
+4. **`AuthController::login()` / `verify2fa()` / `verifyOtpLogin()` had a special-case branch that returned a
+   no-JWT response for `agents.status === 'rejected'`** (no session issued at all). This directly conflicted
+   with the new "Edit & Resubmit" requirement — a rejected agent needs a real session to call the onboarding
+   endpoints again. Removed the branch in all three methods; rejected agents now get a normal session like
+   `registered`/`draft`/`pending` agents always have (per the 2026-06-29 fix referenced earlier in this file).
+   `suspended` is still hard-blocked (403) in all three, unchanged.
+5. **`AdminAgentController::reject()` set `users.status = 'pending'`**, which silently blocks ALL future login
+   attempts (`login()` requires `users.status === 'active'`) — meaning a rejected agent could never log back
+   in to see their rejection reason or resubmit, contradicting point 4's fix. Changed to `users.status = 'active'`.
+6. **Frontend: the Zustand `useAuth` store's `user.agentStatus` was never updated after a successful draft-save
+   or submit.** `RoleGuard` reads `user.agentStatus` to decide where to route an agent. Confirmed live in browser:
+   filling the form and clicking "Submit Application" successfully submitted server-side (`status` flipped to
+   `pending` in the DB) but the UI bounced back to a blank onboarding form instead of `/portal/agent/pending`,
+   because `RoleGuard` was still redirecting based on the stale pre-submit status cached in the store. Fixed by
+   adding `useAuth().updateAgentStatus(status)`, called from both mutation `onSuccess` handlers with the status
+   string the backend just returned. Verified fixed with a fresh test account — clicking Submit now lands
+   correctly on the pending page with no reload required.
+7. **`PortalWrapper.tsx` always rendered the full `DashboardLayout`** (sidebar with all nav items + topbar) for
+   every authenticated agent regardless of approval status — contradicting the "only 2 pages visible before
+   approval" requirement. A `registered`/`draft`/`pending`/`rejected` agent would see the full agent sidebar
+   (Team/Students/Commissions/etc.) even though `RoleGuard` blocked navigating into any of those routes. Fixed
+   by short-circuiting to a bare `<Outlet />` for any agent whose `agentStatus !== 'approved'`.
+
+### Frontend — New / Rewritten Pages
+
+- **`src/pages/agent/AgentOnboardingPage.tsx`** — full rewrite (previous version was upload-tiles only, no
+  profile form, no draft support). New fields: First/Last Name, Full Address, City, State (dropdown sourced
+  from `src/shared/constants/indianStates.ts` — 28 states + 8 UTs), Mobile Number, Alternate Mobile (optional),
+  Profile Photo / Aadhar Card / CV-Resume uploads. Explicit **Save Draft** and **Submit Application** buttons
+  (no autosave, per explicit instruction to avoid unnecessary complexity). Pre-fills from the live
+  `onboarding/status` response; shows a rejection-reason banner and re-labels itself "Update Your Application"
+  when status is `rejected`.
+- **`src/pages/agent/AgentInfoPage.tsx`** — **NEW FILE**. Static company-info placeholder (content to be
+  filled in later by the user), reachable as the second of the two pre-approval pages.
+- **`src/pages/agent/OnboardingTabs.tsx`** — **NEW FILE**. Small shared 2-tab header ("Company Info" /
+  "Apply to Become a Partner") used by both pages above.
+- **`src/pages/agent/AgentPendingPage.tsx`** / **`AgentRejectedPage.tsx`** — switched from reading
+  `location.state` (lost on refresh, only ever populated by the now-removed `LoginPage` special-case redirect)
+  to calling `fetchAgentOnboardingStatus()` directly. Rejected page adds an "Edit & Resubmit" button.
+- **`src/pages/admin/AdminAgentsPage.tsx`** — full rewrite into 5 sections (Registered / Drafts / Submitted /
+  All Agents / Hierarchy) behind a segmented tab control. Submitted and All Agents rows open a review modal
+  (`fetchAdminAgentDetail`) showing full profile + the 3 documents (opened via `openAgentDocument()`, which
+  fetches through the authenticated `files&action=:pid/download` endpoint as a blob and opens it in a new tab
+  — plain `<a href>` wouldn't carry the Bearer token). Approve / Reject(+optional reason) act directly from
+  the modal. Hierarchy tab reuses the existing `AgentTreeNode` component with a root-agent picker, inline
+  rather than requiring navigation to the separate `/portal/admin/agents/:pid/tree` page (kept, unchanged).
+- **Router** (`src/router/index.tsx`): `/portal/admin/agents` now renders `AdminAgentsPage` instead of
+  `AdminDashboardPage` — this alone fixes the screenshot-reported complaint (wrong/cluttered page). Added
+  `info`, `pending`, `rejected` as nested routes inside the authenticated `/portal/agent` `RoleGuard` subtree
+  (previously `pending`/`rejected` were top-level routes outside `AuthGuard`, registered twice under two
+  different path prefixes).
+- **`src/shared/components/layout/RoleGuard.tsx`**: replaced the single `status === 'pending'` check with a
+  full switch over `registered | draft | pending | rejected | suspended | approved`.
+- **`src/pages/LoginPage.tsx`**: removed `resolveAgentStatusPath()` / `handleAccountStatus()` — the
+  competing redirect mechanism that bypassed session establishment for non-approved agents. `RoleGuard` is now
+  the single source of truth for agent status routing post-login.
+- **`src/pages/ApplyPage.tsx`**: updated the agent registration success screen copy/destination — registration
+  no longer means "application submitted" (that's a separate later step), so the screen now says "Account
+  Created!" and sends the user to `/portal/login` instead of directly to `/portal/agent/pending`.
+
+### Sub-Agent / Sub-Sub-Agent Changes
+
+`SubAgentController::invite()` extended to accept the same profile fields as the primary onboarding form
+(`first_name`, `last_name`, `address_line`, `city`, `state`, `alternate_mobile_number` — all optional, since
+the existing `AgentTeamPage.tsx` invite form doesn't collect them yet; that UI update is explicitly deferred,
+see Known Follow-Ups). `subagent.created` notification (template already seeded in migration 041/044, never
+fired) now fires correctly — to the **parent agent**, not admin, matching what the template text actually
+says ("Hi {{parent_agent_name}}, New sub-agent pending TGA approval"). Admin discovers new sub-agent
+applications the same way as primary agents: they show up in `agents/pending` with `tier` + `parent_agent_name`
+populated.
+
+### Known Follow-Ups (explicitly out of scope this session)
+
+- `AgentTeamPage.tsx`'s "Invite Sub-Agent" form still only collects Full Name / Agency / Country / Email /
+  Password — it does not yet have inputs for the new optional profile fields or document upload. The backend
+  accepts them when sent; the UI to send them is part of the "full agent dashboard" work explicitly deferred
+  by the user to a later session.
+- The full post-approval agent dashboard (Team/Students/Applications/Commissions/Notices/Profile pages) was
+  not touched — those already existed and continue to work unchanged once `agents.status = 'approved'`.
+- A pre-existing, unrelated bug was observed but not fixed (out of scope): the Admin Dashboard's
+  `get_dashboard_stats` and `get_document_queue` endpoints intermittently 500, and the dashboard shows an
+  "ENCRYPTION_KEY environment variable is missing or empty" banner that is a stale historical health-log
+  entry, not a live failure (every encrypt/decrypt call exercised in this session's testing succeeded).
+
+**Files Changed**:
+- `crm-api/Database/migrations/072_agent_onboarding_profile.sql` — **NEW**
+- `crm-api/Database/migrations/073_agent_mobile_encryption.sql` — **NEW**
+- `crm-api/Services/FileUploadService.php` — new doc types; `display_filename` + `document_type` return/INSERT bug fixes
+- `crm-api/Controllers/RegistrationController.php` — registration sets `status='registered'`, removed premature notification
+- `crm-api/Controllers/AgentController.php` — onboarding section rewritten (draft/submit/status/upload), mobile encrypt/decrypt
+- `crm-api/Controllers/SubAgentController.php` — extended `invite()`, fixed `users` INSERT bug, added `uploadDocument()`, notification fire
+- `crm-api/Controllers/AdminAgentController.php` — `getRegistered`, `getDrafts`, `getDetail` added; `getPending`/`listAll` extended; `reject()` reason optional; mobile decrypt
+- `crm-api/Controllers/AuthController.php` — removed no-session branch for rejected agents (3 methods)
+- `crm-api/Routes/AgentRoutes.php`, `crm-api/Routes/AdminRoutes.php` — new routes registered
+- `src/lib/api.ts` — onboarding functions implemented (were stubs), admin agent functions fixed/added
+- `src/shared/constants/indianStates.ts` — **NEW**
+- `src/shared/hooks/useAuth.ts` — `updateAgentStatus()` action added
+- `src/shared/components/layout/RoleGuard.tsx`, `PortalWrapper.tsx` — status routing + bare-layout fixes
+- `src/pages/agent/AgentOnboardingPage.tsx`, `AgentInfoPage.tsx` (new), `OnboardingTabs.tsx` (new), `AgentPendingPage.tsx`, `AgentRejectedPage.tsx`
+- `src/pages/admin/AdminAgentsPage.tsx` — full rewrite
+- `src/pages/LoginPage.tsx`, `src/pages/ApplyPage.tsx`, `src/router/index.tsx`
+
+**Tests Run**:
+- `php -l` on every changed PHP file: PASS
+- Full live curl walkthrough against both `php -S localhost:8080` and the real XAMPP Apache instance: register → draft → upload 3 docs → submit (422 when incomplete, 201 when complete) → admin approve/reject(with and without reason) → sub-agent invite → sub-agent appears in admin queue with correct parent name
+- Live browser walkthrough (Claude Preview, logged in as real test accounts, not mocked): registration→login→onboarding redirect, draft persists across hard refresh, Company Info tab, rejected-state resubmit flow with pre-filled form, all 5 admin Agents tabs, hierarchy tree rendering, document viewer (200 OK on authenticated download), live Approve action with toast + list refresh
+- `npm run build`: not completed this session — the build process segfaulted twice, appearing to be a local
+  resource-exhaustion issue (10 concurrent Node processes already running on the machine) rather than a code
+  issue, since the Vite dev server compiled and hot-reloaded every change in this session without error. **A
+  clean `npm run build` should be run once before deploying.**
+
+## 18. AGENT PORTAL: DUPLICATE TOAST FIX + PROFILE PAGE REBUILD (2026-07-01)
+
+**Context**: User reported two bugs while starting a pass over the agent portal: (1) every agent page showed
+two toast notification stacks simultaneously — one top-center, one top-right — and (2) `/portal/agent/profile`
+rendered a raw `Endpoint 'GET /agent/get_profile' not found` error instead of a usable profile page, unlike the
+student portal's profile page which has inline edit + change-password.
+
+### Root Causes
+
+1. **Duplicate toasts**: `DashboardLayout.tsx` (wraps every portal page via `PortalWrapper`) already renders a
+   global `<Toaster />` (top-right, from `shared/components/ui/Toast.tsx`). Five agent pages additionally
+   imported `Toaster` directly from `sonner` and rendered their own `<Toaster position="top-center" richColors />`
+   — a leftover from before the shared layout existed. Every `toast.*()` call was rendered twice, once per
+   Toaster instance.
+2. **Profile endpoint mismatch**: `src/lib/api.ts`'s `fetchAgentProfile()` / `updateAgentProfile()` called
+   `action=get_profile` / `action=update_profile`, but `AgentRoutes.php` only registers `action=profile`
+   (GET + PUT, `AgentController::getProfile` / `updateProfile`) — matching the pattern already used correctly
+   by `fetchStudentProfile()`/`updateStudentProfile()` (`route=student&action=profile`). The mismatch 404'd on
+   every load. Separately, `AgentProfileResponse` in `api.ts` was stale (declared `user_id`, `agency_country`,
+   `registration_number`, `partnership_type`, `tier` as a string union) — none of these match what
+   `AgentController::getProfile()` actually returns (`public_id`, `full_name`, `agency_name`, `tier: number`,
+   `referral_code`, `status`, `country`, `created_at`, `pending_student_requests`). This same broken endpoint is
+   also called from `useAuth.ts`'s post-login `syncLegacyProfileCache()` for agents; it was silently swallowed
+   there by an existing `try/catch`, so `upsertAgentRecord()` never actually got real agency data — now fixed
+   as a side effect.
+
+### Fix
+
+- Removed the local `Toaster` import + `<Toaster position="top-center" richColors />` render from
+  `AgentDashboard.tsx`, `AgentStudents.tsx`, `AgentTeamPage.tsx`, `AgentCommissionsPage.tsx`, and
+  `AgentProfilePage.tsx`. Left `AgentOnboardingPage.tsx` (and `AgentInfoPage`/`AgentPendingPage`/
+  `AgentRejectedPage`, which never had one) untouched — `PortalWrapper` deliberately renders those standalone
+  with no `DashboardLayout`/global Toaster for agents whose `agentStatus !== 'approved'`, so their own Toaster
+  is not a duplicate.
+- Fixed `fetchAgentProfile()`/`updateAgentProfile()` in `api.ts` to hit `route=agent&action=profile`, matching
+  the registered route. `updateAgentProfile()` now correctly returns `void` (the backend only ever returned a
+  `{message}` string, never a fresh profile object). Corrected the `AgentProfileResponse` type to match the
+  real backend shape.
+- Rewrote `AgentProfilePage.tsx` to follow the same structure/interaction pattern as `StudentProfile.tsx`:
+  a "Agency Details" card (editable Agency Name + Country, read-only Full Name + Tier) and an "Account
+  Settings" card (Status badge, Referral Code with copy button, conditional Pending Reassignment Requests
+  count, and a collapsible Change Password form using the existing role-agnostic `changePassword()` /
+  `auth&action=change-password` endpoint — identical fields/validation to the student page: current/new/confirm
+  with show/hide toggles, mismatch + empty-field checks before submit).
+
+### Tests Run
+
+- Live browser walkthrough (Claude Preview, XAMPP Apache + real DB, logged in as `agent1@theglobalavenues.com`
+  / "Rajesh Kumar", Tier 1): confirmed `GET ?route=agent&action=profile` now returns 200 (previously 404),
+  page renders real data (agency name "Delhi Consultations", country "India", status "Approved", referral code
+  "TGA-DEL001", 1 pending reassignment request); Edit Profile → modify → Save Changes round-trips through
+  `PUT ?route=agent&action=profile` successfully and returns to view mode; Change Password form opens with all
+  three fields present. Confirmed only one `Notifications` toast region exists in the DOM on Dashboard,
+  Students, Team, Commissions, and Profile pages (previously two).
+- Not exercised: an actual password change (avoided to keep the shared test account's credentials stable for
+  future sessions) and `npm run build` (not requested this session; no new type errors expected since
+  `AgentProfileResponse` field usage in `AgentProfilePage.tsx` was updated to match the corrected type).
+
+**Files Changed**:
+- `src/lib/api.ts` — `AgentProfileResponse` type corrected; `fetchAgentProfile`/`updateAgentProfile` endpoint paths fixed
+- `src/pages/agent/AgentProfilePage.tsx` — full rewrite (edit agency details + change password, matching `StudentProfile.tsx`)
+- `src/pages/agent/AgentDashboard.tsx`, `AgentStudents.tsx`, `AgentTeamPage.tsx`, `AgentCommissionsPage.tsx` — removed duplicate local `Toaster`
+
+## 19. AGENT STUDENTS 403 FIX, FULL STUDENT DETAIL PAGE, LABEL CLARITY (2026-07-01)
+
+**Context**: Follow-on from §18. User raised four more points while reviewing the agent portal: (1) the
+Applications page appeared to show "all students," (2) the "Reference" column was unclear, (3) the Students
+page should show every student in the agent's network (with or without applications) with the same depth of
+detail admin sees, read-only, and (4) "Pending Reassignment Requests" on the profile page was ambiguous.
+
+**Investigation before changing anything**: Queried the live DB directly (not just code reading) to check
+whether the Applications page was actually leaking cross-agency data. For the test account `agent1@theglobalavenues.com`
+(Rajesh Kumar, tier 1, root_agent_id=1), all 7 returned applications belonged to agents with `root_agent_id=1`
+(himself, his L2 sub-agent Sonia Sharma, and her L3 sub-agent Arjun Test Agent 3) — the existing
+`ag_owner.root_agent_id = :root` scoping in `listApplications()` was already correct. There was no leak; the
+concern was a scope/labeling question, not a bug. Asked the user directly (AskUserQuestion) whether
+Applications/Students should be narrowed to literally `agent_id = self` or keep the existing subtree/network
+view — **confirmed: keep the existing hierarchy view** (own students + sub-agents' students), matching how
+"My Team" and Commissions already work. Also confirmed the user wants full PII (DOB, passport, phone, email)
+visible read-only to agents on student detail — **an explicit reversal of the documented §SD-P5-02 "Agent PII
+Boundary" security decision** ("Agents should NOT see student PII by default"). This is a deliberate product
+decision by the project owner, not an oversight — flagged clearly before implementing.
+
+### Bug Fixed: `AgentController::listStudents()` / `getStudent()` / `listSubAgentStudents()` — permanent 403
+
+Same root cause documented in `academic_core_build` memory / prior session: `RBACMiddleware::requirePermission()`
+is admin-only by design (its own doc comment says non-admin user types are "never checked here" — see
+`RoleMiddleware`/portal-gate checks instead). All three methods called it anyway with the agent's JWT
+(`utype=agent`), which always hit the `Response::error('Forbidden', 'FORBIDDEN', 403)` branch at
+`RBACMiddleware::enforce()` line 36-38. This made `/portal/agent/students` and "My Team → View Students"
+permanently broken for every real agent — confirmed via live network logs (`GET agent&action=students` → 403
+before the fix, → 200 after). Fixed by removing the three `RBACMiddleware::requirePermission('students', 'view')`
+calls (the subtree-ownership checks already inside each method are the correct and sufficient authorization —
+`listApplications`/`getApplication` never had this bug since they were fixed in an earlier session). Removed
+the now-unused `use TGA\CRM\Middleware\RBACMiddleware;` import.
+
+### `AgentController::getStudent()` — expanded to full admin-parity detail
+
+Rewrote to mirror `AdminStudentController::adminGetDetail()`'s response shape exactly
+(`{student, academics, test_scores, applications: {count, items}, readiness, custom_fields}`), reusing the
+same helper methods (`StudentController::buildReadinessSnapshotForAdmin()`,
+`StudentCustomFieldController::buildCustomFieldsSnapshot()` — both take a plain `$studentId` int with no
+internal auth gating, safe to call once the agent's own subtree-ownership check has passed). Now decrypts and
+returns email, phone, phone_in_profile, alternate_mobile, date_of_birth, gender, passport_number,
+passport_expiry, lead_source, how_heard_about_us, planning_phd — using the file's existing
+`self::decryptOrNull()` static helper (already present for agent mobile-number decryption; a first attempt at
+adding a duplicate instance-method version of the same name caused a `Cannot redeclare` fatal, caught by
+`php -l` before testing). The mandatory subtree-ownership SQL check (`s.agent_id` / `parent_agent_id` /
+`root_agent_id` depending on tier) is unchanged and still the only gate — this only removes the PII column
+restriction, not the ownership boundary.
+
+### Frontend
+
+- **`src/pages/agent/AgentApplicationsPage.tsx`**: renamed the "Reference" column header to "Application ID"
+  (it was rendering `reference_number`, e.g. `TGA-2026-000007` — a human-readable business ID, not the
+  internal row ID; "Reference" alone was ambiguous per the user's feedback).
+- **`src/pages/agent/AgentStudentDetailPage.tsx`** — **NEW**. Full read-only student profile page, ported
+  from `AdminStudentDetailPage.tsx` (which itself has no edit affordances — it was already pure display, so
+  porting it satisfies "see everything like admin, but can't edit or request documents" without needing to
+  strip anything out). Uses the existing-but-previously-unused `fetchAgentStudentDetail()` in `api.ts` (was
+  already correctly wired to `agent&action=students/:pid`, just never had a route or page consuming it).
+  Sections: Identity & Contact (now shows real PII per the confirmed decision above), Academic Profile, Test
+  Scores, Documents/Readiness (view-only "View" buttons via the existing `openAgentDocument()` → `FileController`
+  download, which already enforces its own agent-scoped access check independent of this page), Applications,
+  Additional Information (admin-defined custom fields).
+- **`src/router/index.tsx`**: registered `agent/students/:pid` → `AgentStudentDetailPage`. This route never
+  existed before — the "Open Full Page" button already present in `AgentStudents.tsx`'s preview drawer
+  (`PreviewDrawerFooter detailUrl=...`) was a dead link with no matching route until now.
+- **`src/pages/agent/AgentStudents.tsx`**: removed the stale "Security & Privacy Guard (SD-P5-02)" notice
+  from the quick-preview drawer (it claimed PII was hidden, which is no longer true now that the full detail
+  page shows it) and replaced it with a pointer to the full profile.
+- **`src/pages/agent/AgentProfilePage.tsx`**: relabeled "Pending Reassignment Requests" →
+  "Students Requesting to Join You", with explanatory copy: "N student(s) asked to transfer to you, awaiting
+  admin approval." The underlying count (`agent_reassignment_requests WHERE requested_agent_id = ? AND
+  status = 'pending'`) counts incoming requests — students who named this agent's referral code as their
+  preferred new agent (see `ReassignmentController::requestReassignment()`) — not outgoing requests to leave
+  this agent. The old label was genuinely ambiguous between the two readings.
+
+### Tests Run
+
+- `php -l` on `AgentController.php` after every edit (caught the duplicate-method fatal before browser testing).
+- Live browser walkthrough (Claude Preview, XAMPP + real DB, `agent1@theglobalavenues.com`): `/portal/agent/students`
+  now returns 200 (was 403) and lists all 6 students in Rajesh Kumar's subtree including one with 0 applications
+  (Sneha Test Student 2, confirming "with or without application" requirement); clicked into
+  `/portal/agent/students/01KW95HHAJG7XKCZF3F6A784E2` (Prashant Tiwari) and confirmed real decrypted email
+  (`testuser456@example.com`), lead source, 5 document "View" buttons, 1 application row with the new
+  "Application ID" header, and 4 custom fields all rendered correctly with no failed network requests;
+  confirmed the Applications page "Application ID" header text directly via DOM query; confirmed the Profile
+  page now renders "STUDENTS REQUESTING TO JOIN YOU — 1 student asked to transfer to you, awaiting admin
+  approval" instead of the old ambiguous label.
+- Not exercised: `listSubAgentStudents()` fix via the "My Team → View Students" button specifically (fixed by
+  the same code change as `listStudents`, same root cause, not separately re-verified in the browser this
+  session). `npm run build` not run (not requested; no new TypeScript compile step exists in this project's
+  build per `package.json`).
+
+**Files Changed**:
+- `crm-api/Controllers/AgentController.php` — removed 3 erroneous `RBACMiddleware::requirePermission()` calls (403 bug); `getStudent()` rewritten for full admin-parity detail; removed unused `RBACMiddleware` import
+- `src/pages/agent/AgentStudentDetailPage.tsx` — **NEW**
+- `src/router/index.tsx` — registered `agent/students/:pid` route
+- `src/pages/agent/AgentApplicationsPage.tsx` — "Reference" → "Application ID" column header
+- `src/pages/agent/AgentStudents.tsx` — removed stale PII-hidden notice in preview drawer
+- `src/pages/agent/AgentProfilePage.tsx` — relabeled pending reassignment requests with explanatory copy
+
 

@@ -1553,3 +1553,547 @@ eact-intersection-observer), Document upload with onUploadProgress.
    - Corrected `reviewAdminDocument` in frontend `api.ts` to use `POST` instead of `PUT` to align with `AdminRoutes.php` (Line 51).
 
 **Status**: End-to-end flow is completely traced, aligned with the spec, and corrected.
+
+---
+
+### 2026-07-01 — University → Program → Intake → Application: Full Build, Live-Verified
+
+**Scope**: Built the complete catalog-to-enrollment flow the earlier append entries above claimed was
+already fixed. Live browser + API testing (not static reading) found the admin Universities/Courses/
+Intakes/Applications screens were still rendering hard "Not implemented" errors, `AgentApplicationsPage`
+and `StudentApplications` were 403/404ing, and the student side had no profile-readiness gate, no
+university browse/apply page, and no payment surfacing at all. This entry documents what was actually
+built and verified working end-to-end this session, plus every backend defect live-testing uncovered
+along the way (several contradict "fixed" claims in earlier entries in this file).
+
+**Phase 1 — Backend foundation** (migration `074_student_readiness.sql`):
+- `students` gained `gender`, `alternate_mobile` (XSalsa20 encrypted, same pattern as `phone_in_profile`),
+  `how_heard_about_us`, `planning_phd`.
+- New table `student_documents` (`student_id`, `category`, `file_id`, unique per category) — the one-time
+  document intake student profile completion is gated on, distinct from per-application `document_requests`.
+- Seeded `application.status_changed` notification template (`INSERT IGNORE` — already present in the local
+  DB via an untracked path, but not in any migration file; closes `CLAUDE.md` Known Open Item #1 for fresh
+  environments).
+- `StudentController`: `getReadiness`, `saveReadinessDraft`, `uploadReadinessDocument`, `submitReadiness`,
+  `agentDirectory` (new student-scoped agent search for the assign-agent picker — no prior endpoint let a
+  student search agents; `admin&action=agents` is admin-gated).
+- `AdminStudentController::adminGetReadiness` — admin-scoped view of a student's submitted profile/documents
+  (delegates to `StudentController::buildReadinessSnapshotForAdmin`, RBAC `students.view`).
+- `FileUploadService::DOCUMENT_MIME_RULES` extended with `academic_marksheet`, `noi`, `phd_thesis` (PDF-only).
+- `ApplicationController::studentCreate`: fixed `agent_id_at_submission` always being inserted as `null`
+  (now copies the student's current `agents.agent_id` at submission time — this is the exact commission
+  snapshot rule `CLAUDE.md` documents); added the actual apply-gate (`409 PROFILE_INCOMPLETE` unless
+  `students.profile_status` has reached `documents_submitted`).
+
+**Phase 2 — `src/lib/api.ts` rewrite**: Replaced ~24 `throw new Error('Not implemented')` stubs and a second,
+larger set of functions that called routes which never existed on the backend (`admin&action=get_pipeline`,
+`university&action=get_detail`, `create_university`, etc. — apparently an earlier abandoned API design) with
+real implementations matching the actual `UniversityController` / `CourseController` / `IntakeController` /
+`ApplicationController` / `DocumentRequestController` / `PaymentTrackingController` route contracts. Kept
+`AdminDashboardPage.tsx`'s legacy `AdminUniversityRecord`/`AdminProgramRecord`/`AdminPipelineItem`/
+`AdminApplicationDetail` types working via thin adapters over the same real endpoints rather than touching
+that 1700-line page. Added `getAccessToken()` (was stubbed but genuinely used by `AdminReportsPage.tsx` for
+export downloads — removing it broke the build, caught by `npm run build`, not by inspection).
+
+**Phase 3 — `AdminApplicationsPage.tsx`**: Replaced `window.prompt()`-based status/document/payment actions
+with a `PreviewDrawer` detail view: timeline, document requests (create/approve/reject/cancel), payments
+(create/verify/resolve), and status-transition buttons restricted to a client-side mirror of
+`StateManager::GRAPH` (`crm-api/Services/StateManager.php`) so admins can't attempt transitions the backend
+would reject anyway.
+
+**Phase 4 — Student Readiness wizard** (`src/pages/student/StudentReadinessPage.tsx`, route
+`/portal/student/get-started`): New 3-step wizard (Personal & Contact → Source & Agent → Documents) using a
+new reusable `Stepper` component. Step 3 covers photo, passport front/back, merged academic marksheets,
+transcript (all required), CV/SOP/LOR/NOC/proficiency (optional), and a "planning PhD" toggle that reveals
+thesis + professional-LOR slots. Save Draft / Submit Profile wired to the Phase 1 endpoints; submission is
+blocked client- and server-side until required categories are uploaded.
+
+**Phase 5 — Catalog browse + apply**: New shared `UniversityBrowse` component (university list → programs →
+intakes, `mode: 'apply' | 'readonly'`) reused by `StudentUniversitiesPage` (`/portal/student/universities`,
+apply gated on `profile_status`) and `AgentUniversitiesPage` (`/portal/agent/universities`, read-only, no
+Apply button, per spec). Added `fetchProgramIntakes` and fixed `fetchUniversityDetail`/`fetchUniversities`.
+
+**Phase 6 — Student application detail + payments**: `StudentApplications.tsx` now fetches full detail
+(timeline, document requests, payments) instead of just the list row, adds a Withdraw action and an "I've
+Paid" action per payment (`PaymentTrackingController::studentSubmit`).
+
+**Backend defects found via live testing (not static reading) and fixed, all pre-existing:**
+1. `UniversityController::search()` and `::publicGet()` joined `intakes` with `AND i.deleted_at IS NULL` —
+   `intakes` has no such column (hard-delete only, by design per `016_create_intakes_table.sql`). Broke the
+   entire public program search endpoint and the university-detail course list.
+2. `ApplicationController::studentCreate()` had the same `intakes.deleted_at` bug in its intake lookup —
+   broke every student "Apply" click with a 500.
+3. **`admins` table has no `deleted_at` column** (`009_create_admins_table.sql`), yet 9 call sites across
+   `AuthController` (impersonation check), `DocumentRequestController` (×2), `FileController` (erasure),
+   `LeadsController`, `PaymentTrackingController` (×3), and `RoleController` (×2) queried
+   `admins WHERE ... AND deleted_at IS NULL`. This silently 500'd document-request creation, payment
+   creation, and file erasure the moment they were exercised. Fixed all 9.
+4. `AgentController::listApplications()` / `::getApplication()` called
+   `RBACMiddleware::requirePermission(...)`, but that middleware's own doc comment states it is admin-only
+   and unconditionally returns 403 for any non-admin `utype`. This made the agent Applications page (and the
+   `AgentStudents` page, which has the same bug in `listStudents()` — **not fixed, flagged below as a
+   follow-up**) permanently broken for real agents. Removed the RBAC call from the two methods this session
+   touched; the subtree-scoping logic inside each method already does the real authorization.
+5. `StudentController::getApplication()` selected `f.file_size` — the real column is
+   `files.file_size_bytes`. Broke the student application detail drawer (Phase 6).
+6. `src/shared/components/ui/InlineActions.tsx`: `ActionItem.icon` was a required prop and the component
+   unconditionally rendered `<action.icon />`; several pages (e.g. `AdminCoursesPage`'s enable/disable
+   toggle) pass actions with no icon, which crashed the dropdown with a React `type is invalid` warning and
+   silently dropped that action from the menu. Made `icon` optional.
+7. `fetchUniversities()` (api.ts) called `response.data.universities`, but
+   `UniversityController::publicList()` returns a top-level `{data: [...], meta}` shape — the generic
+   `request()` wrapper's auto-detection of an existing `data` key means `response.data` was already the
+   array, so `.universities` was `undefined` and the student/agent university browse silently rendered zero
+   results. This is a recurring trap in this codebase: several controllers return `{data, meta}` (paginated
+   list convention) while most return `{resourceName: ...}`; every new api.ts function in this session was
+   verified against a live `curl` response before assuming the unwrap shape rather than trusted by inspection.
+
+**Not fixed (same-class bugs, explicitly out of this session's scope, flagged as follow-ups)**:
+- `AgentController::listStudents()` has the identical `RBACMiddleware::requirePermission` misuse as
+  `listApplications()`/`getApplication()` — the `AgentStudents.tsx` page is very likely still 403ing for
+  real agents. Left alone because fixing agent-portal authorization broadly is a separate, security-
+  sensitive review, not part of the University/Program/Intake/Application scope.
+- Router misconfiguration: `/portal/admin/students`, `/leads`, `/roles`, `/settings`, `/logs`, `/security`
+  all render `AdminDashboardPage` instead of the dedicated `AdminStudentsPage` / `AdminLeadsPage` / etc.
+  files that already exist in the repo (`src/router/index.tsx`). Discovered while tracing why
+  `AdminDashboardPage.tsx` still mattered; not touched — out of scope.
+- Migrations 070–073 (html email templates, users email-unique-per-usertype, agent onboarding profile,
+  agent mobile encryption) exist on disk but are not reflected in `all_migrations_combined.sql`, which is
+  now stale for a from-scratch environment setup.
+
+**Security pass**: every new/changed student endpoint derives the acting student from
+`getStudentId((int)$user['id'])` (JWT-derived, never from client input) — no IDOR surface. New document
+categories added to `FileUploadService::DOCUMENT_MIME_RULES` are PDF-only, same whitelist pattern as
+existing categories. `agentDirectory` returns only `status='approved'` agents and only
+`public_id/full_name/agency_name/tier` — no PII. Pre-existing ownership checks in
+`PaymentTrackingController::studentSubmit` / `DocumentRequestController::studentSubmit`/`agentSubmit` were
+read and confirmed intact (not weakened by this session's routing/column fixes). No `dangerouslySetInnerHTML`
+introduced; all new user-generated text (doc labels, timeline content) renders through JSX's default escaping.
+
+**Verification**: `npm run build` after every phase (clean each time); every new/changed backend endpoint
+exercised live via `curl` with real JWTs for student/agent/admin roles against the local XAMPP MySQL
+instance; the full flow — readiness draft → document upload → submit → browse → apply (including the
+duplicate-draft guard firing correctly) → admin sees it in the pipeline → status transition buttons scoped
+to `StateManager::GRAPH` → document request round-trip → payment request → "I've Paid" → timeline reflecting
+both events — was driven end-to-end through the actual React app via the preview browser tool, not just
+inspected.
+
+---
+
+### 2026-07-01 — Admin Universities: Detail Page, Inline Editing, Country Picker, Logos Everywhere
+
+**Scope**: Follow-up UI pass on the admin Universities module (requested after the catalog/application core
+above shipped): a table/grid view toggle with search, a full university detail page with double-click
+inline editing, course fee visibility, a per-university applications list, a searchable country picker, and
+university logos surfaced across every admin/student/agent screen that lists a university.
+
+**New shared components** (none of these interaction patterns existed before this session):
+- `src/shared/data/countries.ts` + `src/shared/components/ui/CountrySelect.tsx` — searchable
+  Americas/Europe/Asia country combobox, A–Z, type-to-filter. Used in the Add University form and as the
+  `type="country"` variant of the field below.
+- `src/shared/components/ui/EditableField.tsx` — double-click to edit, `Enter`/blur commits, `Escape`
+  cancels, reverts + toasts on save failure. Supports `text` / `textarea` (explicit Save/Cancel, since
+  `Enter` must stay a newline) / `select` / `country` variants. This is the one inline-edit primitive used
+  everywhere on the new detail page and in the courses table.
+- `src/shared/components/catalog/UniversityLogo.tsx` — `<img>` when a logo exists, initials avatar
+  fallback otherwise; single source of truth now used by `AdminUniversitiesPage` (grid + table),
+  `AdminCoursesPage`, `AdminIntakesPage`, and `UniversityBrowse` (student + agent catalog browse).
+- `src/shared/components/applications/ApplicationDetailDrawer.tsx` — extracted verbatim from
+  `AdminApplicationsPage.tsx` (status-graph transitions, document-request/payment workflows, timeline) so
+  the new university detail page's Applications section could reuse it instead of duplicating ~250 lines of
+  drawer logic. `AdminApplicationsPage.tsx` now just renders `<ApplicationDetailDrawer />`.
+
+**Backend additions**:
+- `ApplicationController::listApplications()` gained optional `status` and `university_pid` query filters
+  (previously had none at all, not even status — the admin Applications page was filtering client-side
+  against the full unfiltered dataset). The university detail page's Applications section uses
+  `university_pid` server-side instead.
+- `CourseController::adminList()` / `::adminGet()` now compute `min_tuition_fee` / `max_tuition_fee` /
+  `tuition_fee_currency` / `open_intake_count` per course via the same subquery pattern already used in the
+  public `search()` method — previously fees were only visible on the public catalog, never in the admin
+  course view.
+
+**New page**: `src/pages/admin/AdminUniversityDetailPage.tsx`, route `/portal/admin/universities/:pid`.
+Logo upload (reuses the existing `uploadUniversityLogo`), every core field
+(name/country/city/website/partnership/description/ranking_info) double-click editable and saved via
+`updateAdminUniversityLive`, a courses table with inline-editable cells + fee range + "Add Course", and an
+Applications table scoped to this university that opens the shared `ApplicationDetailDrawer`. Verified live:
+editing the description persisted to the `universities` table (checked directly via `mysql`, not just
+re-rendered UI state).
+
+**`AdminUniversitiesPage.tsx`**: added a grid/table view toggle (copied the existing
+`localStorage`-persisted pattern from `AdminNoticesPage.tsx`/`NoticesFeedView.tsx` rather than inventing a
+new one), a client-side name/country search (dataset is small — no backend search endpoint exists or was
+added), and card/row click now navigates to the detail page instead of only exposing the dropdown menu. The
+Add University form now uses `CountrySelect`; on successful create it navigates straight to the new
+university's detail page instead of just closing the panel, since logo upload requires an existing
+`public_id` and the backend's `create()` doesn't accept a file.
+
+**Incidental fix**: `DashboardLayout.tsx`'s page-title derivation (last URL segment, titleized) was showing
+the raw ULID for any dynamic-`:pid` route, including the new one and the pre-existing
+`agents/:pid/tree`. Added a one-line ID-like-segment detector that falls back to the parent segment — a
+small, generic fix, not specific to this feature.
+
+**Verification**: `npm run build` clean after every part. Live-verified via the preview browser (admin
+test account from earlier this session): view toggle, search-by-country filtering the grid to one result,
+full drill-down (university card → course → confirmed via the earlier application flow), double-click-edit
+on the description field with the saved value confirmed directly in MySQL, and the full Add University flow
+(name + `CountrySelect` type-to-filter "jap" → Japan + submit → auto-redirect to
+`/portal/admin/universities/:new_pid`) confirmed end-to-end including the DB row.
+
+**Not done / follow-ups**: intake management still lives on its own separate `AdminIntakesPage` — the
+detail page's "Open Intakes" count links there rather than embedding intake CRUD inline (kept scoped, per
+the plan). No backend search endpoint was added for the university list (client-side filtering only,
+acceptable at current data volume).
+
+---
+
+### 2026-07-01 — University Module Bug-Fix Round: Logo Upload, Empty-Field Editing, Course Fees, Courses/Intakes Redesign
+
+**Scope**: User reported four concrete gaps via screenshots against the module shipped above: logo upload
+failing, empty fields on the detail page showing no edit affordance, course Fee Range not inline-editable,
+and the Courses/Intakes pages' Edit actions opening native `window.prompt()` dialogs. All four fixed and
+live-verified.
+
+**Fix 1 — Logo upload chain (three separate bugs stacked on top of each other, found only by driving a real
+upload through the browser, not by reading code):**
+1. `uploadUniversityLogo()` in `api.ts` sent the file under FormData key `'file'`; `UniversityController::uploadLogo()`
+   reads `$_FILES['logo']`. One-line key fix.
+2. With that fixed, the upload still 500'd: PHP's GD extension (`imagecreatetruecolor()`, used to generate
+   the thumbnail) was disabled in this machine's local XAMPP `php.ini` (`;extension=gd` commented out).
+   Enabled it and restarted Apache — a local-environment gap, not a code bug; GD is standard on Bluehost/cPanel
+   hosting, so production is unaffected.
+3. With the upload succeeding, the returned `logo_thumb_url` still 404'd in the browser
+   (`net::ERR_BLOCKED_BY_ORB`). Root cause: `formatLogo()` builds URLs as `{APP_URL}/uploads/public/...`, and
+   local `.env` has `APP_URL=http://localhost/crm-api` (needed so the API itself resolves locally), but the
+   actual `uploads/public/` directory lives at the project root, not nested under `crm-api/`. Fixed locally by
+   creating a directory junction `crm-api/uploads/public` → `../../uploads/public` (`mklink /J`, no admin
+   rights needed, unlike a symlink) so Apache's existing `RewriteCond %{REQUEST_FILENAME} !-f` passthrough in
+   `crm-api/.htaccess` serves the real file directly. This is also local-only — production's `APP_URL` points
+   at the `api.` subdomain root, which does not have this extra path segment.
+   Verified end-to-end: uploaded a synthetic PNG via the real `<input type="file">` change event, confirmed
+   the POST returned 200, and confirmed the logo rendered as an `<img>` in place of the initials avatar after
+   reload.
+
+**Fix 2 — Empty-field inline-edit affordance**: `EditableField.tsx`'s display branch was
+`{render ? render(value) : value || emptyLabel}` — whenever a `render` prop was supplied (used for fields
+like Website that link-ify their value), it called `render(value)` even when `value` was empty, and
+`render('')` returned `undefined`, so the field showed nothing at all with no way to tell it was editable.
+Fixed to `{value && render ? render(value) : value || emptyLabel}`. Live-verified: City, Website,
+Description, and Facts/Ranking Info on the university detail page all now show their italic placeholder
+("Add city", "Add website", etc.) with the pencil-on-hover affordance instead of blank space.
+
+**Fix 3 — Course Fee Range inline-editable**: previously static text. Added
+`CourseController::updateFee(string $pid)` (`PUT admin/courses/:pid/fee`) — validates a non-negative amount,
+requires at least one non-closed intake to exist (fee lives on `intakes.tuition_fee_amount`, not `courses`),
+and bulk-updates all of that course's open/upcoming intakes to the new amount/currency in one statement.
+Added `updateAdminCourseFee()` to `api.ts` and wired the Fee Range column on
+`AdminUniversityDetailPage.tsx` through `EditableField`. Verified end-to-end via direct authenticated
+`curl` against the endpoint (not just code review, since this session's browser automation could not
+reliably simulate the double-click timing needed to enter edit mode headlessly): `PUT` with
+`{amount: 799.50, currency: "EUR"}` returned `200 {"success":true,...}` and the new value was confirmed
+persisted in `intakes.tuition_fee_amount` via direct MySQL query.
+
+**Fix 4 — Redeveloped `AdminCoursesPage.tsx` and `AdminIntakesPage.tsx` to remove all `window.prompt()`
+usage:**
+- `AdminCoursesPage.tsx`: course name, degree level (now a proper `select`), duration, and a newly-added
+  Language column are all `EditableField`s; status stays a click-to-toggle `Badge`; university name is a
+  clickable sub-link (`useNavigate`) to the university detail page.
+- `AdminIntakesPage.tsx`: intake name, application deadline, and tuition fee are now inline `EditableField`s
+  directly on the table row. "Clone Intake" (previously `window.prompt('Clone name', ...)`) now opens a
+  `Modal` dialog (existing Radix `AlertDialog`-based component) with a real labeled text input pre-filled
+  with `"{name} (Copy)"`. "Edit Intake" (previously two chained `window.prompt()` calls for name and
+  deadline) was replaced by a "More Details" action that opens a `SlideOverPanel` for the fields not shown
+  in the table (application-open date, course start date, fee currency, requirements notes) — the fields
+  that are in the table are now edited inline instead. "Move to {status}" and "Delete Intake" (kept as
+  `window.confirm`, which remains appropriate for a destructive one-click confirmation, unlike
+  `window.prompt` for data entry) are unchanged.
+  Live-verified: the "..." row menu opens (Radix `DropdownMenu`, confirmed via DOM inspection of
+  `[role="menu"][data-state="open"]` since the headless preview browser renders the Portal content at
+  viewport origin), "Clone Intake" opens the new `Modal` with the pre-filled name, submitting it creates a
+  real cloned row via the existing `cloneAdminIntake` mutation, and "More Details" opens the `SlideOverPanel`
+  with all four extra fields present. No native browser dialogs anywhere on either page.
+
+**Testing-tool note for future sessions**: this session's headless preview browser could not reliably
+deliver synthetic `dblclick` events to `EditableField` triggers, nor `pointerdown`-gated Radix
+`DropdownMenu`/`AlertDialog` triggers, via plain `element.click()`/`dispatchEvent()`. Workaround that did
+work: set a `data-testid` via `preview_eval` then use the harness's own `preview_click(..., doubleClick:
+true)`, or dispatch a full `pointerdown`+`mousedown`+`pointerup`+`mouseup`+`click` sequence; for anything
+still unclear, verify the underlying DOM state directly (`[role="menu"]`'s `data-state` attribute, or the
+mutation's network request/response) rather than trusting a screenshot alone.
+
+**Verification**: `npm run build` clean. All four fixes live-verified via the preview browser against local
+XAMPP MySQL, plus direct `curl` and `mysql` checks for the two fixes where headless double-click simulation
+was unreliable (course fee update, confirmed by request/response and DB row).
+
+### 2026-07-01 — Admin UI Polish Round: Sidebar Order, Status Affordances, Delete Confirmations, Intake Status/Edit, Agent Review Dialog
+
+Five small UI fixes requested directly against the running admin portal, no backend changes:
+
+**Fix 1 — Sidebar order**: `PortalWrapper.tsx`'s `ADMIN_NAV_BASE` had `Agents` above `Applications`.
+Swapped so `Applications` now sits directly after `Students` and before `Agents`, matching the requested
+lifecycle ordering (Students → Applications → Agents → Commissions).
+
+**Fix 2 — Courses status cell affordance**: `AdminCoursesPage.tsx`'s STATUS column was a bare `<button>`
+wrapping a `Badge`, defaulting to the native pointer/arrow cursor with no visual hint it toggles
+active/inactive on click. Added `cursor-pointer` + a `title="Click to toggle status"` tooltip.
+
+**Fix 3 — Course delete confirmation**: replaced the native `window.confirm('Delete X? This also closes
+its intakes.')` on `AdminCoursesPage.tsx` with the existing themed `Modal` (Radix `AlertDialog`-based)
+component, following the same pattern already used for admin delete-account confirmations in
+`AdminUsers.tsx`. Deletion is now a proper `ModalHeader`/`ModalDescription`/`ModalFooter` with a `danger`
+variant `ModalAction`, instead of the browser-chrome confirm box.
+
+**Fix 4 — Intakes: real status control + full-field edit panel**: `AdminIntakesPage.tsx` previously exposed
+only a single-step "Move to {next}" action derived from a linear `nextStatus()` helper, which silently
+missed the valid `upcoming → closed` direct transition that the backend (`IntakeController::updateStatus()`,
+`$validTransitions`) already allows. Replaced with `validNextStatuses(status)` mirroring the backend's exact
+transition map (`upcoming → [open, closed]`, `open → [closed]`, `closed → []`, terminal/no reopen), and the
+Actions menu now renders one "Move to {X}" item per valid transition instead of one hardcoded item.
+The old "More Details" `SlideOverPanel` (which only covered 4 of the intake's 9 editable fields) was
+expanded into "Edit Intake", covering every field the backend's general `PUT admin/intakes/:pid` accepts
+(name, month, year, deadline, course start date, application open date, fee amount + currency, requirements
+notes) plus a Status `<select>` restricted to the current value + only its valid next states (disabled with
+an explanatory note when the intake is `closed`, since the backend forbids reopening). Status changes from
+this panel go through the existing `updateAdminIntakeStatus` mutation (not the general update endpoint),
+preserving the backend's transition validation — no backend code touched.
+
+**Fix 5 — Agents review card: close button + backdrop dismiss**: the "Review"/detail card on
+`AdminAgentsPage.tsx` used the shared `Modal` component, which wraps Radix `AlertDialog`. Confirmed by
+reading `node_modules/@radix-ui/react-alert-dialog/dist/index.mjs` that `AlertDialogContentImpl` hardcodes
+`onPointerDownOutside`/`onInteractOutside` to always `preventDefault()` — this is not overridable via props,
+so outside-click-to-close is architecturally impossible on an `AlertDialog` (by design, for destructive
+confirm/cancel flows). Since this is a review/info card, not a destructive confirmation, added a new sibling
+component `src/shared/components/ui/Dialog.tsx` — visually identical to `Modal.tsx` (same centered
+`surface-card`/`border-warm` styling) but built on plain `@radix-ui/react-dialog` (already a project
+dependency, already used by `SlideOverPanel.tsx`), which supports outside-click and Escape to close natively
+and ships a built-in `X` close button in the top-right corner. Swapped `AdminAgentsPage.tsx`'s Review modal
+from `Modal/ModalContent/ModalTitle` to `Dialog/DialogContent/DialogTitle` — no other JSX inside changed,
+since the approve/reject buttons were already plain `Button`s, not `AlertDialog`-specific primitives.
+
+**Testing-tool note (adds to the one above)**: in this session, `preview_click` on Radix `DropdownMenu`
+triggers and dialog overlays produced "Successfully clicked" but did not actually open the menu / fire the
+form submit — root cause was never isolated, but a full synthetic `pointerdown`+`pointerup`+`click`
+`PointerEvent`/`MouseEvent` sequence dispatched via `preview_eval` worked reliably every time it was tried,
+including for the login form submit button and the intake row's dropdown trigger. Also: navigating with
+`window.location.href` to `127.0.0.1:3000` instead of `localhost:3000` breaks session restore after a hard
+reload — the backend's refresh-token cookie is issued for host `localhost` and is dropped as cross-site on
+requests from a `127.0.0.1` top-level origin (different host = different "site" for `SameSite` purposes,
+despite `CORS_ALLOWED_ORIGINS` permitting both). Always use `localhost:3000` locally, matching
+`APP_FRONTEND_URL` in `crm-api/.env`, never `127.0.0.1:3000`, once a session needs to survive a reload.
+
+**Verification**: all five fixes live-verified via the preview browser against local XAMPP MySQL as
+`tprashant76640@gmail.com` (super_admin): sidebar order confirmed via accessibility snapshot; status cursor
+confirmed via `preview_inspect` (`cursor: pointer`); delete modal confirmed opening with the correct course
+name interpolated and closing via Cancel with no mutation fired; intake dropdown confirmed showing both
+"Move to Open" and "Move to Closed" for an `upcoming` row, and the Edit Intake panel confirmed showing all
+fields including a Status `<select>` pre-selecting "Upcoming (current)"; agent review card confirmed opening
+via a real `[role="dialog"]`, closing via the new `X` button (`data-state` flips to `closed`), and separately
+closing via a synthetic click on the backdrop overlay at a point away from the card. No destructive actions
+(delete, approve, reject, status change) were actually submitted during verification — only Cancel/Close
+paths were exercised, so no test data was mutated.
+
+### 2026-07-01 — Create-Intake Status Field + Students Directory Rebuild + Admin-Defined Custom Fields
+
+**Fix — Create Intake had no status control**: `IntakeController::create()` hardcoded `status = 'upcoming'`,
+ignoring anything the client sent. Added an `$allowedStatuses = ['upcoming','open','closed']` whitelist check
+so the client can set the initial status, defaulting to `'upcoming'` if omitted/invalid. `AdminIntakesPage.tsx`'s
+`IntakeFormState` and Create Intake `SlideOverPanel` form gained a matching "Initial Status" `<select>`.
+
+**Router bug fix — `/portal/admin/students` misroute**: `src/router/index.tsx` was rendering `AdminDashboardPage`
+for the `students` route instead of the already-built (but never wired) `AdminStudentsPage.tsx`. Added the
+missing lazy import and fixed the route, plus a new `students/:pid` route for the new detail page below.
+
+**New feature — full student detail page + admin-defined custom fields ("Google Forms" for students)**:
+requested end-to-end: a students directory covering every lifecycle stage with filters (already existed,
+just unreachable due to the router bug above), a full detail view where unfilled fields render as
+"Not provided yet" instead of erroring, and an admin-configurable field builder so admins can collect
+arbitrary extra data (text/number/date/select/file) from students, submitted values then showing on the
+admin detail page.
+
+- **Migration `070_student_custom_fields.sql`** (styled after 063's `student_academics`/`student_test_scores`
+  precedent): `student_custom_field_definitions` (admin-managed schema — label, field_type ENUM, JSON options
+  for select, is_required, display_order, is_active, soft-delete) and `student_custom_field_values`
+  (student_id + definition_id, `UNIQUE(student_id, definition_id)` for upsert semantics, value_text or
+  file_id). Student-scoped only, not polymorphic — no generality was needed beyond students.
+  `run_all_migrations.php`'s regex was widened from `06[0-9]` to `06[0-9]|070` so this migration is picked
+  up by the one script that runs "recent, not-yet-in-combined-SQL" migrations — discovered along the way that
+  migrations 060–069 were never appended to `all_migrations_combined.sql` either, so 070 was left out of that
+  file too rather than being appended in isolation (would have been orphaned from its own dependency chain).
+- **New `crm-api/Controllers/StudentCustomFieldController.php`**: admin CRUD + reorder for field definitions
+  (`students.edit` permission, matching existing granularity — no new permission row added), a
+  `buildCustomFieldsSnapshot(int $studentId)` helper (LEFT JOIN definitions → this student's values, so
+  unanswered fields come back `null` — this is what makes "blank until filled in" work), and student-facing
+  list/submit-value/upload-file endpoints. File uploads reuse `FileUploadService::upload()` exactly like
+  `StudentController::uploadReadinessDocument()` does (`documentType='other'`, generic pdf/jpeg/png/webp rule
+  — deliberately did NOT add per-field entries to `FileUploadService::DOCUMENT_MIME_RULES`, that map is a
+  fixed whitelist for known document categories, not the right layer for admin-defined arbitrary fields).
+- **New `AdminStudentController::adminGetDetail()`**: one response combining every `students` column
+  (decrypted where encrypted, same defensive try/catch-to-null pattern as `listAll()`), agent info, academics,
+  test scores, an applications summary, the existing readiness snapshot (reused via
+  `buildReadinessSnapshotForAdmin()`, not duplicated), and the custom fields snapshot. Purely additive —
+  `listAll()`'s query, params, and response shape are completely untouched; confirmed no other page/controller
+  depends on it besides `AdminStudentsPage.tsx`.
+- **New routes**: `admin&action=students/:pid/detail`, `admin&action=student-custom-fields` (+`/:pid`,
+  `/reorder`), `student&action=custom-fields` (+`/value`, `/file`) — registered in `AdminRoutes.php` /
+  `StudentRoutes.php` following the exact existing `RouteRegistry::get/post/put/delete()` + (for student
+  routes) `$requireStudent(...)` wrapper conventions.
+- **New `src/pages/admin/AdminStudentDetailPage.tsx`**: Identity & Contact / Academic Profile / Test Scores /
+  Documents-Readiness / Applications / Additional Information, each a `Card`, matching
+  `AdminUniversityDetailPage.tsx`'s structural pattern. A local `Field` helper renders "Not provided yet" in
+  italic muted text for any null value — the direct payoff of the "blank until filled" requirement. Read-only
+  in v1 for core identity fields (the ask was to *show* blanks correctly, not necessarily inline-edit every
+  field; flagged as a small follow-up if wanted later).
+- **New `src/shared/components/students/CustomFieldsManagerPanel.tsx`**: field-definition builder (label,
+  type select, conditional options-chip editor for `select` type, required checkbox, `@dnd-kit` drag-to-reorder
+  matching the exact API shape already used by `AdminLeadsPage.tsx`'s Kanban board), row actions via
+  `InlineActions` (Edit / Activate-Deactivate / Delete), delete confirmed through the existing `Modal.tsx`
+  AlertDialog pattern. Opened from a new "Manage Custom Fields" button in `AdminStudentsPage.tsx`'s
+  `PageHeader` actions slot (same visual slot as "Add Course"/"Create Intake" elsewhere), inside a
+  `SlideOverPanel`. `AdminStudentsPage.tsx`'s "View Full Profile" row action now navigates to the new detail
+  page instead of just reopening the existing `PreviewDrawer` (which is kept as-is for the fast row-click glance).
+  Also fixed a small latent bug found in passing: `fetchAdminStudents()` in `api.ts` never forwarded the
+  `agentScope` param the page was already sending — the backend supported `agent_scope` all along, it just
+  never arrived.
+- **New `src/pages/student/StudentAdditionalInfoPage.tsx`**: renders each active definition as its native
+  input; file fields reuse the exact `FileUpload` + existing-file/"Replace" pattern from
+  `StudentReadinessPage.tsx`'s `DocumentSlot`; one explicit "Save" button submits all non-file fields at once
+  (file fields upload immediately on selection, matching the readiness page's own document-upload UX).
+  **Design deviation from the original plan, decided during implementation**: instead of a conditionally-shown
+  dashboard card (which the plan called for), added an always-visible "Additional Info" sidebar nav item in
+  `PortalWrapper.tsx`'s `STUDENT_NAV` — safer (no edits to the large, unfamiliar `StudentDashboardPage.tsx`),
+  and more consistent with every other student page already being a persistent nav link rather than a
+  conditional dashboard card. The page itself shows a friendly empty state when no fields are configured, so
+  there's no clutter for the common case of zero admin-defined fields.
+
+**Verification**: backend fully round-tripped via `curl` before any frontend work — created text/select/file
+field definitions as admin, confirmed a `registered`-status student's `adminGetDetail` response came back
+with every optional field `null` (proving "blank until filled"), then as a student listed/filled/uploaded
+against those same definitions and confirmed the values appeared back on the admin detail endpoint
+(proving the LEFT JOIN round trip). Frontend then live-verified via the preview browser as both roles:
+students list renders (router fix confirmed), "Manage Custom Fields" panel opens and creates a field
+end-to-end through the real UI, the full detail page renders all sections with correct blanks/values for a
+partially-onboarded student, the student "Additional Info" page pre-fills existing values and persists a new
+one (confirmed via a follow-up `curl`), and a full regression pass confirmed `AdminApplicationsPage.tsx`,
+`AdminStudentsPage.tsx`'s filters, the `PreviewDrawer` quick-view, and the same-day Courses/Intakes fixes
+above were all unaffected. Only pre-existing, unrelated console errors remained (`notifications`/`activityFeed`
+query keys returning `undefined` — present before this session's changes, out of scope here).
+
+### 2026-07-02 — Application Flow Redesign: Cap, Preference Ranking, Draft-First Apply, Agent-Assisted Apply, Agent-Created Students
+
+Major architecture change to the apply flow, requested end-to-end (student self-serve + agent-assisted),
+planned via `EnterPlanMode` with two research agents plus a design agent before any code was written, then
+built and live-verified in 10 sequential, individually-tested steps. Full plan preserved at
+`C:\Users\AMIT TIWARI\.claude\plans\lucky-swimming-taco.md`.
+
+**Core behavior change**: clicking "Apply" now *always* creates the draft application immediately (cap
+permitting) instead of blocking entirely behind a profile-completeness gate. If the student's profile is
+already ready, the application auto-submits in the same request; otherwise the caller is routed into one
+shared "Complete Application Details" flow that finishes the application on submit. This same model now
+serves student self-service, agent-applying-for-an-existing-student, and agent-creating-a-brand-new-student —
+one code path, three entry points.
+
+- **Migration `075_application_cap_and_metadata.sql`**: `applications.created_by_type`
+  (`ENUM('student','agent','admin')`) + `created_by_id` — records who actually initiated an application,
+  independent of `agent_id_at_submission` (which only reflects the student's assigned agent, unchanged
+  semantics, not touched). `applications.preference_rank` (nullable, no DB uniqueness — recalculated
+  wholesale on every reorder). Seeds `max_active_applications_per_student` (integer, default `3`, group
+  `applications`) into `system_settings`, following the existing `otp_max_attempts`/`session_max_per_user`
+  pattern.
+- **Migration `076_student_created_by_agent_notification.sql`**: seeds `student.created_by_agent` HTML
+  template (styled like migration 070's `student.registered`), vars `student_name`/`student_email`/
+  `agent_name`/`portal_url`. Deliberately has **no password variable** — login is via OTP or Forgot Password
+  only, matching the confirmed product decision that a system-generated password is never transmitted.
+- **New `crm-api/Services/AgentAccessService.php`**: extracts the tier-scoped agent→student subtree check
+  already proven in `AgentController::resolveAgent()`/`resolveTargetAgent()` into a reusable service, since
+  this redesign added 10+ new agent-facing endpoints across 3 controllers that all needed the same
+  authorization. Purely additive — existing `AgentController` methods untouched, zero regression risk.
+- **`ApplicationController.php`**: new private `createDraftApplication()` is now the single source of truth
+  for both `studentCreate()` and `createDraft()` — cap check (`APPLICATION_CAP_REACHED`, 409, counts every
+  status except `withdrawn`/`rejected`), the pre-existing one-draft-per-intake uniqueness check (unchanged),
+  the insert (now stamping `created_by_type`/`created_by_id`/`preference_rank`), then an inline
+  `StateManager::transition(...,'submitted',...)` if `students.profile_status` already qualifies.
+  `studentCreate()`'s old hard `PROFILE_INCOMPLETE` pre-creation block is gone — that's the actual redesign.
+  **Security fix found and closed in passing**: `createDraft()` (the admin/agent create-on-behalf-of
+  endpoint) had *no* ownership check at all — any approved agent could create a draft for any `student_pid`
+  system-wide, not just their own subtree. Now gated via `AgentAccessService::assertCanAccessStudent()`.
+  Added `agentSubmit()` (mirrors `studentSubmit()`) and `reorderPreferences()` (`PUT
+  student&action=applications/reorder`, body `{order: string[]}`, rewrites `preference_rank` 1..N
+  transactionally for the given ids only).
+- **`StudentController.php` / `StudentAcademicController.php`**: existing methods (`saveReadinessDraft`,
+  `uploadReadinessDocument`, `submitReadiness`, and all of `StudentAcademicController`'s CRUD) were split into
+  thin JWT-resolving wrappers plus new `...For(int $studentId, ...)` core methods — the same pattern
+  `buildReadinessSnapshotForAdmin()` already established for reads, now extended to writes. `submitReadinessFor()`
+  gained an optional `$applicationPid` that auto-submits that specific draft right after the profile flips to
+  `documents_submitted`, unifying "finish my profile → my pending application submits" everywhere. New
+  agent-facing entry points (`agentGetReadiness`, `agentSaveReadinessDraft`, `agentUploadReadinessDocument`,
+  `agentSubmitReadiness` on `StudentController`; `agentGetProfile`, `agentAddAcademic`, `agentAddTestScore`,
+  `agentDeleteAcademic`, `agentDeleteTestScore` on `StudentAcademicController`) live on their own domain
+  controller rather than a shared "AgentController god-object" — matches the existing convention already used
+  by `DocumentRequestController::agentSubmit()`/`PaymentTrackingController::agentSubmit()`.
+- **New `StudentController::agentCreateStudent()`** (`POST agent&action=students`): agent directly creates a
+  brand-new student account, no OTP, no `pending_registrations` detour — modeled on
+  `SubAgentController::invite()`'s transaction shape but with a **server-generated** password (new
+  `PasswordValidator::generateRandom()`) that's never returned to the caller, logged, or emailed. Sets
+  `agent_id`/`registered_by_type='agent'`/`registered_by_id=<agent's users.id>`, fires
+  `student.created_by_agent`. Confirmed via live testing that OTP login works against the resulting account
+  with zero knowledge of the generated password.
+- **Two more pre-existing, previously-unreachable bugs found and fixed in passing** (both were dead code —
+  `/portal/admin/settings` had been wired to `AdminDashboardPage` as a placeholder since some earlier phase,
+  so `AdminSettingsPage.tsx` had *never actually been rendered* until this session's router fix exposed it):
+  1. `SystemSettingModel.php`'s three static methods called `self::getPDO()`, a method that doesn't exist —
+     `BaseModel` is fully instance-based, this model was never converted. Fixed by passing `PDO $pdo` as an
+     explicit first parameter to all three methods (`findAllGrouped`, `findByKey`, `updateByKey`) and updating
+     the 3 call sites in `SystemSettingsController.php` (only consumer, confirmed via grep) to pass `$this->pdo`.
+  2. `AdminSettingsPage.tsx`'s query function did `api.get(...).then(r => r.data.data)` — a double-unwrap bug.
+     Since `Response::json(['data' => $settings])`'s raw payload already has a literal `data` key, `api.ts`'s
+     `request()` wrapper returns it as-is (per the documented api.ts gotcha), so `r.data` is already the groups
+     object; `.data.data` resolved to `undefined`, which TanStack Query v5 treats as a query error (same class
+     of bug as the pre-existing `notifications/unread-count` console errors seen throughout this session).
+     Fixed to `.then(r => r.data)`.
+  A third gap was found but left as a flagged follow-up rather than fixed here (out of scope, didn't block the
+  cap-editing deliverable): `AdminSettingsPage.tsx`'s "Recent Configuration Changes" widget calls `admin&action=logs`,
+  which doesn't exist in `AdminRoutes.php` at all — 404s, gracefully falls back to "No recent changes found."
+  Also flagged (unrelated, found while reading `LeadsController.php` for a `registered_by_id` precedent): its
+  lead→student conversion INSERTs into `users.first_name`/`last_name`, columns that don't exist on `users`
+  (confirmed via `DESCRIBE users`) — would crash the moment that endpoint is exercised; same file also fires
+  `student.registered` with var key `name` instead of `student_name`. Both spawned as separate follow-up tasks.
+- **Frontend**: `ProfileCompletionPanel.tsx` (already the modern 3-step stepper shown on the student
+  dashboard when incomplete — reused, not rebuilt) generalized with `onBehalfOfStudentPid`/`applicationPid`/
+  `onComplete` props that swap in the agent-scoped API calls and pass `applicationPid` through for
+  auto-submit; gained a 4th "Academic & Test Scores" step (the backend `StudentAcademicController` +
+  migration 063 tables had existed since Phase 9 but were never wired to any frontend at all — confirmed gap,
+  closed here). New `CompleteApplicationDetailsPage.tsx` (student self-service, mounted at both
+  `/portal/student/applications/:pid/complete` and `/portal/student/profile/complete`),
+  `AgentCompleteApplicationDetailsPage.tsx`, and `AgentCreateStudentPage.tsx` (one continuous page — an
+  identity sub-form that silently creates the account, then reveals the same `ProfileCompletionPanel` below
+  it with no navigation, exactly matching the "agent fills one seamless form" requirement).
+  `UniversityBrowse.tsx`'s `mode` prop became `'student-apply' | 'agent-apply' | 'readonly'` — student-apply
+  removed the old `canApply`/lock-icon blocking entirely; agent-apply hands off to a new
+  `StudentPickerDialog.tsx` (`SlideOverPanel`-based, matching `AgentTeamPage.tsx`'s invite-sub-agent UI
+  pattern) instead of calling the API directly, with a pinned "+ New Student" action.
+  `StudentProfile.tsx`'s embedded "Study Profile" card (personal fields + document grid, duplicating what's
+  now the dedicated flow) was replaced with a compact completeness summary + "Edit" link, so the form exists
+  in exactly one place. `StudentApplications.tsx` gained a `@dnd-kit`-based drag-to-reorder "Your Preference
+  Order" card above the existing table, scoped to non-withdrawn/non-rejected applications, following the
+  exact `DndContext`/`SortableContext`/`useSortable` pattern already established in
+  `CustomFieldsManagerPanel.tsx`. `AgentUniversitiesPage.tsx` flipped from `mode="readonly"` (agents
+  previously could not apply at all) to `mode="agent-apply"`.
+
+**Verification**: every backend endpoint curl-tested against the live local DB before any frontend work,
+including negative cases (agent blocked from a student outside their subtree — confirms the security fix;
+cap correctly blocks the 4th application with a clear message; cap raised via the admin UI is picked up by
+the very next request with zero code change, proving `SystemSettings::clearCache()` wiring). Frontend then
+fully driven through the real preview browser for both portals: student applies with an incomplete profile
+(draft created, redirected, all 4 steps including the new Academic step render with real data, submit
+auto-submits the application), student hits the cap and sees the exact backend error as a toast, agent opens
+the university→course→intake flow (previously entirely read-only) and applies for an existing ready student
+(auto-submits), an existing not-ready student (redirected into the shared complete-details flow, pre-filled
+with that student's own data), and a brand-new student (single-page create-then-complete flow, welcome email
+queued with no password in the body, confirmed via direct notification-table inspection, OTP login confirmed
+working against the new account). Admin System Settings page — previously entirely unreachable dead code —
+now renders, the new "Applications Settings" group displays the cap, and saving a new value round-trips to
+the DB and is honored immediately. Final `npm run build` (3247 modules, all-portal production build) passed
+clean with zero errors. Only the same pre-existing, unrelated `notifications`/`unread-count` and
+`admin/activityFeed` console errors remained — present before this session, out of scope, already documented
+above and in [[project_gotchas]].

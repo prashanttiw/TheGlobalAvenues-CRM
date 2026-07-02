@@ -1342,3 +1342,148 @@ Falls back to `raw` (the root payload) when no nested `data` key is present. Han
 - `php -l crm-api/Controllers/RegistrationController.php`: PASS
 - `php -l crm-api/Controllers/AuthController.php`: PASS
 
+---
+
+### 2026-07-01 — Password Login Not Scoped by `user_type` (Wrong Account Returned for Multi-Portal Emails)
+
+**Trigger**: A user with the same email registered under two portals (`student` + `agent`) reported: registering
+again as a student correctly said "already registered", but logging in as a student on the Student tab said
+"No student account found for this email" — and the same email/id was visible in the admin portal.
+
+**Root cause**: The schema deliberately allows one email to have multiple `users` rows, one per `user_type`
+(unique key is `email_hash + user_type` — see [[multi_portal_email_schema]] memory). `requestOtpLogin()` /
+`verifyOtpLogin()` and all registration endpoints correctly scope their `SELECT` by `user_type`. Password
+login did not:
+
+**File**: `crm-api/Controllers/AuthController.php`, `login()` (was line 47)
+
+**Before**:
+```php
+$stmt = $this->pdo->prepare('SELECT * FROM users WHERE email_lookup_hash = ? AND deleted_at IS NULL LIMIT 1');
+$stmt->execute([$emailHash]);
+```
+No `user_type` filter and no `ORDER BY` — with two rows sharing the same `email_lookup_hash`, `LIMIT 1`
+returned whichever row the storage engine surfaced first, independent of which portal tab the user picked.
+Verified directly against the DB for the reported email: the unscoped query returned the `agent` row (id 22)
+even though a `student` row (id 19) also existed for the same hash.
+
+**Also**: `loginWithPassword(email, password)` in `src/lib/api.ts` never sent a `role`/portal hint at all,
+unlike `requestOtpLogin`/`verifyOtpLogin` which already take one.
+
+**Fix**:
+- `AuthController::login()` now reads an optional `role` from the request body; when it is `student`,
+  `agent`, or `admin`, the `SELECT` adds `AND user_type = ?`. Falls back to the old unscoped query only if
+  no role is supplied (defensive backward-compat; no current caller omits it).
+- `loginWithPassword()` in `src/lib/api.ts` now takes an optional third `role` parameter and includes it in
+  the POST body when provided.
+- `src/pages/LoginPage.tsx` passes `portalHint` (`'student' | 'agent'`, the selected tab) through.
+- `src/pages/admin/AdminLoginPage.tsx` passes the literal `'admin'`.
+
+Verified with the live DB (role-scoped query correctly isolates each account) and in-browser via network
+inspection — Student tab now sends `role: "student"`, Agent tab sends `role: "agent"`, Admin login sends
+`role: "admin"`. No other endpoint or caller was touched.
+
+**Files Changed**:
+- `crm-api/Controllers/AuthController.php` — `login()` now scopes its user lookup by `user_type` when a
+  `role` is provided
+- `src/lib/api.ts` — `loginWithPassword()` accepts and forwards an optional `role` parameter
+- `src/pages/LoginPage.tsx` — passes `portalHint` as the role
+- `src/pages/admin/AdminLoginPage.tsx` — passes `'admin'` as the role
+
+**Tests Run**:
+- `php -l crm-api/Controllers/AuthController.php`: PASS
+- Direct DB query comparison (unscoped vs. `user_type='student'` vs. `user_type='agent'`) against the
+  reported email confirmed the unscoped query returned the wrong account and the scoped queries each
+  return the correct one.
+- Live browser test (Vite dev server + XAMPP backend): confirmed via `fetch` interception that Student,
+  Agent, and Admin login forms each now send the correct `role` in the request body.
+
+---
+
+### 2026-07-01 — Registration Now Captures Full Name + Mobile Number (Lead-Gen Requirement)
+
+**Trigger**: Registration only captured email → OTP → password. That's not enough for lead generation —
+name and mobile number need to be known before the OTP step, and that data must flow through to every
+downstream screen (agent onboarding/approval, admin agent lists, student profile) instead of being
+collected again later.
+
+**Frontend (`src/pages/ApplyPage.tsx`)**: Step 1 of the registration wizard now collects Full Name and
+Mobile Number alongside Email, styled identically to the existing email field (icon-prefixed input, same
+`inputClass`). Client-side validation: full name ≥ 2 chars, mobile number 7–15 digits (non-digit characters
+stripped before counting). Onboarding-map step 1 label changed from "Verify Email" / "Enter email & get
+OTP" to "Your Details" / "Name, mobile & email" to reflect the wider scope. `autoFocus` moved from the
+email input to the new full-name input.
+
+**Backend (`crm-api/Controllers/RegistrationController.php`)**:
+- `sendRegistrationOtp()` now requires `full_name` (≥2 chars) and `phone` (`/^[0-9+\-\s()]{7,20}$/`) in the
+  request body, validated before the OTP is sent, and stores them in the encrypted pending-registration
+  payload alongside `email`/`role`.
+- `completeStudentReg()` now reads `full_name`/`phone` from the pending-registration payload (previously
+  hardcoded to `''`/`null` with a comment saying these were "collected post-login via profile flow") and
+  writes them to `users.phone`/`phone_lookup_hash` and `students.full_name`/`phone_in_profile` at account
+  creation time.
+- `completeAgentReg()` likewise reads `full_name`/`phone` from the pending payload, splits `full_name` into
+  `first_name`/`last_name` (first word / remainder, same convention as `AuthController::splitFullName`),
+  and now inserts `first_name`, `last_name`, and `mobile_number` (XSalsa20 encrypted) into the `agents` row
+  at registration — previously only `full_name` was set, and `first_name`/`last_name`/`mobile_number` were
+  left `NULL` until the agent filled the onboarding form.
+
+**Locking name/mobile everywhere else until changed via the owning portal's profile page**:
+- `AgentController::saveOnboardingDraft()` and `submitOnboardingApplication()` (the "Partner Details" step
+  where agents fill in address/city/state/documents for admin approval) no longer read `first_name`,
+  `last_name`, or `mobile_number` from the request body — they always use the agent's existing DB values
+  regardless of what the client submits, so these three fields can now only ever be changed by a future
+  profile-edit flow, never through onboarding resubmission. (`alternate_mobile_number` is unaffected — still
+  freely editable here, as it always was.)
+- `src/pages/agent/AgentOnboardingPage.tsx`: the First Name, Last Name, and Mobile Number fields are now
+  rendered as locked/disabled inputs (new `LockedField` component — grey background, lock icon, same sizing
+  as the existing `inputClass` fields) with a caption: "Name and mobile number were set during registration.
+  Update them from your Profile page." They're still hydrated from `fetchAgentOnboardingStatus()` exactly as
+  before.
+- Students already had no separate pre-approval staging form — `src/pages/student/StudentProfile.tsx` +
+  `StudentController::updateProfile()` were already the only place a student's name/phone can be edited, so
+  no changes were needed there; they now simply start pre-filled instead of blank.
+- Note: `AgentProfilePage.tsx` (`src/pages/agent/AgentProfilePage.tsx`) still renders `full_name` as
+  read-only and only allows editing `agency_name`/`country` — its own comment says email/phone edits are a
+  deferred "Phase 6" feature requiring OTP re-verification, which was already true before this change and
+  was intentionally left alone (out of scope — not asked for, and building it would have meant designing a
+  new OTP-gated edit flow rather than a minimal change).
+
+**Admin visibility (`crm-api/Controllers/AdminAgentController.php` + `src/pages/admin/AdminAgentsPage.tsx`)**:
+`getRegistered()` (the "Registered" tab — agents who signed up but haven't touched the onboarding form yet)
+now also selects and decrypts `a.mobile_number`, and the admin UI's `registeredColumns` gained a "Mobile"
+column. Previously this stage only showed Name/Tier/Email/Registered-date because `mobile_number` did not
+exist yet at that point in the flow.
+
+**Files Changed**:
+- `crm-api/Controllers/RegistrationController.php` — capture + validate + persist `full_name`/`phone` at
+  `sendRegistrationOtp`; use them (not hardcoded blanks) in `completeStudentReg`/`completeAgentReg`; split
+  name and set `agents.first_name`/`last_name`/`mobile_number` on agent creation
+- `crm-api/Controllers/AgentController.php` — `saveOnboardingDraft()`/`submitOnboardingApplication()` now
+  ignore client-submitted `first_name`/`last_name`/`mobile_number`, always using the agent's existing values
+- `crm-api/Controllers/AdminAgentController.php` — `getRegistered()` selects + decrypts `mobile_number`
+- `src/pages/ApplyPage.tsx` — Full Name + Mobile Number fields added to step 1; validation; onboarding-map
+  copy updated
+- `src/lib/api.ts` — `sendRegistrationOtp()` takes `fullName`/`phone` params and sends them
+- `src/pages/agent/AgentOnboardingPage.tsx` — First Name/Last Name/Mobile Number locked (new `LockedField`)
+  with explanatory caption
+- `src/pages/admin/AdminAgentsPage.tsx` — "Mobile" column added to the Registered-stage table
+
+**Tests Run**:
+- `php -l` on all three touched PHP controllers: PASS
+- `npx vite build`: PASS (0 errors)
+- Live browser test (Vite dev server + XAMPP): filled Full Name/Mobile/Email on `/apply`, submitted, and
+  confirmed via network capture the POST body included `full_name`/`phone` and the backend returned 202
+  with a session token.
+- Decrypted the resulting `pending_registrations` row directly (via a throwaway script using the app's own
+  `EncryptionService::decrypt()`) and confirmed the stored payload contains the exact `full_name`/`phone`
+  submitted from the form — proving the full frontend → backend → storage path works end to end.
+- Did not click through OTP verification / account completion in-browser: this multi-step form uses
+  `motion/react`'s `AnimatePresence mode="wait"`, which depends on `requestAnimationFrame` to detect when
+  an exit animation finishes before mounting the next step. In this preview environment the tab reports
+  `document.visibilityState === "hidden"`, so the animation frame never fires and the transition stalls
+  forever — confirmed harmless via debug logging that showed `setStep(2)` executing correctly and the
+  (non-animated) onboarding-map indicator on the left correctly advancing to step 2, while only the
+  animated step card on the right stayed stuck mid-exit. This is a known limitation of driving
+  animated-transition UIs from a headless/unfocused preview tab, not a defect in the app.
+
