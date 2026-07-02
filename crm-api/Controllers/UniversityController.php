@@ -242,20 +242,45 @@ class UniversityController
         $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
         $offset = ($page - 1) * $perPage;
 
+        $q = trim((string) ($_GET['q'] ?? ''));
+        $country = trim((string) ($_GET['country'] ?? ''));
+
+        $whereClauses = ["u.status = 'active'", 'u.deleted_at IS NULL'];
+        $params = [];
+
+        if ($q !== '') {
+            $whereClauses[] = '(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?)';
+            $like = '%' . $q . '%';
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+
+        if ($country !== '') {
+            $whereClauses[] = 'u.country = ?';
+            $params[] = $country;
+        }
+
+        $where = implode(' AND ', $whereClauses);
+
         $stmt = $this->pdo->prepare("
             SELECT u.*,
                    (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL) as course_count
             FROM universities u
-            WHERE u.status = 'active' AND u.deleted_at IS NULL
+            WHERE {$where}
             ORDER BY u.name ASC
             LIMIT ? OFFSET ?
         ");
-        $stmt->bindValue(1, $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(2, $offset, PDO::PARAM_INT);
+        foreach ($params as $index => $value) {
+            $stmt->bindValue($index + 1, $value);
+        }
+        $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
+        $stmt->bindValue(count($params) + 2, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $unis = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $countStmt = $this->pdo->query("SELECT COUNT(*) FROM universities WHERE status = 'active' AND deleted_at IS NULL");
+        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM universities u WHERE {$where}");
+        $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
         $appUrl = Environment::get('APP_URL') ?: 'http://localhost';
@@ -287,13 +312,15 @@ class UniversityController
         // Fetch active courses with open intakes count
         $stmt = $this->pdo->prepare("
             SELECT c.*,
-                   (SELECT COUNT(*) FROM intakes i WHERE i.course_id = c.id AND i.status = 'open' AND i.deleted_at IS NULL) as open_intake_count
+                   (SELECT COUNT(*) FROM intakes i WHERE i.course_id = c.id AND i.status = 'open') as open_intake_count
             FROM courses c
             WHERE c.university_id = ? AND c.status = 'active' AND c.deleted_at IS NULL
             ORDER BY c.name ASC
         ");
         $stmt->execute([$uni['id']]);
         $courses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $uni['courses'] = $courses;
 
         Response::json(['university' => $uni]);
     }
@@ -364,7 +391,7 @@ class UniversityController
                 u.partnership_type as university_partnership_type
             FROM courses c
             JOIN universities u ON c.university_id = u.id
-            LEFT JOIN intakes i ON c.id = i.course_id AND i.deleted_at IS NULL AND i.status != 'closed'
+            LEFT JOIN intakes i ON c.id = i.course_id AND i.status != 'closed'
             WHERE c.status = 'active' AND c.deleted_at IS NULL
               AND u.status = 'active' AND u.deleted_at IS NULL
               $whereSql

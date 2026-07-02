@@ -82,8 +82,11 @@ class IntakeController
         }
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        
+
         $this->validateIntakeInput($input);
+
+        $allowedStatuses = ['upcoming', 'open', 'closed'];
+        $status = in_array($input['status'] ?? '', $allowedStatuses, true) ? $input['status'] : 'upcoming';
 
         $pid = UlidGenerator::generate();
         $id = $this->model->insert([
@@ -98,7 +101,7 @@ class IntakeController
             'tuition_fee_amount' => isset($input['tuition_fee_amount']) ? (float)$input['tuition_fee_amount'] : null,
             'tuition_fee_currency' => trim($input['tuition_fee_currency'] ?? 'EUR'),
             'requirements_notes' => trim($input['requirements_notes'] ?? ''),
-            'status' => 'upcoming',
+            'status' => $status,
             'created_by' => $user['id'] ?? null
         ]);
 

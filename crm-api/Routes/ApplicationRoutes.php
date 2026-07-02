@@ -28,6 +28,7 @@ final class ApplicationRoutes
         RouteRegistry::post('agent', 'document-requests/:pid/submit', [$docController, 'agentSubmit']);
         RouteRegistry::post('agent', 'payment-requests/:pid/submit', [$paymentController, 'agentSubmit']);
         RouteRegistry::put('agent', 'applications/:pid/withdraw', [$controller, 'agentWithdraw']);
+        RouteRegistry::put('agent', 'applications/:pid/submit', [$controller, 'agentSubmit']);
 
         // Admin Endpoints
         RouteRegistry::get('admin', 'applications', [$controller, 'listApplications']);

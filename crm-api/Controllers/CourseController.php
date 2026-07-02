@@ -44,7 +44,16 @@ class CourseController
         $countStmt->execute([$uni['id']]);
         $total = (int) $countStmt->fetchColumn();
 
-        $stmt = $this->pdo->prepare("SELECT * FROM courses WHERE university_id = ? AND deleted_at IS NULL ORDER BY name ASC LIMIT ? OFFSET ?");
+        $stmt = $this->pdo->prepare("
+            SELECT c.*,
+                   (SELECT MIN(i.tuition_fee_amount) FROM intakes i WHERE i.course_id = c.id AND i.status != 'closed') as min_tuition_fee,
+                   (SELECT MAX(i.tuition_fee_amount) FROM intakes i WHERE i.course_id = c.id AND i.status != 'closed') as max_tuition_fee,
+                   (SELECT i.tuition_fee_currency FROM intakes i WHERE i.course_id = c.id AND i.status != 'closed' LIMIT 1) as tuition_fee_currency,
+                   (SELECT COUNT(*) FROM intakes i WHERE i.course_id = c.id AND i.status = 'open') as open_intake_count
+            FROM courses c
+            WHERE c.university_id = ? AND c.deleted_at IS NULL
+            ORDER BY c.name ASC LIMIT ? OFFSET ?
+        ");
         $stmt->bindValue(1, $uni['id'], PDO::PARAM_INT);
         $stmt->bindValue(2, $perPage, PDO::PARAM_INT);
         $stmt->bindValue(3, $offset, PDO::PARAM_INT);
@@ -109,7 +118,58 @@ class CourseController
             Response::error('Course not found', 'NOT_FOUND', 404);
         }
 
+        $stmt = $this->pdo->prepare("
+            SELECT MIN(tuition_fee_amount) as min_fee, MAX(tuition_fee_amount) as max_fee,
+                   (SELECT tuition_fee_currency FROM intakes WHERE course_id = ? AND status != 'closed' LIMIT 1) as currency,
+                   SUM(CASE WHEN status = 'open' THEN 1 ELSE 0 END) as open_count
+            FROM intakes WHERE course_id = ? AND status != 'closed'
+        ");
+        $stmt->execute([$course['id'], $course['id']]);
+        $fees = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        $course['min_tuition_fee'] = $fees['min_fee'];
+        $course['max_tuition_fee'] = $fees['max_fee'];
+        $course['tuition_fee_currency'] = $fees['currency'];
+        $course['open_intake_count'] = (int) ($fees['open_count'] ?? 0);
+
         Response::json(['course' => $course]);
+    }
+
+    /**
+     * Courses have no fee column of their own — tuition lives on intakes. This sets a single
+     * fee value across every non-closed intake for the course, so the course-level "Fee Range"
+     * cell can stay inline-editable without pretending fees belong to the course.
+     */
+    public function updateFee(string $pid): void
+    {
+        RBACMiddleware::requirePermission('courses', 'edit');
+        $user = AuthMiddleware::user();
+
+        $course = $this->model->findByPublicId($pid);
+        if (!$course) {
+            Response::error('Course not found', 'NOT_FOUND', 404);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $amount = isset($input['amount']) && $input['amount'] !== '' ? (float) $input['amount'] : null;
+        $currency = trim((string) ($input['currency'] ?? 'EUR')) ?: 'EUR';
+
+        if ($amount === null || $amount < 0) {
+            Response::error('A valid fee amount is required', 'VALIDATION_ERROR', 400);
+        }
+
+        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM intakes WHERE course_id = ? AND status != 'closed'");
+        $countStmt->execute([$course['id']]);
+        if ((int) $countStmt->fetchColumn() === 0) {
+            Response::error('This course has no open or upcoming intakes to price yet — add an intake first.', 'VALIDATION_ERROR', 400);
+        }
+
+        $stmt = $this->pdo->prepare("UPDATE intakes SET tuition_fee_amount = ?, tuition_fee_currency = ? WHERE course_id = ? AND status != 'closed'");
+        $stmt->execute([$amount, $currency, $course['id']]);
+
+        ActivityLogger::log('course.fee_updated', 'course', $course['id'], $user['id'] ?? null, [], ['amount' => $amount, 'currency' => $currency]);
+
+        Response::json(['success' => true, 'min_tuition_fee' => $amount, 'max_tuition_fee' => $amount, 'tuition_fee_currency' => $currency]);
     }
 
     public function update(string $pid): void

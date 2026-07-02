@@ -12,11 +12,21 @@ use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Models\ApplicationModel;
 use TGA\CRM\Services\ActivityLogger;
+use TGA\CRM\Services\AgentAccessService;
 use TGA\CRM\Services\StateManager;
+use TGA\CRM\Services\SystemSettings;
 use Exception;
 
 class ApplicationController
 {
+    /**
+     * Statuses for which the student's profile is considered "ready" — i.e. personal
+     * details + required documents are complete enough to allow an application to
+     * auto-submit immediately upon creation instead of stopping at draft. Mirrors
+     * students.profile_status values reachable via StudentController::submitReadinessFor().
+     */
+    private const READY_PROFILE_STATUSES = ['documents_submitted', 'documents_verified', 'application_in_progress', 'application_submitted', 'offer_received', 'admitted', 'enrolled'];
+
     private PDO $pdo;
     private ApplicationModel $model;
 
@@ -24,6 +34,97 @@ class ApplicationController
     {
         $this->pdo = Database::getConnection();
         $this->model = new ApplicationModel($this->pdo);
+    }
+
+    private function getApplicationCap(): int
+    {
+        return (int) SystemSettings::get('max_active_applications_per_student', 3);
+    }
+
+    private function countActiveApplications(int $studentId): int
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT COUNT(*) FROM applications WHERE student_id = ? AND status NOT IN ('withdrawn','rejected') AND deleted_at IS NULL"
+        );
+        $stmt->execute([$studentId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function nextPreferenceRank(int $studentId): int
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT COALESCE(MAX(preference_rank), 0) + 1 FROM applications
+             WHERE student_id = ? AND status NOT IN ('withdrawn','rejected') AND deleted_at IS NULL"
+        );
+        $stmt->execute([$studentId]);
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Single source of truth for creating a draft application, used by both the student's
+     * own self-service create and the admin/agent create-on-behalf-of path. Enforces the
+     * per-student active-applications cap and the existing one-draft-per-intake uniqueness
+     * rule, then auto-submits immediately if the student's profile is already "ready" —
+     * otherwise leaves it as a draft for the caller to finish via the readiness flow.
+     *
+     * @return array{application: array, auto_submitted: bool}
+     */
+    private function createDraftApplication(
+        int $studentId,
+        int $intakeId,
+        ?int $agentIdAtSubmission,
+        string $createdByType,
+        int $createdById,
+        ?string $notes
+    ): array {
+        $cap = $this->getApplicationCap();
+        $activeCount = $this->countActiveApplications($studentId);
+        if ($activeCount >= $cap) {
+            Response::error(
+                "This student already has {$activeCount} active application(s), which is the maximum allowed ({$cap}). Withdraw an existing application to free up a slot.",
+                'APPLICATION_CAP_REACHED',
+                409
+            );
+        }
+
+        // Check draft limit per intake per student (unchanged from prior behavior)
+        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM applications WHERE student_id = ? AND intake_id = ? AND status = 'draft' AND deleted_at IS NULL");
+        $stmt->execute([$studentId, $intakeId]);
+        if ((int) $stmt->fetchColumn() > 0) {
+            Response::error('A draft application for this intake already exists.', 'CONFLICT', 409);
+        }
+
+        $pid = UlidGenerator::generate();
+        $id = $this->model->insertWithReference([
+            'public_id' => $pid,
+            'student_id' => $studentId,
+            'intake_id' => $intakeId,
+            'agent_id_at_submission' => $agentIdAtSubmission,
+            'status' => 'draft',
+            'notes' => trim($notes ?? ''),
+            'created_by_type' => $createdByType,
+            'created_by_id' => $createdById,
+            'preference_rank' => $this->nextPreferenceRank($studentId),
+        ]);
+
+        ActivityLogger::log('application.created', 'application', $id, $createdById, [], ['status' => 'draft']);
+
+        $autoSubmitted = false;
+        $stmt = $this->pdo->prepare("SELECT profile_status FROM students WHERE id = ?");
+        $stmt->execute([$studentId]);
+        $profileStatus = $stmt->fetchColumn();
+
+        if (in_array($profileStatus, self::READY_PROFILE_STATUSES, true)) {
+            try {
+                StateManager::transition($this->pdo, $id, 'submitted', $createdByType, $createdById);
+                $autoSubmitted = true;
+            } catch (Exception $e) {
+                // Leave as draft if the transition unexpectedly fails — the caller can submit manually later.
+            }
+        }
+
+        $application = $this->model->findById($id);
+        return ['application' => $application, 'auto_submitted' => $autoSubmitted];
     }
 
     public function createDraft(): void
@@ -60,36 +161,24 @@ class ApplicationController
         }
 
         $agentId = null;
-        if ($user) {
-            $stmt = $this->pdo->prepare("SELECT id FROM agents WHERE user_id = ? AND deleted_at IS NULL");
-            $stmt->execute([$user['id']]);
-            $foundAgentId = $stmt->fetchColumn();
-            if ($foundAgentId) {
-                $agentId = $foundAgentId;
-            }
+        if ($utype === 'agent') {
+            $agent = AgentAccessService::resolveAgent($this->pdo, (int) $user['id']);
+            // SECURITY: an agent may only create applications for students in their own subtree —
+            // previously unchecked, any approved agent could create a draft for any student_pid.
+            AgentAccessService::assertCanAccessStudent($this->pdo, $agent, (int) $studentId);
+            $agentId = (int) $agent['id'];
         }
 
-        // Check draft limit per intake per student
-        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM applications WHERE student_id = ? AND intake_id = ? AND status = 'draft' AND deleted_at IS NULL");
-        $stmt->execute([$studentId, $intakeId]);
-        if ((int)$stmt->fetchColumn() > 0) {
-            Response::error('Student already has a draft application for this intake', 'CONFLICT', 409);
-        }
+        $result = $this->createDraftApplication(
+            (int) $studentId,
+            (int) $intakeId,
+            $agentId,
+            $utype === 'agent' ? 'agent' : 'admin',
+            (int) $user['id'],
+            $input['notes'] ?? null
+        );
 
-        $pid = UlidGenerator::generate();
-        $id = $this->model->insertWithReference([
-            'public_id' => $pid,
-            'student_id' => $studentId,
-            'intake_id' => $intakeId,
-            'agent_id_at_submission' => $agentId,
-            'status' => 'draft',
-            'notes' => trim($input['notes'] ?? '')
-        ]);
-
-        ActivityLogger::log('application.created', 'application', $id, $user['id'] ?? null, [], ['status' => 'draft']);
-
-        $application = $this->model->findById($id);
-        Response::json(['application' => $application], 201);
+        Response::json($result, 201);
     }
 
     public function updateStatus(string $pid): void
@@ -266,6 +355,88 @@ class ApplicationController
         Response::json(['success' => true, 'message' => 'Application submitted successfully']);
     }
 
+    public function agentSubmit(string $pid): void
+    {
+        $user = AuthMiddleware::user();
+        if (($user['utype'] ?? '') !== 'agent' && ($user['user_type'] ?? '') !== 'agent') {
+            Response::error('Only agents can use this endpoint', 'FORBIDDEN', 403);
+        }
+
+        $application = $this->model->findByPublicId($pid);
+        if (!$application) {
+            Response::error('Application not found', 'NOT_FOUND', 404);
+        }
+
+        if ($application['status'] !== 'draft') {
+            Response::error('Only draft applications can be submitted', 'VALIDATION_ERROR', 400);
+        }
+
+        $agent = AgentAccessService::resolveAgent($this->pdo, (int) $user['id']);
+        AgentAccessService::assertCanAccessStudent($this->pdo, $agent, (int) $application['student_id']);
+
+        try {
+            StateManager::transition($this->pdo, $application['id'], 'submitted', 'agent', (int) $user['id']);
+        } catch (Exception $e) {
+            $code = $e->getCode() === 400 ? 'VALIDATION_ERROR' : 'SERVER_ERROR';
+            Response::error($e->getMessage(), $code, $e->getCode() ?: 500);
+        }
+
+        Response::json(['success' => true, 'message' => 'Application submitted successfully']);
+    }
+
+    public function reorderPreferences(): void
+    {
+        $user = AuthMiddleware::user();
+        if (($user['utype'] ?? '') !== 'student' && ($user['user_type'] ?? '') !== 'student') {
+            Response::error('Only students can reorder their own applications', 'FORBIDDEN', 403);
+        }
+
+        $stmt = $this->pdo->prepare("SELECT id FROM students WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt->execute([$user['id']]);
+        $studentId = $stmt->fetchColumn();
+        if (!$studentId) {
+            Response::error('Student profile not found', 'NOT_FOUND', 404);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+        $order = $input['order'] ?? [];
+        if (!is_array($order) || count($order) === 0) {
+            Response::error('order must be a non-empty array of application public_ids', 'VALIDATION_ERROR', 400);
+        }
+
+        // Resolve and validate every id belongs to this student and is still active
+        $placeholders = implode(',', array_fill(0, count($order), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id, public_id FROM applications
+             WHERE public_id IN ({$placeholders}) AND student_id = ? AND status NOT IN ('withdrawn','rejected') AND deleted_at IS NULL"
+        );
+        $stmt->execute([...$order, $studentId]);
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if (count($rows) !== count($order)) {
+            Response::error('One or more applications could not be reordered (not found, not yours, or withdrawn/rejected).', 'VALIDATION_ERROR', 400);
+        }
+
+        $idByPid = [];
+        foreach ($rows as $row) {
+            $idByPid[$row['public_id']] = (int) $row['id'];
+        }
+
+        try {
+            $this->pdo->beginTransaction();
+            $updateStmt = $this->pdo->prepare("UPDATE applications SET preference_rank = ? WHERE id = ?");
+            foreach ($order as $index => $pid) {
+                $updateStmt->execute([$index + 1, $idByPid[$pid]]);
+            }
+            $this->pdo->commit();
+        } catch (Exception $e) {
+            $this->pdo->rollBack();
+            throw $e;
+        }
+
+        Response::json(['success' => true, 'message' => 'Preferences reordered']);
+    }
+
     public function listApplications(): void
     {
         RBACMiddleware::requirePermission('applications', 'view');
@@ -273,9 +444,31 @@ class ApplicationController
         $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
         $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
         $offset = ($page - 1) * $perPage;
+        $status = trim((string) ($_GET['status'] ?? ''));
+        $universityPid = trim((string) ($_GET['university_pid'] ?? ''));
 
-        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM applications WHERE deleted_at IS NULL");
-        $countStmt->execute();
+        $conditions = ['a.deleted_at IS NULL'];
+        $params = [];
+
+        if ($status !== '') {
+            $conditions[] = 'a.status = ?';
+            $params[] = $status;
+        }
+        if ($universityPid !== '') {
+            $conditions[] = 'u.public_id = ?';
+            $params[] = $universityPid;
+        }
+        $where = implode(' AND ', $conditions);
+
+        $countStmt = $this->pdo->prepare("
+            SELECT COUNT(*)
+            FROM applications a
+            JOIN intakes i ON a.intake_id = i.id
+            JOIN courses c ON i.course_id = c.id
+            JOIN universities u ON c.university_id = u.id
+            WHERE {$where}
+        ");
+        $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
         $stmt = $this->pdo->prepare("
@@ -291,12 +484,16 @@ class ApplicationController
             JOIN courses c ON i.course_id = c.id
             JOIN universities u ON c.university_id = u.id
             LEFT JOIN agents ag ON a.agent_id_at_submission = ag.id
-            WHERE a.deleted_at IS NULL
+            WHERE {$where}
             ORDER BY a.created_at DESC
             LIMIT ? OFFSET ?
         ");
-        $stmt->bindValue(1, $perPage, PDO::PARAM_INT);
-        $stmt->bindValue(2, $offset, PDO::PARAM_INT);
+        $bindIndex = 1;
+        foreach ($params as $value) {
+            $stmt->bindValue($bindIndex++, $value);
+        }
+        $stmt->bindValue($bindIndex++, $perPage, PDO::PARAM_INT);
+        $stmt->bindValue($bindIndex++, $offset, PDO::PARAM_INT);
         $stmt->execute();
         $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -392,13 +589,17 @@ class ApplicationController
         }
 
         // Find student ID from user ID
-        $stmt = $this->pdo->prepare("SELECT id, public_id FROM students WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt = $this->pdo->prepare("SELECT id, public_id, agent_id, profile_status FROM students WHERE user_id = ? AND deleted_at IS NULL");
         $stmt->execute([$user['id']]);
         $student = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$student) {
             Response::error('Student profile not found', 'NOT_FOUND', 404);
         }
         $studentId = $student['id'];
+
+        // Profile completeness is no longer a pre-creation wall — the draft is created
+        // regardless, and createDraftApplication() auto-submits it if the profile already
+        // qualifies, or leaves it as a draft for the student to finish via the readiness flow.
 
         // Find course ID by public_id
         $stmt = $this->pdo->prepare("SELECT id FROM courses WHERE public_id = ? AND deleted_at IS NULL");
@@ -408,10 +609,10 @@ class ApplicationController
             Response::error('Course not found', 'NOT_FOUND', 404);
         }
 
-        // Find the intake
+        // Find the intake (intakes has no deleted_at column — hard-delete only, see 016_create_intakes_table.sql)
         $stmt = $this->pdo->prepare("
-            SELECT id, status FROM intakes 
-            WHERE course_id = ? AND intake_month = ? AND intake_year = ? AND deleted_at IS NULL
+            SELECT id, status FROM intakes
+            WHERE course_id = ? AND intake_month = ? AND intake_year = ?
         ");
         $stmt->execute([$courseId, $intakeMonth, $intakeYear]);
         $intake = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -426,27 +627,16 @@ class ApplicationController
 
         $intakeId = $intake['id'];
 
-        // Check draft limit per intake per student
-        $stmt = $this->pdo->prepare("SELECT COUNT(*) FROM applications WHERE student_id = ? AND intake_id = ? AND status = 'draft' AND deleted_at IS NULL");
-        $stmt->execute([$studentId, $intakeId]);
-        if ((int)$stmt->fetchColumn() > 0) {
-            Response::error('You already have a draft application for this intake', 'CONFLICT', 409);
-        }
+        $result = $this->createDraftApplication(
+            (int) $studentId,
+            (int) $intakeId,
+            $student['agent_id'] ? (int) $student['agent_id'] : null,
+            'student',
+            (int) $user['id'],
+            $input['notes'] ?? null
+        );
 
-        $pid = UlidGenerator::generate();
-        $id = $this->model->insertWithReference([
-            'public_id' => $pid,
-            'student_id' => $studentId,
-            'intake_id' => $intakeId,
-            'agent_id_at_submission' => null,
-            'status' => 'draft',
-            'notes' => trim($input['notes'] ?? '')
-        ]);
-
-        ActivityLogger::log('application.created', 'application', $id, $user['id'] ?? null, [], ['status' => 'draft']);
-
-        $application = $this->model->findById($id);
-        Response::json(['application' => $application], 201);
+        Response::json($result, 201);
     }
 
     public function getApplicationDetail(): void

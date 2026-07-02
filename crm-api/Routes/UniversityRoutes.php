@@ -28,6 +28,7 @@ final class UniversityRoutes
         RouteRegistry::get('admin', 'courses/:pid', [$courseController, 'adminGet']);
         RouteRegistry::put('admin', 'courses/:pid', [$courseController, 'update']);
         RouteRegistry::delete('admin', 'courses/:pid', [$courseController, 'delete']);
+        RouteRegistry::put('admin', 'courses/:pid/fee', [$courseController, 'updateFee']);
 
         $intakeController = new IntakeController();
         RouteRegistry::get('admin', 'courses/:pid/intakes', [$intakeController, 'adminList']);
