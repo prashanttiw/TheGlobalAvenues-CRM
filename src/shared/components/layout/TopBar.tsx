@@ -13,13 +13,13 @@ export function TopBar({ pageTitle }: TopBarProps) {
   const { open } = useCommandPaletteStore()
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-border-warm bg-surface-card px-4 lg:px-8">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-border-warm bg-surface-card/95 px-4 shadow-sm backdrop-blur lg:px-8">
       <div className="flex items-center gap-4">
         <Button variant="ghost" size="icon" className="text-brand-navy lg:hidden" onClick={toggle} aria-label="Open menu">
           <Menu className="h-5 w-5" />
         </Button>
         {pageTitle && (
-          <h1 className="max-w-[100px] truncate font-display text-sm font-bold text-brand-navy sm:max-w-xs sm:text-base md:max-w-none md:text-lg">
+          <h1 className="max-w-[100px] truncate font-display text-sm font-bold leading-tight text-brand-navy sm:max-w-xs sm:text-base md:max-w-none md:text-lg">
             {pageTitle}
           </h1>
         )}
@@ -28,7 +28,7 @@ export function TopBar({ pageTitle }: TopBarProps) {
       <div className="flex items-center gap-2">
         <Button
           variant="ghost"
-          className="hidden w-48 justify-start border border-border-warm bg-surface-warm text-muted-foreground hover:bg-surface-warm/80 hover:text-brand-navy md:flex"
+          className="hidden w-52 justify-start border border-border-warm bg-surface-warm text-muted-foreground shadow-sm hover:border-brand-orange-accessible/30 hover:bg-surface-card hover:text-brand-navy md:flex"
           onClick={open}
         >
           <Search className="mr-2 h-4 w-4" />

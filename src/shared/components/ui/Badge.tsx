@@ -4,14 +4,14 @@ import { cn } from "../../../lib/utils"
 
 // General Badge component
 const badgeVariants = cva(
-  "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
+  "inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold leading-5 transition-colors focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible focus:ring-offset-2",
   {
     variants: {
       variant: {
-        default: "border-transparent bg-brand-navy text-white hover:bg-brand-navy/80",
-        secondary: "border-transparent bg-surface-warm text-brand-navy hover:bg-surface-warm/80",
+        default: "border-transparent bg-brand-navy text-white hover:bg-brand-navy/90",
+        secondary: "border-border-warm bg-surface-warm text-brand-navy hover:bg-brand-orange-accessible/10",
         destructive: "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
-        outline: "text-foreground",
+        outline: "border-border-warm bg-surface-card text-brand-navy",
       },
     },
     defaultVariants: {
@@ -64,7 +64,7 @@ function StatusBadge({ status, className, ...props }: StatusBadgeProps) {
   return (
     <div
       className={cn(
-        "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+        "inline-flex items-center rounded-full border border-transparent px-2.5 py-0.5 text-xs font-semibold leading-5",
         config.bg,
         config.text,
         className

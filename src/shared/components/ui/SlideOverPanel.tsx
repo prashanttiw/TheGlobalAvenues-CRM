@@ -14,7 +14,7 @@ const SlideOverOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-50 bg-black/50 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-50 bg-black/45 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className
     )}
     {...props}
@@ -31,7 +31,7 @@ const SlideOverContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-border-warm bg-surface-card shadow-2xl transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-[560px]",
+        "fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-border-warm bg-surface-card shadow-warm-xl transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-[560px]",
         className
       )}
       {...props}
@@ -43,9 +43,9 @@ const SlideOverContent = React.forwardRef<
 SlideOverContent.displayName = DialogPrimitive.Content.displayName
 
 const SlideOverHeader = ({ className, children, ...props }: React.HTMLAttributes<HTMLDivElement>) => (
-  <div className={cn("flex flex-col space-y-1.5 p-6 border-b border-border-warm shrink-0", className)} {...props}>
+  <div className={cn("flex shrink-0 flex-col space-y-1.5 border-b border-border-warm bg-surface-warm/70 p-6", className)} {...props}>
     {children}
-    <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
+    <DialogPrimitive.Close className="absolute right-4 top-4 rounded-button p-1.5 opacity-80 ring-offset-background transition-colors hover:bg-surface-card hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-secondary">
       <X className="h-5 w-5 text-muted-foreground" />
       <span className="sr-only">Close</span>
     </DialogPrimitive.Close>

@@ -45,13 +45,13 @@ export function StatCard({
   }[color]
 
   return (
-    <Card className={cn("hover:shadow-card-hover transition-shadow", className)} {...props}>
-      <CardContent className="p-6">
+    <Card className={cn("relative overflow-hidden hover:shadow-card-hover", className)} {...props}>
+      <CardContent className="p-5 sm:p-6">
         <div className="flex items-center justify-between">
-          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {label}
           </span>
-          <div className={cn("flex h-10 w-10 items-center justify-center rounded-lg", colorMap.bg, colorMap.text)}>
+          <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl border border-current/10", colorMap.bg, colorMap.text)}>
             <Icon className="h-5 w-5" />
           </div>
         </div>
@@ -60,7 +60,7 @@ export function StatCard({
           {isLoading ? (
             <SkeletonText lines={1} className="h-8 w-24" />
           ) : (
-            <div className="text-3xl font-bold font-display text-brand-navy">
+            <div className="font-display text-3xl font-bold leading-none text-brand-navy">
               {value}
             </div>
           )}

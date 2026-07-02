@@ -22,7 +22,7 @@ interface DataTableProps<T> {
 export function DataTable<T>({ columns, data, isLoading, onRowClick, emptyMessage = "No data available." }: DataTableProps<T>) {
   if (isLoading) {
     return (
-      <div className="w-full rounded-card border border-border-warm bg-surface-card overflow-hidden">
+      <div className="w-full overflow-hidden rounded-card border border-border-warm bg-surface-card shadow-card">
         {Array.from({ length: 5 }).map((_, i) => (
           <SkeletonTableRow key={i} columns={columns.length} />
         ))}
@@ -42,14 +42,14 @@ export function DataTable<T>({ columns, data, isLoading, onRowClick, emptyMessag
   }
 
   return (
-    <div className="w-full rounded-card border border-border-warm bg-surface-card overflow-hidden">
+    <div className="w-full overflow-hidden rounded-card border border-border-warm bg-surface-card shadow-card">
       {/* Desktop Table */}
       <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm text-left">
-          <thead className="bg-surface-warm text-brand-navy font-semibold text-xs uppercase tracking-wider border-b border-border-warm">
+          <thead className="border-b border-border-warm bg-surface-warm/80 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className={cn("px-4 py-3 whitespace-nowrap", col.className)}>
+                <th key={col.key} className={cn("px-4 py-3.5 whitespace-nowrap", col.className)}>
                   {col.header}
                 </th>
               ))}
@@ -63,11 +63,11 @@ export function DataTable<T>({ columns, data, isLoading, onRowClick, emptyMessag
                 className={cn(
                   "transition-colors",
                   onRowClick ? "cursor-pointer hover:bg-brand-orange-accessible/5" : "",
-                  i % 2 === 0 ? "bg-white" : "bg-surface-warm/30"
+                  i % 2 === 0 ? "bg-surface-card" : "bg-surface-warm/25"
                 )}
               >
                 {columns.map((col) => (
-                  <td key={col.key} className={cn("px-4 py-3", col.className)}>
+                  <td key={col.key} className={cn("px-4 py-3.5 align-middle", col.className)}>
                     {col.cell(row)}
                   </td>
                 ))}
@@ -82,13 +82,13 @@ export function DataTable<T>({ columns, data, isLoading, onRowClick, emptyMessag
         {data.map((row, i) => (
           <div 
             key={i} 
-            className={cn("p-4 flex flex-col gap-2", onRowClick ? "cursor-pointer hover:bg-surface-warm" : "")}
+            className={cn("flex flex-col gap-3 p-4 transition-colors", onRowClick ? "cursor-pointer hover:bg-brand-orange-accessible/5" : "")}
             onClick={() => onRowClick?.(row)}
           >
             {columns.map((col, idx) => (
               <div key={col.key} className="flex justify-between items-start gap-4">
-                <span className="text-xs font-semibold text-muted-foreground uppercase mt-0.5">{col.header}</span>
-                <div className={cn("text-sm text-right font-medium text-brand-navy break-all", col.className)}>
+                <span className="mt-0.5 text-xs font-semibold uppercase text-muted-foreground">{col.header}</span>
+                <div className={cn("text-right text-sm font-medium text-brand-navy break-words", col.className)}>
                   {col.cell(row)}
                 </div>
               </div>

@@ -45,7 +45,7 @@ export function DashboardLayout({ sidebarItems, logo, user, onLogout }: Dashboar
   }, [location.pathname])
 
   return (
-    <div className="flex h-screen bg-surface-warm overflow-hidden">
+    <div className="flex h-screen overflow-hidden bg-surface-warm text-foreground">
       <SkipToContentLink />
       <Sidebar items={sidebarItems} logo={logo} user={user} onLogout={onLogout} />
       
@@ -53,7 +53,7 @@ export function DashboardLayout({ sidebarItems, logo, user, onLogout }: Dashboar
         <TopBar pageTitle={pageTitle} />
         
         <main id="main-content" className="flex-1 overflow-y-auto outline-none" tabIndex={-1}>
-          <div className="mx-auto max-w-7xl p-4 lg:p-8">
+          <div className="mx-auto max-w-7xl p-4 sm:p-6 lg:p-8">
             <DashboardErrorBoundary key={location.pathname}>
               <React.Suspense fallback={
                 <div className="flex items-center justify-center h-64">

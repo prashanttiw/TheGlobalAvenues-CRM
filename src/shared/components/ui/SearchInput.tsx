@@ -40,7 +40,7 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
         <input
           type="text"
           className={cn(
-            "flex h-10 w-full rounded-button border border-border-warm bg-surface-card px-10 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-colors",
+            "flex h-10 w-full rounded-button border border-border-warm bg-surface-card px-10 py-2 text-sm shadow-sm ring-offset-background transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground hover:border-brand-orange-accessible/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accessible focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
             className
           )}
           ref={ref}
@@ -51,7 +51,7 @@ const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
         {localValue && !isLoading && (
           <button
             type="button"
-            className="absolute right-3 flex h-full items-center justify-center text-muted-foreground hover:text-foreground"
+            className="absolute right-3 flex h-full items-center justify-center text-muted-foreground transition-colors hover:text-brand-navy"
             onClick={() => {
               setLocalValue("")
               onChange("")

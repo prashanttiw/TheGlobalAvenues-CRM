@@ -16,7 +16,7 @@ const PreviewDrawerOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      "fixed inset-0 z-40 bg-black/10 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
+      "fixed inset-0 z-40 bg-black/20 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0",
       className
     )}
     {...props}
@@ -33,7 +33,7 @@ const PreviewDrawerContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       className={cn(
-        "fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-border-warm bg-surface-card shadow-2xl transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-[480px]",
+        "fixed right-0 top-0 z-50 flex h-full w-full max-w-md flex-col border-l border-border-warm bg-surface-card shadow-warm-xl transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-[480px]",
         className
       )}
       {...props}
@@ -50,7 +50,7 @@ interface PreviewDrawerHeaderProps extends React.HTMLAttributes<HTMLDivElement> 
 }
 
 const PreviewDrawerHeader = ({ className, title, badge, children, ...props }: PreviewDrawerHeaderProps) => (
-  <div className={cn("flex flex-col space-y-3 p-6 border-b border-border-warm shrink-0 bg-surface-warm", className)} {...props}>
+  <div className={cn("flex shrink-0 flex-col space-y-3 border-b border-border-warm bg-surface-warm/80 p-6", className)} {...props}>
     <div className="flex items-start justify-between">
       <div className="flex flex-col gap-2">
         <DialogPrimitive.Title className="text-xl font-semibold font-display text-brand-navy pr-6">
@@ -58,7 +58,7 @@ const PreviewDrawerHeader = ({ className, title, badge, children, ...props }: Pr
         </DialogPrimitive.Title>
         {badge && <div>{badge}</div>}
       </div>
-      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+      <DialogPrimitive.Close className="absolute right-4 top-4 rounded-button p-1.5 opacity-80 transition-colors hover:bg-surface-card hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible focus:ring-offset-2 disabled:pointer-events-none">
         <X className="h-5 w-5 text-muted-foreground" />
         <span className="sr-only">Close</span>
       </DialogPrimitive.Close>

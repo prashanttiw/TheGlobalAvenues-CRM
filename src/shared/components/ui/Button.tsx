@@ -6,17 +6,17 @@ import { Loader2 } from "lucide-react"
 import { cn } from "../../../lib/utils"
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center whitespace-nowrap rounded-button text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
+  "inline-flex items-center justify-center whitespace-nowrap rounded-button text-sm font-semibold ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-orange-accessible focus-visible:ring-offset-2 active:translate-y-px disabled:pointer-events-none disabled:translate-y-0 disabled:opacity-50",
   {
     variants: {
       variant: {
-        primary: "bg-brand-orange-accessible text-white hover:bg-brand-orange-accessible/90",
-        secondary: "bg-white text-brand-navy border border-brand-navy hover:bg-brand-navy hover:text-white",
-        ghost: "bg-transparent text-brand-navy hover:bg-surface-warm",
-        danger: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        primary: "bg-brand-orange-accessible text-white shadow-warm-sm hover:bg-brand-orange-accessible/90 hover:shadow-warm-md",
+        secondary: "border border-border-warm bg-surface-card text-brand-navy shadow-sm hover:border-brand-navy/30 hover:bg-surface-warm",
+        ghost: "bg-transparent text-brand-navy hover:bg-brand-orange-accessible/10 hover:text-brand-orange-accessible",
+        danger: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
       },
       size: {
-        sm: "h-9 px-3",
+        sm: "h-9 px-3 text-xs",
         md: "h-10 px-4 py-2",
         lg: "h-11 px-8",
         icon: "h-10 w-10",
