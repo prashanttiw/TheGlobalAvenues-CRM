@@ -47,6 +47,7 @@ final class AdminAgentController
 
         foreach ($agents as &$agent) {
             $agent['tier'] = (int) $agent['tier'];
+            $agent['mobile_number'] = self::decryptMobile($agent['mobile_number']);
             $agent['uploaded_doc_types'] = $agent['uploaded_doc_types']
                 ? explode(',', $agent['uploaded_doc_types'])
                 : [];
@@ -54,6 +55,18 @@ final class AdminAgentController
         unset($agent);
 
         Response::json(['agents' => $agents]);
+    }
+
+    private static function decryptMobile(?string $encrypted): ?string
+    {
+        if ($encrypted === null || $encrypted === '') {
+            return null;
+        }
+        try {
+            return \TGA\CRM\Services\EncryptionService::decrypt($encrypted);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     /**
@@ -64,7 +77,7 @@ final class AdminAgentController
         RBACMiddleware::requirePermission('agents', 'approve');
 
         $stmt = $this->pdo->prepare(
-            "SELECT a.public_id, a.tier, a.full_name, u.email AS encrypted_email, a.created_at
+            "SELECT a.public_id, a.tier, a.full_name, a.mobile_number, u.email AS encrypted_email, a.created_at
              FROM agents a
              JOIN users u ON u.id = a.user_id
              WHERE a.status = 'registered' AND a.deleted_at IS NULL
@@ -73,6 +86,11 @@ final class AdminAgentController
         $stmt->execute();
         $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $this->decryptEmails($agents);
+
+        foreach ($agents as &$agent) {
+            $agent['mobile_number'] = self::decryptMobile($agent['mobile_number']);
+        }
+        unset($agent);
 
         Response::json(['agents' => $agents]);
     }
@@ -135,6 +153,8 @@ final class AdminAgentController
             }
         }
         unset($agent['encrypted_email']);
+        $agent['mobile_number'] = self::decryptMobile($agent['mobile_number']);
+        $agent['alternate_mobile_number'] = self::decryptMobile($agent['alternate_mobile_number']);
 
         $docsStmt = $this->pdo->prepare(
             "SELECT public_id, document_type, display_filename, created_at
@@ -427,7 +447,8 @@ final class AdminAgentController
                 }
             }
             unset($agent['encrypted_email']);
-            
+            $agent['mobile_number'] = self::decryptMobile($agent['mobile_number']);
+
             $agent['tier'] = (int)$agent['tier'];
         }
 

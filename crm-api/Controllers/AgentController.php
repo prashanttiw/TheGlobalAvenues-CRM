@@ -9,7 +9,6 @@ use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Paginator;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
-use TGA\CRM\Middleware\RBACMiddleware;
 
 final class AgentController
 {
@@ -202,7 +201,6 @@ final class AgentController
     public function listStudents(): void
     {
         AuthMiddleware::requireAuth();
-        RBACMiddleware::requirePermission('students', 'view');
         $user  = AuthMiddleware::user();
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
@@ -308,7 +306,6 @@ final class AgentController
     public function getStudent(string $pid): void
     {
         AuthMiddleware::requireAuth();
-        RBACMiddleware::requirePermission('students', 'view');
         $user  = AuthMiddleware::user();
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
@@ -326,41 +323,102 @@ final class AgentController
             $checkParams['root'] = $root;
         }
 
-        // SECURITY: subtree check is mandatory — no PII columns exposed
+        // SECURITY: subtree check is mandatory — an agent may only view students within their own network
         $stmt = $this->pdo->prepare(
-            "SELECT s.public_id, s.full_name, s.nationality, s.profile_status,
-                    s.agent_lock_status, s.created_at,
-                    a.full_name AS agent_name, a.public_id AS agent_public_id, a.tier AS agent_tier
+            "SELECT s.id, s.public_id, s.full_name, s.date_of_birth, s.gender, s.nationality,
+                    s.passport_number, s.passport_expiry, s.phone_in_profile, s.alternate_mobile,
+                    s.lead_source, s.how_heard_about_us, s.planning_phd,
+                    s.agent_lock_status, s.profile_status, s.created_at, s.updated_at,
+                    u.email AS encrypted_email, u.phone AS encrypted_phone,
+                    a.full_name AS agent_name, a.public_id AS agent_public_id,
+                    a.tier AS agent_tier, a.agency_name
              FROM students s
              JOIN agents a ON a.id = s.agent_id
+             JOIN users u ON u.id = s.user_id
              WHERE s.public_id = :pid
                AND {$checkSql}
                AND s.deleted_at IS NULL"
         );
         $stmt->execute(array_merge(['pid' => $pid], $checkParams));
-        $student = $stmt->fetch(PDO::FETCH_ASSOC);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$student) {
-            Response::error('Student not found or not in your portfolio.', 'STUDENT_NOT_IN_SUBTREE', 403);
+        if (!$row) {
+            Response::error('Student not found or not in your network.', 'STUDENT_NOT_IN_SUBTREE', 403);
         }
 
-        // Application summaries for this student
-        $appStmt = $this->pdo->prepare(
-            "SELECT a.public_id, a.reference_number, a.status, a.submitted_at,
-                    c.name AS course_name, u.name AS university_name, i.name AS intake_name
-             FROM applications a
-             JOIN intakes i ON i.id = a.intake_id
-             JOIN courses c ON i.course_id = c.id
-             JOIN universities u ON c.university_id = u.id
-             WHERE a.student_id = (SELECT id FROM students WHERE public_id = ? LIMIT 1)
-               AND a.deleted_at IS NULL
-             ORDER BY a.created_at DESC
-             LIMIT 10"
-        );
-        $appStmt->execute([$pid]);
-        $student['applications'] = $appStmt->fetchAll(PDO::FETCH_ASSOC);
+        $studentId = (int) $row['id'];
 
-        Response::json(['data' => $student]);
+        $academicsStmt = $this->pdo->prepare(
+            "SELECT public_id, institution_name, degree_level, field_of_study, start_date, end_date,
+                    score_type, score_value, is_highest_qualification
+             FROM student_academics
+             WHERE student_id = ? AND deleted_at IS NULL
+             ORDER BY start_date DESC"
+        );
+        $academicsStmt->execute([$studentId]);
+
+        $testScoresStmt = $this->pdo->prepare(
+            "SELECT public_id, test_name, overall_score, reading_score, writing_score,
+                    listening_score, speaking_score, test_date
+             FROM student_test_scores
+             WHERE student_id = ? AND deleted_at IS NULL
+             ORDER BY test_date DESC"
+        );
+        $testScoresStmt->execute([$studentId]);
+
+        $applicationsStmt = $this->pdo->prepare(
+            "SELECT ap.public_id, ap.reference_number, ap.status, ap.created_at,
+                    c.name AS course_name, un.name AS university_name
+             FROM applications ap
+             JOIN intakes i ON i.id = ap.intake_id
+             JOIN courses c ON c.id = i.course_id
+             JOIN universities un ON un.id = c.university_id
+             WHERE ap.student_id = ? AND ap.deleted_at IS NULL
+             ORDER BY ap.created_at DESC"
+        );
+        $applicationsStmt->execute([$studentId]);
+        $applications = $applicationsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $studentController = new StudentController();
+        $customFieldController = new StudentCustomFieldController();
+
+        Response::json([
+            'data' => [
+                'student' => [
+                    'public_id' => $row['public_id'],
+                    'full_name' => $row['full_name'],
+                    'email' => self::decryptOrNull($row['encrypted_email']),
+                    'phone' => self::decryptOrNull($row['encrypted_phone']),
+                    'phone_in_profile' => self::decryptOrNull($row['phone_in_profile']),
+                    'alternate_mobile' => self::decryptOrNull($row['alternate_mobile']),
+                    'date_of_birth' => $row['date_of_birth'],
+                    'gender' => $row['gender'],
+                    'nationality' => $row['nationality'],
+                    'passport_number' => self::decryptOrNull($row['passport_number']),
+                    'passport_expiry' => $row['passport_expiry'],
+                    'lead_source' => $row['lead_source'],
+                    'how_heard_about_us' => $row['how_heard_about_us'],
+                    'planning_phd' => (bool) $row['planning_phd'],
+                    'agent_lock_status' => $row['agent_lock_status'],
+                    'profile_status' => $row['profile_status'],
+                    'created_at' => $row['created_at'],
+                    'updated_at' => $row['updated_at'],
+                    'agent' => [
+                        'public_id' => $row['agent_public_id'],
+                        'full_name' => $row['agent_name'],
+                        'agency_name' => $row['agency_name'],
+                    ],
+                ],
+                'academics' => $academicsStmt->fetchAll(PDO::FETCH_ASSOC),
+                'test_scores' => $testScoresStmt->fetchAll(PDO::FETCH_ASSOC),
+                'applications' => [
+                    'count' => count($applications),
+                    'items' => $applications,
+                ],
+                'readiness' => $studentController->buildReadinessSnapshotForAdmin($studentId),
+                'custom_fields' => $customFieldController->buildCustomFieldsSnapshot($studentId),
+            ],
+        ]);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -500,7 +558,6 @@ final class AgentController
     public function listSubAgentStudents(string $pid): void
     {
         AuthMiddleware::requireAuth();
-        RBACMiddleware::requirePermission('students', 'view');
         $user  = AuthMiddleware::user();
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
@@ -683,7 +740,6 @@ final class AgentController
     public function listApplications(): void
     {
         AuthMiddleware::requireAuth();
-        RBACMiddleware::requirePermission('applications', 'view');
         $user  = AuthMiddleware::user();
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
@@ -781,7 +837,6 @@ final class AgentController
     public function getApplication(string $pid): void
     {
         AuthMiddleware::requireAuth();
-        RBACMiddleware::requirePermission('applications', 'view');
         $user  = AuthMiddleware::user();
         $agent = $this->resolveAgent($user['id']);
         $root  = (int) $agent['root_agent_id'];
@@ -904,7 +959,22 @@ final class AgentController
             Response::error('Agent profile not found', 'NOT_FOUND', 404);
         }
 
+        $agent['mobile_number'] = self::decryptOrNull($agent['mobile_number']);
+        $agent['alternate_mobile_number'] = self::decryptOrNull($agent['alternate_mobile_number']);
+
         return $agent;
+    }
+
+    private static function decryptOrNull(?string $encrypted): ?string
+    {
+        if ($encrypted === null || $encrypted === '') {
+            return null;
+        }
+        try {
+            return \TGA\CRM\Services\EncryptionService::decrypt($encrypted);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 
     public function getOnboardingStatus(): void
@@ -1045,12 +1115,15 @@ final class AgentController
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
-        $firstName   = trim((string) ($input['first_name'] ?? $agent['first_name'] ?? ''));
-        $lastName    = trim((string) ($input['last_name'] ?? $agent['last_name'] ?? ''));
+        // first_name, last_name, and mobile_number are captured at registration and are
+        // locked here — they can only change via the agent's own profile page. Any value
+        // submitted for them in this request is ignored.
+        $firstName   = trim((string) ($agent['first_name'] ?? ''));
+        $lastName    = trim((string) ($agent['last_name'] ?? ''));
         $addressLine = trim((string) ($input['address_line'] ?? $agent['address_line'] ?? ''));
         $city        = trim((string) ($input['city'] ?? $agent['city'] ?? ''));
         $state       = trim((string) ($input['state'] ?? $agent['state'] ?? ''));
-        $mobile      = trim((string) ($input['mobile_number'] ?? $agent['mobile_number'] ?? ''));
+        $mobile      = trim((string) ($agent['mobile_number'] ?? ''));
         $altMobile   = trim((string) ($input['alternate_mobile_number'] ?? $agent['alternate_mobile_number'] ?? ''));
         $fullName    = trim($firstName . ' ' . $lastName);
 
@@ -1069,8 +1142,8 @@ final class AgentController
             $addressLine ?: null,
             $city ?: null,
             $state ?: null,
-            $mobile ?: null,
-            $altMobile ?: null,
+            $mobile !== '' ? \TGA\CRM\Services\EncryptionService::encrypt($mobile) : null,
+            $altMobile !== '' ? \TGA\CRM\Services\EncryptionService::encrypt($altMobile) : null,
             $newStatus,
             $agent['id'],
         ]);
@@ -1095,12 +1168,15 @@ final class AgentController
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
 
-        $firstName   = trim((string) ($input['first_name'] ?? $agent['first_name'] ?? ''));
-        $lastName    = trim((string) ($input['last_name'] ?? $agent['last_name'] ?? ''));
+        // first_name, last_name, and mobile_number are captured at registration and are
+        // locked here — they can only change via the agent's own profile page. Any value
+        // submitted for them in this request is ignored.
+        $firstName   = trim((string) ($agent['first_name'] ?? ''));
+        $lastName    = trim((string) ($agent['last_name'] ?? ''));
         $addressLine = trim((string) ($input['address_line'] ?? $agent['address_line'] ?? ''));
         $city        = trim((string) ($input['city'] ?? $agent['city'] ?? ''));
         $state       = trim((string) ($input['state'] ?? $agent['state'] ?? ''));
-        $mobile      = trim((string) ($input['mobile_number'] ?? $agent['mobile_number'] ?? ''));
+        $mobile      = trim((string) ($agent['mobile_number'] ?? ''));
         $altMobile   = trim((string) ($input['alternate_mobile_number'] ?? $agent['alternate_mobile_number'] ?? ''));
 
         $missing = [];
@@ -1141,7 +1217,17 @@ final class AgentController
                  mobile_number = ?, alternate_mobile_number = ?, status = 'pending',
                  application_submitted_at = NOW()
              WHERE id = ?"
-        )->execute([$firstName, $lastName, $fullName, $addressLine, $city, $state, $mobile, $altMobile ?: null, $agent['id']]);
+        )->execute([
+            $firstName,
+            $lastName,
+            $fullName,
+            $addressLine,
+            $city,
+            $state,
+            \TGA\CRM\Services\EncryptionService::encrypt($mobile),
+            $altMobile !== '' ? \TGA\CRM\Services\EncryptionService::encrypt($altMobile) : null,
+            $agent['id'],
+        ]);
 
         \TGA\CRM\Services\ActivityLogger::log('agent.application_submitted', 'agent', (int) $agent['id'], (int) $user['sub']);
 

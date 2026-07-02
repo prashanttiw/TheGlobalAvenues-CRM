@@ -13,6 +13,7 @@ use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Models\ReassignmentModel;
 use TGA\CRM\Services\ActivityLogger;
+use TGA\CRM\Services\EncryptionService;
 use TGA\CRM\Services\NotificationService;
 
 final class ReassignmentController
@@ -22,6 +23,19 @@ final class ReassignmentController
     public function __construct()
     {
         $this->pdo = Database::getConnection();
+    }
+
+    private function decryptMaybe(mixed $value): ?string
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return EncryptionService::decrypt($value);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -172,9 +186,11 @@ final class ReassignmentController
         $stmt = $this->pdo->prepare(
             "SELECT s.id, s.agent_lock_status, s.agent_id,
                     a.public_id AS agent_public_id, a.full_name AS agent_name,
-                    a.agency_name, a.tier, a.referral_code, a.country
+                    a.agency_name, a.tier, a.referral_code, a.country,
+                    au.email AS agent_email, au.phone AS agent_phone
              FROM students s
              LEFT JOIN agents a ON a.id = s.agent_id
+             LEFT JOIN users au ON au.id = a.user_id
              WHERE s.user_id = ? AND s.deleted_at IS NULL"
         );
         $stmt->execute([$user['id']]);
@@ -207,6 +223,8 @@ final class ReassignmentController
                 'tier'         => (int) $row['tier'],
                 'referral_code' => $row['referral_code'],
                 'country'      => $row['country'],
+                'email'        => $this->decryptMaybe($row['agent_email']),
+                'phone'        => $this->decryptMaybe($row['agent_phone']),
             ] : null,
             'agent_lock_status'    => $row['agent_lock_status'],
             'can_request_reassignment' => $row['agent_lock_status'] !== 'locked' && !$pending,

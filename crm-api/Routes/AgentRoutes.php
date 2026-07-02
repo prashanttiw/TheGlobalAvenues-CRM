@@ -36,6 +36,24 @@ final class AgentRoutes
         RouteRegistry::get('agent', 'students',              [$agent, 'listStudents']);
         RouteRegistry::get('agent', 'students/:pid',         [$agent, 'getStudent']);
 
+        // ── Agent creates a brand-new student (no OTP) ──────────────────────────
+        $studentCtrl = new \TGA\CRM\Controllers\StudentController();
+        RouteRegistry::post('agent', 'students', [$studentCtrl, 'agentCreateStudent']);
+
+        // ── Agent-assisted readiness (personal details + document intake) ───────
+        RouteRegistry::get('agent', 'students/:pid/readiness',           [$studentCtrl, 'agentGetReadiness']);
+        RouteRegistry::put('agent', 'students/:pid/readiness/draft',     [$studentCtrl, 'agentSaveReadinessDraft']);
+        RouteRegistry::post('agent', 'students/:pid/readiness/documents', [$studentCtrl, 'agentUploadReadinessDocument']);
+        RouteRegistry::post('agent', 'students/:pid/readiness/submit',   [$studentCtrl, 'agentSubmitReadiness']);
+
+        // ── Agent-assisted academic profile (academic history + test scores) ───
+        $academicCtrl = new \TGA\CRM\Controllers\StudentAcademicController();
+        RouteRegistry::get('agent', 'students/:pid/academic-profile', [$academicCtrl, 'agentGetProfile']);
+        RouteRegistry::post('agent', 'students/:pid/academic-profile/academics', [$academicCtrl, 'agentAddAcademic']);
+        RouteRegistry::delete('agent', 'students/:pid/academic-profile/academics/:recordPid', [$academicCtrl, 'agentDeleteAcademic']);
+        RouteRegistry::post('agent', 'students/:pid/academic-profile/test-scores', [$academicCtrl, 'agentAddTestScore']);
+        RouteRegistry::delete('agent', 'students/:pid/academic-profile/test-scores/:recordPid', [$academicCtrl, 'agentDeleteTestScore']);
+
         // ── Team ─────────────────────────────────────────────────────────────
         RouteRegistry::get('agent', 'team',                            [$agent, 'listTeam']);
         RouteRegistry::get('agent', 'team/:pid/students',              [$agent, 'listSubAgentStudents']);

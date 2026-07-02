@@ -6,6 +6,7 @@ namespace TGA\CRM\Routes;
 
 use TGA\CRM\Controllers\AdminAgentController;
 use TGA\CRM\Controllers\AdminStudentController;
+use TGA\CRM\Controllers\StudentCustomFieldController;
 use TGA\CRM\Controllers\RoleController;
 use TGA\CRM\Controllers\ReassignmentController;
 use TGA\CRM\Controllers\CommissionController;
@@ -26,6 +27,7 @@ final class AdminRoutes
     {
         $agentController = new AdminAgentController();
         $studentController = new AdminStudentController();
+        $customFieldsCtrl = new StudentCustomFieldController();
         $roleController  = new RoleController();
         $reassignCtrl    = new ReassignmentController();
         $commCtrl        = new CommissionController();
@@ -77,6 +79,15 @@ final class AdminRoutes
         RouteRegistry::get('admin', 'agents/:pid/tree', [$agentController, 'getTree']);
         RouteRegistry::get('admin', 'agents/:pid/detail', [$agentController, 'getDetail']);
         RouteRegistry::get('admin', 'students', [$studentController, 'listAll']);
+        RouteRegistry::get('admin', 'students/:pid/readiness', [$studentController, 'adminGetReadiness']);
+        RouteRegistry::get('admin', 'students/:pid/detail', [$studentController, 'adminGetDetail']);
+
+        // ── Student Custom Fields (admin-defined data-collection fields) ────
+        RouteRegistry::get('admin', 'student-custom-fields', [$customFieldsCtrl, 'adminListDefinitions']);
+        RouteRegistry::post('admin', 'student-custom-fields', [$customFieldsCtrl, 'adminCreateDefinition']);
+        RouteRegistry::post('admin', 'student-custom-fields/reorder', [$customFieldsCtrl, 'adminReorder']);
+        RouteRegistry::put('admin', 'student-custom-fields/:pid', [$customFieldsCtrl, 'adminUpdateDefinition']);
+        RouteRegistry::delete('admin', 'student-custom-fields/:pid', [$customFieldsCtrl, 'adminDeleteDefinition']);
 
         // ── Reassignment Requests ────────────────────────────────────────────
         RouteRegistry::get('admin', 'reassignment-requests',                   [$reassignCtrl, 'adminList']);

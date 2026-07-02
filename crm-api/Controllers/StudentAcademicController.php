@@ -9,6 +9,7 @@ use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Helpers\UlidGenerator;
 use TGA\CRM\Middleware\AuthMiddleware;
+use TGA\CRM\Services\AgentAccessService;
 
 class StudentAcademicController
 {
@@ -32,11 +33,49 @@ class StudentAcademicController
         return (int)$studentId;
     }
 
+    /**
+     * Resolves the target student for an agent-facing endpoint given the student's
+     * public_id, authorizing via the same tier-scoped subtree check used everywhere
+     * else agents act on a specific student.
+     */
+    private function resolveAgentTargetStudentId(string $studentPid): int
+    {
+        $user = AuthMiddleware::user();
+        if (($user['utype'] ?? $user['user_type'] ?? '') !== 'agent') {
+            Response::error('Forbidden', 'FORBIDDEN', 403);
+        }
+
+        $agent = AgentAccessService::resolveAgent($this->pdo, (int) $user['id']);
+
+        $stmt = $this->pdo->prepare("SELECT id FROM students WHERE public_id = ? AND deleted_at IS NULL");
+        $stmt->execute([$studentPid]);
+        $studentId = $stmt->fetchColumn();
+        if (!$studentId) {
+            Response::error('Student not found', 'NOT_FOUND', 404);
+        }
+
+        AgentAccessService::assertCanAccessStudent($this->pdo, $agent, (int) $studentId);
+
+        return (int) $studentId;
+    }
+
     public function getProfile(): void
     {
         $user = AuthMiddleware::user();
         $studentId = $this->getStudentId($user['id']);
 
+        Response::json($this->getProfileFor($studentId));
+    }
+
+    public function agentGetProfile(string $studentPid): void
+    {
+        $studentId = $this->resolveAgentTargetStudentId($studentPid);
+
+        Response::json($this->getProfileFor($studentId));
+    }
+
+    private function getProfileFor(int $studentId): array
+    {
         $stmt = $this->pdo->prepare("
             SELECT public_id, institution_name, degree_level, field_of_study, start_date, end_date, score_type, score_value, is_highest_qualification
             FROM student_academics
@@ -55,19 +94,35 @@ class StudentAcademicController
         $stmt->execute([$studentId]);
         $testScores = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        Response::json([
+        return [
             'academics' => $academics,
             'test_scores' => $testScores
-        ]);
+        ];
     }
 
     public function addAcademic(): void
     {
         $user = AuthMiddleware::user();
         $studentId = $this->getStudentId($user['id']);
-        
         $input = json_decode(file_get_contents('php://input'), true);
-        
+
+        $publicId = $this->addAcademicFor($studentId, $input ?? []);
+
+        Response::json(['message' => 'Academic record added', 'public_id' => $publicId], 201);
+    }
+
+    public function agentAddAcademic(string $studentPid): void
+    {
+        $studentId = $this->resolveAgentTargetStudentId($studentPid);
+        $input = json_decode(file_get_contents('php://input'), true);
+
+        $publicId = $this->addAcademicFor($studentId, $input ?? []);
+
+        Response::json(['message' => 'Academic record added', 'public_id' => $publicId], 201);
+    }
+
+    private function addAcademicFor(int $studentId, array $input): string
+    {
         if (empty($input['institution_name']) || empty($input['degree_level'])) {
             Response::error('Institution name and degree level are required', 'VALIDATION_ERROR', 400);
         }
@@ -76,7 +131,7 @@ class StudentAcademicController
 
         $stmt = $this->pdo->prepare("
             INSERT INTO student_academics (
-                public_id, student_id, institution_name, degree_level, field_of_study, 
+                public_id, student_id, institution_name, degree_level, field_of_study,
                 start_date, end_date, score_type, score_value, is_highest_qualification
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
@@ -94,16 +149,32 @@ class StudentAcademicController
             !empty($input['is_highest_qualification']) ? 1 : 0
         ]);
 
-        Response::json(['message' => 'Academic record added', 'public_id' => $publicId], 201);
+        return $publicId;
     }
 
     public function addTestScore(): void
     {
         $user = AuthMiddleware::user();
         $studentId = $this->getStudentId($user['id']);
-        
         $input = json_decode(file_get_contents('php://input'), true);
-        
+
+        $publicId = $this->addTestScoreFor($studentId, $input ?? []);
+
+        Response::json(['message' => 'Test score added', 'public_id' => $publicId], 201);
+    }
+
+    public function agentAddTestScore(string $studentPid): void
+    {
+        $studentId = $this->resolveAgentTargetStudentId($studentPid);
+        $input = json_decode(file_get_contents('php://input'), true);
+
+        $publicId = $this->addTestScoreFor($studentId, $input ?? []);
+
+        Response::json(['message' => 'Test score added', 'public_id' => $publicId], 201);
+    }
+
+    private function addTestScoreFor(int $studentId, array $input): string
+    {
         if (empty($input['test_name']) || empty($input['overall_score'])) {
             Response::error('Test name and overall score are required', 'VALIDATION_ERROR', 400);
         }
@@ -112,7 +183,7 @@ class StudentAcademicController
 
         $stmt = $this->pdo->prepare("
             INSERT INTO student_test_scores (
-                public_id, student_id, test_name, overall_score, 
+                public_id, student_id, test_name, overall_score,
                 reading_score, writing_score, listening_score, speaking_score, test_date
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
@@ -129,7 +200,7 @@ class StudentAcademicController
             $input['test_date'] ?? null
         ]);
 
-        Response::json(['message' => 'Test score added', 'public_id' => $publicId], 201);
+        return $publicId;
     }
 
     public function deleteAcademic(string $publicId): void
@@ -137,14 +208,28 @@ class StudentAcademicController
         $user = AuthMiddleware::user();
         $studentId = $this->getStudentId($user['id']);
 
+        $this->deleteAcademicFor($studentId, $publicId);
+
+        Response::json(['message' => 'Academic record deleted']);
+    }
+
+    public function agentDeleteAcademic(string $studentPid, string $recordPid): void
+    {
+        $studentId = $this->resolveAgentTargetStudentId($studentPid);
+
+        $this->deleteAcademicFor($studentId, $recordPid);
+
+        Response::json(['message' => 'Academic record deleted']);
+    }
+
+    private function deleteAcademicFor(int $studentId, string $publicId): void
+    {
         $stmt = $this->pdo->prepare("UPDATE student_academics SET deleted_at = NOW() WHERE public_id = ? AND student_id = ?");
         $stmt->execute([$publicId, $studentId]);
 
         if ($stmt->rowCount() === 0) {
             Response::error('Record not found or already deleted', 'NOT_FOUND', 404);
         }
-
-        Response::json(['message' => 'Academic record deleted']);
     }
 
     public function deleteTestScore(string $publicId): void
@@ -152,13 +237,27 @@ class StudentAcademicController
         $user = AuthMiddleware::user();
         $studentId = $this->getStudentId($user['id']);
 
+        $this->deleteTestScoreFor($studentId, $publicId);
+
+        Response::json(['message' => 'Test score deleted']);
+    }
+
+    public function agentDeleteTestScore(string $studentPid, string $recordPid): void
+    {
+        $studentId = $this->resolveAgentTargetStudentId($studentPid);
+
+        $this->deleteTestScoreFor($studentId, $recordPid);
+
+        Response::json(['message' => 'Test score deleted']);
+    }
+
+    private function deleteTestScoreFor(int $studentId, string $publicId): void
+    {
         $stmt = $this->pdo->prepare("UPDATE student_test_scores SET deleted_at = NOW() WHERE public_id = ? AND student_id = ?");
         $stmt->execute([$publicId, $studentId]);
 
         if ($stmt->rowCount() === 0) {
             Response::error('Record not found or already deleted', 'NOT_FOUND', 404);
         }
-
-        Response::json(['message' => 'Test score deleted']);
     }
 }

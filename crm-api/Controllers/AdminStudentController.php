@@ -132,6 +132,139 @@ final class AdminStudentController
             ],
         ]);
     }
+
+    public function adminGetReadiness(string $pid): void
+    {
+        RBACMiddleware::requirePermission('students', 'view');
+
+        $stmt = $this->pdo->prepare('SELECT id FROM students WHERE public_id = ? AND deleted_at IS NULL');
+        $stmt->execute([$pid]);
+        $studentId = $stmt->fetchColumn();
+
+        if (!$studentId) {
+            Response::error('Student not found', 'NOT_FOUND', 404);
+        }
+
+        $studentController = new StudentController();
+        Response::json(['readiness' => $studentController->buildReadinessSnapshotForAdmin((int) $studentId)]);
+    }
+
+    /**
+     * Full admin detail view for a single student — every students-table
+     * field (decrypted where encrypted), agent, academics, test scores,
+     * applications, the existing readiness snapshot, and admin-defined
+     * custom field values. Unfilled fields come back as null so the
+     * frontend can render "Not provided yet" instead of erroring or
+     * omitting the section.
+     */
+    public function adminGetDetail(string $pid): void
+    {
+        RBACMiddleware::requirePermission('students', 'view');
+
+        $stmt = $this->pdo->prepare("
+            SELECT s.id, s.public_id, s.full_name, s.date_of_birth, s.gender, s.nationality,
+                   s.passport_number, s.passport_expiry, s.phone_in_profile, s.alternate_mobile,
+                   s.lead_source, s.how_heard_about_us, s.planning_phd, s.referral_agent_code,
+                   s.agent_lock_status, s.profile_status, s.created_at, s.updated_at,
+                   u.email AS encrypted_email, u.phone AS encrypted_phone, u.status AS user_status,
+                   a.public_id AS agent_public_id, a.full_name AS agent_name, a.agency_name
+            FROM students s
+            JOIN users u ON u.id = s.user_id
+            LEFT JOIN agents a ON a.id = s.agent_id AND a.deleted_at IS NULL
+            WHERE s.public_id = ? AND s.deleted_at IS NULL
+        ");
+        $stmt->execute([$pid]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+            Response::error('Student not found', 'NOT_FOUND', 404);
+        }
+
+        $studentId = (int) $row['id'];
+
+        $academicsStmt = $this->pdo->prepare("
+            SELECT public_id, institution_name, degree_level, field_of_study, start_date, end_date, score_type, score_value, is_highest_qualification
+            FROM student_academics
+            WHERE student_id = ? AND deleted_at IS NULL
+            ORDER BY start_date DESC
+        ");
+        $academicsStmt->execute([$studentId]);
+
+        $testScoresStmt = $this->pdo->prepare("
+            SELECT public_id, test_name, overall_score, reading_score, writing_score, listening_score, speaking_score, test_date
+            FROM student_test_scores
+            WHERE student_id = ? AND deleted_at IS NULL
+            ORDER BY test_date DESC
+        ");
+        $testScoresStmt->execute([$studentId]);
+
+        $applicationsStmt = $this->pdo->prepare("
+            SELECT ap.public_id, ap.reference_number, ap.status, ap.created_at,
+                   c.name AS course_name, un.name AS university_name
+            FROM applications ap
+            JOIN intakes i ON i.id = ap.intake_id
+            JOIN courses c ON c.id = i.course_id
+            JOIN universities un ON un.id = c.university_id
+            WHERE ap.student_id = ? AND ap.deleted_at IS NULL
+            ORDER BY ap.created_at DESC
+        ");
+        $applicationsStmt->execute([$studentId]);
+        $applications = $applicationsStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $studentController = new StudentController();
+        $customFieldController = new StudentCustomFieldController();
+
+        Response::json([
+            'student' => [
+                'public_id' => $row['public_id'],
+                'full_name' => $row['full_name'],
+                'email' => $this->decryptOrNull($row['encrypted_email']),
+                'phone' => $this->decryptOrNull($row['encrypted_phone']),
+                'phone_in_profile' => $this->decryptOrNull($row['phone_in_profile']),
+                'alternate_mobile' => $this->decryptOrNull($row['alternate_mobile']),
+                'date_of_birth' => $row['date_of_birth'],
+                'gender' => $row['gender'],
+                'nationality' => $row['nationality'],
+                'passport_number' => $this->decryptOrNull($row['passport_number']),
+                'passport_expiry' => $row['passport_expiry'],
+                'lead_source' => $row['lead_source'],
+                'how_heard_about_us' => $row['how_heard_about_us'],
+                'planning_phd' => (bool) $row['planning_phd'],
+                'referral_agent_code' => $row['referral_agent_code'],
+                'agent_lock_status' => $row['agent_lock_status'],
+                'profile_status' => $row['profile_status'],
+                'user_status' => $row['user_status'],
+                'created_at' => $row['created_at'],
+                'updated_at' => $row['updated_at'],
+                'agent' => $row['agent_public_id'] ? [
+                    'public_id' => $row['agent_public_id'],
+                    'full_name' => $row['agent_name'],
+                    'agency_name' => $row['agency_name'],
+                ] : null,
+            ],
+            'academics' => $academicsStmt->fetchAll(PDO::FETCH_ASSOC),
+            'test_scores' => $testScoresStmt->fetchAll(PDO::FETCH_ASSOC),
+            'applications' => [
+                'count' => count($applications),
+                'items' => $applications,
+            ],
+            'readiness' => $studentController->buildReadinessSnapshotForAdmin($studentId),
+            'custom_fields' => $customFieldController->buildCustomFieldsSnapshot($studentId),
+        ]);
+    }
+
+    private function decryptOrNull(mixed $value): ?string
+    {
+        if (empty($value)) {
+            return null;
+        }
+
+        try {
+            return EncryptionService::decrypt($value);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
 }
 
 

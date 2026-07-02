@@ -142,8 +142,8 @@ final class SubAgentController
                 $addressLine ?: null,
                 $city ?: null,
                 $state ?: null,
-                $phone ?: null,
-                $altMobile ?: null,
+                $phone ? EncryptionService::encrypt($phone) : null,
+                $altMobile ? EncryptionService::encrypt($altMobile) : null,
                 $businessRegNumber ?: null,
                 $partnershipScope ?: null
             ]);
