@@ -10,6 +10,7 @@ import {
   FileBadge,
   LogOut,
   AlertCircle,
+  Lock,
 } from 'lucide-react'
 import {
   fetchAgentOnboardingStatus,
@@ -98,8 +99,22 @@ function Field({
 const inputClass =
   'w-full px-3.5 py-2.5 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#2D1B69]/20 focus:border-[#2D1B69]'
 
+const lockedInputClass =
+  'w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-500 cursor-not-allowed'
+
+function LockedField({ label, value }: { label: string; value: string }) {
+  return (
+    <Field label={label}>
+      <div className="relative">
+        <input className={lockedInputClass} value={value} disabled readOnly />
+        <Lock className="absolute right-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+      </div>
+    </Field>
+  )
+}
+
 export default function AgentOnboardingPage() {
-  const { logout } = useAuth()
+  const { logout, updateAgentStatus } = useAuth()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const fileRefs = useRef<Record<AgentOnboardingDocType, HTMLInputElement | null>>({
@@ -149,8 +164,9 @@ export default function AgentOnboardingPage() {
 
   const draftMutation = useMutation({
     mutationFn: () => saveAgentOnboardingDraft(form),
-    onSuccess: () => {
+    onSuccess: (result) => {
       void queryClient.invalidateQueries({ queryKey: ['agent-onboarding-status'] })
+      updateAgentStatus(result.status)
       toast.success('Draft saved.')
     },
     onError: (err: Error) => toast.error(err.message || 'Could not save draft.'),
@@ -158,7 +174,8 @@ export default function AgentOnboardingPage() {
 
   const submitMutation = useMutation({
     mutationFn: () => submitAgentOnboardingApplication(form),
-    onSuccess: () => {
+    onSuccess: (result) => {
+      updateAgentStatus(result.status)
       toast.success('Application submitted!')
       navigate('/portal/agent/pending', { replace: true })
     },
@@ -264,25 +281,16 @@ export default function AgentOnboardingPage() {
 
         {/* Profile form */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 space-y-5">
-          <h2 className="text-base font-semibold text-gray-900">Partner Details</h2>
+          <div>
+            <h2 className="text-base font-semibold text-gray-900">Partner Details</h2>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Name and mobile number were set during registration. Update them from your Profile page.
+            </p>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="First Name" required>
-              <input
-                className={inputClass}
-                value={form.first_name}
-                onChange={(e) => updateField('first_name', e.target.value)}
-                placeholder="First name"
-              />
-            </Field>
-            <Field label="Last Name" required>
-              <input
-                className={inputClass}
-                value={form.last_name}
-                onChange={(e) => updateField('last_name', e.target.value)}
-                placeholder="Last name"
-              />
-            </Field>
+            <LockedField label="First Name" value={form.first_name} />
+            <LockedField label="Last Name" value={form.last_name} />
           </div>
 
           <Field label="Full Address" required>
@@ -320,15 +328,7 @@ export default function AgentOnboardingPage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <Field label="Mobile Number" required>
-              <input
-                className={inputClass}
-                value={form.mobile_number}
-                onChange={(e) => updateField('mobile_number', e.target.value)}
-                placeholder="10-digit mobile number"
-                inputMode="tel"
-              />
-            </Field>
+            <LockedField label="Mobile Number" value={form.mobile_number} />
             <Field label="Alternate Mobile Number">
               <input
                 className={inputClass}

@@ -31,8 +31,14 @@ export function DashboardLayout({ sidebarItems, logo, user, onLogout }: Dashboar
     
     const segments = path.split('/').filter(Boolean)
     if (segments.length === 0) return 'Portal'
-    const lastSegment = segments[segments.length - 1]
-    
+    // Skip a trailing ULID/id-like segment (e.g. .../universities/01kw...) so detail
+    // routes show a readable title instead of the raw public_id.
+    const isIdLike = (segment: string) => /^[0-9a-z]{20,}$/i.test(segment)
+    let lastSegment = segments[segments.length - 1]
+    if (isIdLike(lastSegment) && segments.length > 1) {
+      lastSegment = segments[segments.length - 2]
+    }
+
     return lastSegment
       .replace(/-/g, ' ')
       .replace(/\b\w/g, (c) => c.toUpperCase())

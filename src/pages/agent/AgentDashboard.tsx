@@ -5,7 +5,7 @@ import { PageWrapper } from '../../shared/components/layout/PageWrapper';
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card';
 import { Users, FileText, CreditCard, ChevronRight, CheckCircle2, TrendingUp } from 'lucide-react';
 import { fetchAgentDashboardSummary } from '../../lib/api';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 
 export default function AgentDashboard() {
   const [data, setData] = useState<any>(null);
@@ -53,8 +53,7 @@ export default function AgentDashboard() {
 
   return (
     <PageWrapper className="space-y-6">
-      <Toaster position="top-center" richColors />
-      <PageHeader 
+      <PageHeader
         title={`Welcome, ${agent.full_name}`} 
         subtitle={`${agent.agency_name} (Referral Code: ${agent.referral_code || 'Pending'}) · Tier ${agent.tier}`} 
       />

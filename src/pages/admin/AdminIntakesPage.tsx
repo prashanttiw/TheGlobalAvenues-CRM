@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Calendar, Copy, Edit, Plus, Trash } from 'lucide-react'
+import { ArrowUpRight, Calendar, Copy, Pencil, Plus, Trash } from 'lucide-react'
 import {
   cloneAdminIntake,
   createAdminCourseIntake,
@@ -20,11 +20,15 @@ import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
+import { EditableField } from '../../shared/components/ui/EditableField'
+import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
+import { Modal, ModalAction, ModalCancel, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '../../shared/components/ui/Modal'
 import { toast } from 'sonner'
 
 interface UniversityRow {
   public_id: string
   name: string
+  logo_thumb_url?: string | null
 }
 
 interface CourseRow {
@@ -32,6 +36,7 @@ interface CourseRow {
   name: string
   university_public_id: string
   university_name: string
+  university_logo_thumb_url?: string | null
 }
 
 interface IntakeRow {
@@ -39,16 +44,19 @@ interface IntakeRow {
   name: string
   intake_month: number | null
   intake_year: number | null
+  application_open_date: string | null
   application_deadline: string | null
   course_start_date: string | null
   tuition_fee_amount: number | null
   tuition_fee_currency: string | null
+  requirements_notes: string | null
   status: string
   application_count: number
   course_public_id: string
   course_name: string
   university_public_id: string
   university_name: string
+  university_logo_thumb_url?: string | null
 }
 
 interface IntakeFormState {
@@ -62,6 +70,7 @@ interface IntakeFormState {
   tuitionFeeAmount: string
   tuitionFeeCurrency: string
   requirementsNotes: string
+  status: string
 }
 
 const INITIAL_FORM: IntakeFormState = {
@@ -75,6 +84,7 @@ const INITIAL_FORM: IntakeFormState = {
   tuitionFeeAmount: '',
   tuitionFeeCurrency: 'EUR',
   requirementsNotes: '',
+  status: 'upcoming',
 }
 
 function formatDate(value: string | null) {
@@ -82,9 +92,9 @@ function formatDate(value: string | null) {
   return new Date(value).toLocaleDateString()
 }
 
-function formatFee(row: IntakeRow) {
-  if (row.tuition_fee_amount == null) return 'Not set'
-  return `${row.tuition_fee_currency || 'EUR'} ${row.tuition_fee_amount}`
+function toDateInputValue(value: string | null) {
+  if (!value) return ''
+  return value.slice(0, 10)
 }
 
 function renderStatus(status: string) {
@@ -92,10 +102,14 @@ function renderStatus(status: string) {
   return <Badge variant={variant}>{status.replace(/_/g, ' ')}</Badge>
 }
 
-function nextStatus(status: string) {
-  if (status === 'upcoming') return 'open'
-  if (status === 'open') return 'closed'
-  return null
+const VALID_STATUS_TRANSITIONS: Record<string, string[]> = {
+  upcoming: ['open', 'closed'],
+  open: ['closed'],
+  closed: [],
+}
+
+function validNextStatuses(status: string): string[] {
+  return VALID_STATUS_TRANSITIONS[status] ?? []
 }
 
 export default function AdminIntakesPage() {
@@ -105,6 +119,21 @@ export default function AdminIntakesPage() {
   const [statusFilter, setStatusFilter] = React.useState('')
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [form, setForm] = React.useState<IntakeFormState>(INITIAL_FORM)
+  const [cloningIntake, setCloningIntake] = React.useState<IntakeRow | null>(null)
+  const [cloneName, setCloneName] = React.useState('')
+  const [detailsIntake, setDetailsIntake] = React.useState<IntakeRow | null>(null)
+  const [detailsForm, setDetailsForm] = React.useState({
+    name: '',
+    intakeMonth: '',
+    intakeYear: '',
+    applicationDeadline: '',
+    courseStartDate: '',
+    applicationOpenDate: '',
+    tuitionFeeAmount: '',
+    tuitionFeeCurrency: 'EUR',
+    requirementsNotes: '',
+    status: 'upcoming',
+  })
 
   const canCreate = usePermission('intakes', 'create')
   const canEdit = usePermission('intakes', 'edit')
@@ -123,6 +152,7 @@ export default function AdminIntakesPage() {
             ...course,
             university_public_id: university.public_id,
             university_name: university.name,
+            university_logo_thumb_url: university.logo_thumb_url,
           })) as CourseRow[]
         }),
       )
@@ -138,6 +168,7 @@ export default function AdminIntakesPage() {
             course_name: course.name,
             university_public_id: course.university_public_id,
             university_name: course.university_name,
+            university_logo_thumb_url: course.university_logo_thumb_url,
           })) as IntakeRow[]
         }),
       )
@@ -164,10 +195,7 @@ export default function AdminIntakesPage() {
   const updateMutation = useMutation({
     mutationFn: ({ publicId, payload }: { publicId: string; payload: Record<string, unknown> }) =>
       updateAdminIntakeLive(publicId, payload),
-    onSuccess: () => {
-      toast.success('Intake updated.')
-      void invalidateCatalog()
-    },
+    onSuccess: () => void invalidateCatalog(),
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to update intake.'),
   })
 
@@ -183,7 +211,8 @@ export default function AdminIntakesPage() {
   const cloneMutation = useMutation({
     mutationFn: ({ publicId, name }: { publicId: string; name?: string }) => cloneAdminIntake(publicId, name ? { name } : undefined),
     onSuccess: () => {
-      toast.success('Intake cloned successfully.')
+      toast.success('Intake cloned successfully — update its fee and dates for the new term.')
+      setCloningIntake(null)
       void invalidateCatalog()
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to clone intake.'),
@@ -210,14 +239,42 @@ export default function AdminIntakesPage() {
   const availableCourses = courses.filter((course) => !universityFilter || course.university_public_id === universityFilter)
   const formCourses = courses.filter((course) => !form.universityPublicId || course.university_public_id === form.universityPublicId)
 
+  function openCloneDialog(row: IntakeRow) {
+    setCloningIntake(row)
+    setCloneName(`${row.name} (Copy)`)
+  }
+
+  function openDetailsPanel(row: IntakeRow) {
+    setDetailsIntake(row)
+    setDetailsForm({
+      name: row.name,
+      intakeMonth: row.intake_month != null ? String(row.intake_month) : '',
+      intakeYear: row.intake_year != null ? String(row.intake_year) : '',
+      applicationDeadline: toDateInputValue(row.application_deadline),
+      courseStartDate: toDateInputValue(row.course_start_date),
+      applicationOpenDate: toDateInputValue(row.application_open_date),
+      tuitionFeeAmount: row.tuition_fee_amount != null ? String(row.tuition_fee_amount) : '',
+      tuitionFeeCurrency: row.tuition_fee_currency || 'EUR',
+      requirementsNotes: row.requirements_notes || '',
+      status: row.status,
+    })
+  }
+
   const columns: ColumnDef<IntakeRow>[] = [
     {
       key: 'intake',
       header: 'Intake / Course',
       cell: (row) => (
-        <div>
-          <p className="font-semibold text-brand-navy">{row.name}</p>
-          <p className="text-xs text-muted-foreground">{row.course_name} � {row.university_name}</p>
+        <div className="flex items-center gap-2.5">
+          <UniversityLogo name={row.university_name} logoThumbUrl={row.university_logo_thumb_url} size="sm" />
+          <div>
+            <EditableField
+              value={row.name}
+              className="font-semibold text-brand-navy"
+              onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { name: v } })}
+            />
+            <p className="text-xs text-muted-foreground">{row.course_name} · {row.university_name}</p>
+          </div>
         </div>
       ),
     },
@@ -225,16 +282,28 @@ export default function AdminIntakesPage() {
       key: 'deadline',
       header: 'Application Deadline',
       cell: (row) => (
-        <span className="text-sm font-medium text-brand-navy flex items-center gap-1">
-          <Calendar className="h-3.5 w-3.5 text-brand-orange-accessible" />
-          {formatDate(row.application_deadline)}
-        </span>
+        <div className="flex items-center gap-1">
+          <Calendar className="h-3.5 w-3.5 text-brand-orange-accessible shrink-0" />
+          <EditableField
+            value={toDateInputValue(row.application_deadline)}
+            emptyLabel="Not set"
+            render={() => <span>{formatDate(row.application_deadline)}</span>}
+            onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { application_deadline: v || null } })}
+          />
+        </div>
       ),
     },
     {
       key: 'fee',
       header: 'Tuition Fee',
-      cell: (row) => <span className="text-sm text-brand-navy">{formatFee(row)}</span>,
+      cell: (row) => (
+        <EditableField
+          value={row.tuition_fee_amount != null ? String(row.tuition_fee_amount) : ''}
+          emptyLabel="Not set"
+          render={() => <span>{row.tuition_fee_amount == null ? 'Not set' : `${row.tuition_fee_currency || 'EUR'} ${row.tuition_fee_amount}`}</span>}
+          onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { tuition_fee_amount: v ? Number(v) : null } })}
+        />
+      ),
     },
     {
       key: 'applications',
@@ -250,57 +319,20 @@ export default function AdminIntakesPage() {
       key: 'actions',
       header: 'Actions',
       cell: (row) => {
-        const next = nextStatus(row.status)
+        const nextOptions = validNextStatuses(row.status)
         return (
           <div onClick={(e) => e.stopPropagation()}>
             <InlineActions
               actions={[
-                {
-                  label: 'Clone Intake',
-                  icon: Copy,
-                  onClick: () => {
-                    const name = window.prompt('Clone name', `${row.name} (Copy)`)
-                    if (name === null) return
-                    cloneMutation.mutate({ publicId: row.public_id, name: name.trim() || undefined })
-                  },
-                  hidden: !canCreate,
-                },
-                {
-                  label: next ? `Move to ${next}` : 'Status Finalized',
-                  onClick: () => {
-                    if (!next) return
-                    statusMutation.mutate({ publicId: row.public_id, status: next })
-                  },
-                  hidden: !canEdit || !next,
-                },
-                {
-                  label: 'Edit Intake',
-                  icon: Edit,
-                  onClick: () => {
-                    const name = window.prompt('Intake name', row.name)
-                    if (name === null) return
-                    const deadline = window.prompt('Application deadline (YYYY-MM-DD)', row.application_deadline || '')
-                    if (deadline === null) return
-                    updateMutation.mutate({
-                      publicId: row.public_id,
-                      payload: {
-                        name: name.trim() || row.name,
-                        application_deadline: deadline.trim() || null,
-                      },
-                    })
-                  },
+                { label: 'Clone Intake', icon: Copy, onClick: () => openCloneDialog(row), hidden: !canCreate },
+                ...nextOptions.map((next) => ({
+                  label: `Move to ${next[0].toUpperCase()}${next.slice(1)}`,
+                  icon: ArrowUpRight,
+                  onClick: () => statusMutation.mutate({ publicId: row.public_id, status: next }),
                   hidden: !canEdit,
-                },
-                {
-                  label: 'Delete Intake',
-                  icon: Trash,
-                  onClick: () => {
-                    if (!window.confirm(`Delete ${row.name}?`)) return
-                    deleteMutation.mutate(row.public_id)
-                  },
-                  variant: 'danger',
-                  hidden: !canDelete,
-                },
+                })),
+                { label: 'Edit Intake', icon: Pencil, onClick: () => openDetailsPanel(row), hidden: !canEdit },
+                { label: 'Delete Intake', icon: Trash, onClick: () => { if (window.confirm(`Delete ${row.name}?`)) deleteMutation.mutate(row.public_id) }, variant: 'danger', hidden: !canDelete },
               ]}
             />
           </div>
@@ -327,6 +359,7 @@ export default function AdminIntakesPage() {
         tuition_fee_amount: form.tuitionFeeAmount ? Number(form.tuitionFeeAmount) : null,
         tuition_fee_currency: form.tuitionFeeCurrency,
         requirements_notes: form.requirementsNotes || null,
+        status: form.status,
       },
     })
   }
@@ -383,6 +416,8 @@ export default function AdminIntakesPage() {
           <option value="closed">Closed</option>
         </select>
       </div>
+
+      <p className="text-xs text-muted-foreground">Double-click the intake name, deadline, or fee to edit in place. Use "Edit Intake" in the Actions menu to change status or edit every field at once.</p>
 
       {catalogQuery.isError ? (
         <EmptyState
@@ -515,6 +550,19 @@ export default function AdminIntakesPage() {
             </div>
 
             <div>
+              <label className="text-xs font-semibold text-brand-navy block mb-1">Initial Status</label>
+              <select
+                value={form.status}
+                onChange={(e) => setForm((current) => ({ ...current, status: e.target.value }))}
+                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+              >
+                <option value="upcoming">Upcoming</option>
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            <div>
               <label className="text-xs font-semibold text-brand-navy block mb-1">Requirements Notes</label>
               <textarea
                 value={form.requirementsNotes}
@@ -530,6 +578,130 @@ export default function AdminIntakesPage() {
             <Button variant="primary" type="submit" disabled={createMutation.isPending}>Create Intake</Button>
           </div>
         </form>
+      </SlideOverPanel>
+
+      <Modal open={!!cloningIntake} onOpenChange={(open) => !open && setCloningIntake(null)}>
+        <ModalContent>
+          <ModalHeader>
+            <ModalTitle>Clone "{cloningIntake?.name}"</ModalTitle>
+            <p className="text-sm text-muted-foreground">
+              Creates a new intake for the same course with the year incremented. Update its fee and dates afterward.
+            </p>
+          </ModalHeader>
+          <div>
+            <label className="text-xs font-semibold text-brand-navy block mb-1">New Intake Name</label>
+            <input
+              autoFocus
+              type="text"
+              value={cloneName}
+              onChange={(e) => setCloneName(e.target.value)}
+              className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+            />
+          </div>
+          <ModalFooter>
+            <ModalCancel />
+            <Button
+              variant="primary"
+              disabled={cloneMutation.isPending}
+              onClick={() => cloningIntake && cloneMutation.mutate({ publicId: cloningIntake.public_id, name: cloneName.trim() || undefined })}
+            >
+              Clone Intake
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <SlideOverPanel title="Edit Intake" open={!!detailsIntake} onOpenChange={(open) => !open && setDetailsIntake(null)}>
+        {detailsIntake && (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              updateMutation.mutate({
+                publicId: detailsIntake.public_id,
+                payload: {
+                  name: detailsForm.name,
+                  intake_month: detailsForm.intakeMonth ? Number(detailsForm.intakeMonth) : null,
+                  intake_year: detailsForm.intakeYear ? Number(detailsForm.intakeYear) : null,
+                  application_deadline: detailsForm.applicationDeadline || null,
+                  course_start_date: detailsForm.courseStartDate || null,
+                  application_open_date: detailsForm.applicationOpenDate || null,
+                  tuition_fee_amount: detailsForm.tuitionFeeAmount ? Number(detailsForm.tuitionFeeAmount) : null,
+                  tuition_fee_currency: detailsForm.tuitionFeeCurrency,
+                  requirements_notes: detailsForm.requirementsNotes || null,
+                },
+              })
+              if (detailsForm.status !== detailsIntake.status) {
+                statusMutation.mutate({ publicId: detailsIntake.public_id, status: detailsForm.status })
+              }
+              setDetailsIntake(null)
+            }}
+            className="space-y-6"
+          >
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Intake Name</label>
+                <input type="text" required value={detailsForm.name} onChange={(e) => setDetailsForm({ ...detailsForm, name: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-brand-navy block mb-1">Intake Month</label>
+                  <input type="number" min={1} max={12} value={detailsForm.intakeMonth} onChange={(e) => setDetailsForm({ ...detailsForm, intakeMonth: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-brand-navy block mb-1">Intake Year</label>
+                  <input type="number" min={2024} max={2035} value={detailsForm.intakeYear} onChange={(e) => setDetailsForm({ ...detailsForm, intakeYear: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Application Deadline</label>
+                <input type="date" value={detailsForm.applicationDeadline} onChange={(e) => setDetailsForm({ ...detailsForm, applicationDeadline: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Application Opens</label>
+                <input type="date" value={detailsForm.applicationOpenDate} onChange={(e) => setDetailsForm({ ...detailsForm, applicationOpenDate: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Course Start Date</label>
+                <input type="date" value={detailsForm.courseStartDate} onChange={(e) => setDetailsForm({ ...detailsForm, courseStartDate: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-brand-navy block mb-1">Tuition Fee Amount</label>
+                  <input type="number" min={0} step="0.01" value={detailsForm.tuitionFeeAmount} onChange={(e) => setDetailsForm({ ...detailsForm, tuitionFeeAmount: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-brand-navy block mb-1">Fee Currency</label>
+                  <input type="text" value={detailsForm.tuitionFeeCurrency} onChange={(e) => setDetailsForm({ ...detailsForm, tuitionFeeCurrency: e.target.value.toUpperCase() })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Status</label>
+                <select
+                  value={detailsForm.status}
+                  disabled={validNextStatuses(detailsIntake.status).length === 0}
+                  onChange={(e) => setDetailsForm({ ...detailsForm, status: e.target.value })}
+                  className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none disabled:opacity-60"
+                >
+                  <option value={detailsIntake.status}>{detailsIntake.status[0].toUpperCase()}{detailsIntake.status.slice(1)} (current)</option>
+                  {validNextStatuses(detailsIntake.status).map((s) => (
+                    <option key={s} value={s}>{s[0].toUpperCase()}{s.slice(1)}</option>
+                  ))}
+                </select>
+                {validNextStatuses(detailsIntake.status).length === 0 && (
+                  <p className="text-xs text-muted-foreground mt-1">Closed intakes cannot be reopened.</p>
+                )}
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Requirements Notes</label>
+                <textarea rows={4} value={detailsForm.requirementsNotes} onChange={(e) => setDetailsForm({ ...detailsForm, requirementsNotes: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" />
+              </div>
+            </div>
+            <div className="pt-6 border-t border-border-warm flex justify-end gap-2">
+              <Button variant="secondary" type="button" onClick={() => setDetailsIntake(null)}>Cancel</Button>
+              <Button variant="primary" type="submit" disabled={updateMutation.isPending}>Save Changes</Button>
+            </div>
+          </form>
+        )}
       </SlideOverPanel>
     </PageWrapper>
   )

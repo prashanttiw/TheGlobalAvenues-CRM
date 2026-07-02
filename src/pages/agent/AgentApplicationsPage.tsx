@@ -125,7 +125,7 @@ export default function AgentApplicationsPage() {
     },
     {
       key: 'reference',
-      header: 'Reference',
+      header: 'Application ID',
       cell: (row) => <span className="font-mono text-xs text-brand-navy">{row.reference_number}</span>,
     },
     {

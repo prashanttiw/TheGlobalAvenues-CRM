@@ -4,13 +4,14 @@ import { PageHeader } from '../../shared/components/layout/PageHeader';
 import { PageWrapper } from '../../shared/components/layout/PageWrapper';
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card';
 import { Button } from '../../shared/components/ui/Button';
-import { UserCheck, MapPin, AlertCircle, RefreshCw, Clock, XCircle, CheckCircle2 } from 'lucide-react';
+import { UserCheck, MapPin, AlertCircle, RefreshCw, Clock, XCircle, CheckCircle2, Mail, Phone } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { fetchStudentAgentInfo, submitReassignmentRequest } from '../../lib/api';
 
 export default function StudentAgentPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [requestReason, setRequestReason] = useState('');
   const [requestedAgentCode, setRequestedAgentCode] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -19,10 +20,13 @@ export default function StudentAgentPage() {
   async function loadAgentInfo() {
     try {
       setLoading(true);
+      setLoadError(null);
       const res = await fetchStudentAgentInfo();
       setData(res);
     } catch (err) {
-      toast.error('Failed to load agent assignment details.');
+      const message = err instanceof Error ? err.message : 'Failed to load agent assignment details.';
+      setLoadError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -68,8 +72,15 @@ export default function StudentAgentPage() {
   if (!data) {
     return (
       <PageWrapper>
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
-          Failed to retrieve agent settings.
+        <div className="flex items-start justify-between gap-4 rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-700">
+          <div>
+            <p className="font-semibold">Failed to retrieve agent settings.</p>
+            {loadError && <p className="mt-1 text-xs text-red-600">{loadError}</p>}
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => void loadAgentInfo()} className="flex items-center gap-1.5 shrink-0">
+            <RefreshCw className="h-3.5 w-3.5" />
+            Retry
+          </Button>
         </div>
       </PageWrapper>
     );
@@ -141,6 +152,14 @@ export default function StudentAgentPage() {
               <div>
                 <p className="text-xs text-muted-foreground">Partner Classification</p>
                 <p className="font-medium text-brand-navy">Tier {current_agent.tier} Agency</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="h-3 w-3" /> Email</p>
+                <p className="font-medium text-brand-navy">{current_agent.email || 'Not available'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3" /> Mobile</p>
+                <p className="font-medium text-brand-navy">{current_agent.phone || 'Not available'}</p>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground">Referral Code</p>

@@ -257,7 +257,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function openApplication(id: number) {
+  async function openApplication(id: string) {
     try {
       const detail = await fetchAdminApplicationDetail(id);
       setSelectedApplication(detail);
@@ -455,7 +455,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function disableUniversityRecord(universityId: number) {
+  async function disableUniversityRecord(universityId: string) {
     try {
       await deleteAdminUniversity(universityId);
       toast.success('University disabled.');
@@ -471,7 +471,7 @@ export function AdminDashboardPage() {
 
     try {
       await createAdminProgram({
-        university_id: Number(programForm.university_id),
+        university_id: programForm.university_id,
         name: programForm.name,
         degree_level: programForm.degree_level,
         subject_area: programForm.subject_area,
@@ -521,7 +521,7 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function disableProgramRecord(programId: number) {
+  async function disableProgramRecord(programId: string) {
     try {
       await deleteAdminProgram(programId);
       toast.success('Program disabled.');

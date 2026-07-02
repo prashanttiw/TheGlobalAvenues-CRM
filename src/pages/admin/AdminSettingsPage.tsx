@@ -7,7 +7,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { usePermission } from '../../hooks/usePermission'
 import { ForbiddenPage } from '../../shared/components/ui/ForbiddenPage'
 import { toast } from 'sonner'
-import { Settings as SettingsIcon, ShieldAlert, Key, Upload, Bell, Database, Activity } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Upload, Bell, Database, Activity, GraduationCap } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import { formatDistanceToNow } from 'date-fns'
@@ -31,7 +31,7 @@ export default function AdminSettingsPage() {
 
   const { data: settingsGroups, isLoading, isError } = useQuery<SettingsGroup>({
     queryKey: ['admin', 'system-settings'],
-    queryFn: () => api.get('/admin/system-settings').then(r => r.data.data),
+    queryFn: () => api.get('/admin/system-settings').then(r => r.data),
   })
 
   const { data: recentChanges } = useQuery({
@@ -95,6 +95,7 @@ export default function AdminSettingsPage() {
       case 'reminders': return <Bell className="h-5 w-5 text-brand-amber" />
       case 'security': return <ShieldAlert className="h-5 w-5 text-red-500" />
       case 'backup': return <Database className="h-5 w-5 text-brand-navy" />
+      case 'applications': return <GraduationCap className="h-5 w-5 text-brand-orange-accessible" />
       default: return <SettingsIcon className="h-5 w-5 text-gray-500" />
     }
   }

@@ -8,7 +8,7 @@ import { Button } from '../../shared/components/ui/Button';
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel';
 import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
 import { Users, ChevronDown, ChevronUp, UserPlus, ExternalLink } from 'lucide-react';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 import { fetchAgentTeam, fetchSubAgents, inviteSubAgent } from '../../lib/api';
 
 export default function AgentTeamPage() {
@@ -101,8 +101,7 @@ export default function AgentTeamPage() {
 
   return (
     <PageWrapper className="space-y-6">
-      <Toaster position="top-center" richColors />
-      <PageHeader 
+      <PageHeader
         title="My Team Network" 
         subtitle="Manage your network of L2 and L3 sub-agents and oversee performance." 
         actions={

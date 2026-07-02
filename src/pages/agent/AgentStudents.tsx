@@ -15,7 +15,7 @@ import {
   PreviewDrawerFooter 
 } from '../../shared/components/ui/PreviewDrawer';
 import { Globe, Calendar, Eye, ShieldAlert, ArrowLeft, ArrowRight, UserPlus } from 'lucide-react';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 import { useSearchParams } from 'react-router-dom';
 import { fetchAgentStudents, fetchAgentTeam } from '../../lib/api';
 
@@ -132,8 +132,7 @@ export default function AgentStudents() {
 
   return (
     <PageWrapper className="space-y-6">
-      <Toaster position="top-center" richColors />
-      <PageHeader 
+      <PageHeader
         title="Students Roster" 
         subtitle="Manage and track all students assigned within your agency network."
       />
@@ -252,11 +251,8 @@ export default function AgentStudents() {
                   </div>
 
                   <div>
-                    <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                      Security & Privacy Guard (SD-P5-02)
-                    </h4>
                     <p className="text-xs text-muted-foreground leading-relaxed">
-                      Student PII (email, phone, dates of birth, passport data) is restricted and hidden under TGA data classification boundaries.
+                      Open the full profile to view contact details, academic history, test scores, documents, and application status.
                     </p>
                   </div>
                 </div>

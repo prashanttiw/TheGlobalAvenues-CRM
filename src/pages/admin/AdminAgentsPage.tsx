@@ -14,6 +14,7 @@ import {
   fetchAdminAgentDetail,
   fetchAdminAgents,
   fetchAdminAgentsDrafts,
+  fetchAdminAgentsPending,
   fetchAdminAgentsRegistered,
   fetchAdminAgentTree,
   openAgentDocument,
@@ -29,7 +30,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
-import { Modal, ModalContent } from '../../shared/components/ui/Modal'
+import { Dialog, DialogContent, DialogTitle } from '../../shared/components/ui/Dialog'
 import { AgentTreeNode, type AgentNode } from '../../components/agent/AgentTreeNode'
 
 const SECTIONS = [
@@ -92,7 +93,7 @@ export default function AdminAgentsPage() {
 
   const pendingQuery = useQuery({
     queryKey: ['admin-agents', 'pending'],
-    queryFn: () => fetchAdminAgents({ status: 'pending', perPage: 100 }),
+    queryFn: fetchAdminAgentsPending,
     enabled: section === 'pending',
     staleTime: 15_000,
   })
@@ -173,6 +174,7 @@ export default function AdminAgentsPage() {
     { key: 'name', header: 'Name', cell: (row) => <span className="font-semibold text-brand-navy">{row.full_name || '—'}</span> },
     { key: 'tier', header: 'Tier', cell: (row) => tierLabel(Number(row.tier)) },
     { key: 'email', header: 'Email', cell: (row) => row.email || '—' },
+    { key: 'mobile', header: 'Mobile', cell: (row) => row.mobile_number || '—' },
     { key: 'joined', header: 'Registered', cell: (row) => formatDate(row.created_at) },
   ]
 
@@ -413,8 +415,11 @@ export default function AdminAgentsPage() {
       )}
 
       {/* Review modal */}
-      <Modal open={!!reviewPid} onOpenChange={(open) => { if (!open) { setReviewPid(null); setRejectReason('') } }}>
-        <ModalContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <Dialog open={!!reviewPid} onOpenChange={(open) => { if (!open) { setReviewPid(null); setRejectReason('') } }}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogTitle className="sr-only">
+            {detailQuery.data ? `Review application — ${detailQuery.data.full_name}` : 'Review agent application'}
+          </DialogTitle>
           {detailQuery.isLoading ? (
             <div className="flex items-center justify-center min-h-[200px]">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-navy" />
@@ -434,8 +439,8 @@ export default function AdminAgentsPage() {
           ) : (
             <EmptyState icon={Ban} heading="Could not load this agent" description="Please close and try again." />
           )}
-        </ModalContent>
-      </Modal>
+        </DialogContent>
+      </Dialog>
     </PageWrapper>
   )
 }

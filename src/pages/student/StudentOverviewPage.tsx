@@ -1,0 +1,239 @@
+import * as React from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  Globe,
+  Inbox,
+  Lock,
+  Mail,
+  Phone,
+  Sparkles,
+  UserCheck,
+} from 'lucide-react'
+import { PageHeader } from '../../shared/components/layout/PageHeader'
+import { PageWrapper } from '../../shared/components/layout/PageWrapper'
+import { Card, CardContent, CardHeader, CardTitle } from '../../shared/components/ui/Card'
+import { Button } from '../../shared/components/ui/Button'
+import { Badge, StatusBadge, type StatusType } from '../../shared/components/ui/Badge'
+import { StatCard } from '../../shared/components/ui/StatCard'
+import { EmptyState } from '../../shared/components/ui/EmptyState'
+import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidget'
+import { ProfileCompletionPanel } from '../../shared/components/student/ProfileCompletionPanel'
+import { useAuth } from '../../shared/hooks/useAuth'
+import { useUnreadCount } from '../../shared/hooks/useNotifications'
+import { fetchReadiness, fetchStudentAgentInfo, fetchStudentApplicationsList } from '../../lib/api'
+import { isProfileReady } from '../../shared/constants/readiness'
+
+const KNOWN_STATUSES = new Set<StatusType>([
+  'registered', 'pending', 'approved', 'rejected', 'suspended', 'enrolled',
+  'draft', 'submitted', 'under_review', 'offer_received', 'paid', 'confirmed',
+])
+
+const OPEN_STATUSES = new Set(['draft', 'submitted', 'documents_submitted', 'profile_review', 'inquiry'])
+const IN_REVIEW_STATUSES = new Set(['under_review', 'conditional_offer', 'unconditional_offer', 'documents_submitted'])
+const OFFER_STATUSES = new Set(['offer_received', 'conditional_offer', 'unconditional_offer', 'cas_coe_issued'])
+const ENROLLED_STATUSES = new Set(['enrolled', 'departed', 'pre_departure', 'visa_approved', 'visa_applied'])
+
+function renderStatus(status: string) {
+  return KNOWN_STATUSES.has(status as StatusType) ? (
+    <StatusBadge status={status as StatusType} />
+  ) : (
+    <Badge variant="secondary">{status.replace(/_/g, ' ')}</Badge>
+  )
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return '—'
+  return new Date(value).toLocaleDateString()
+}
+
+export default function StudentOverviewPage() {
+  const { user } = useAuth()
+  const navigate = useNavigate()
+
+  const readinessQuery = useQuery({
+    queryKey: ['student', 'readiness'],
+    queryFn: fetchReadiness,
+  })
+
+  const applicationsQuery = useQuery({
+    queryKey: ['student', 'applications'],
+    queryFn: fetchStudentApplicationsList,
+  })
+
+  const agentQuery = useQuery({
+    queryKey: ['student', 'agent'],
+    queryFn: fetchStudentAgentInfo,
+  })
+
+  const unreadQuery = useUnreadCount()
+
+  const applications = applicationsQuery.data ?? []
+  const ready = isProfileReady(readinessQuery.data?.profile_status)
+
+  const stats = React.useMemo(() => {
+    let open = 0
+    let inReview = 0
+    let offers = 0
+    let enrolled = 0
+    for (const app of applications) {
+      if (OPEN_STATUSES.has(app.status)) open += 1
+      if (IN_REVIEW_STATUSES.has(app.status)) inReview += 1
+      if (OFFER_STATUSES.has(app.status)) offers += 1
+      if (ENROLLED_STATUSES.has(app.status)) enrolled += 1
+    }
+    return { total: applications.length, open, inReview, offers, enrolled }
+  }, [applications])
+
+  const recentApplications = applications.slice(0, 5)
+  const firstName = user?.name?.split(' ')[0] ?? 'there'
+
+  return (
+    <PageWrapper className="space-y-6">
+      <PageHeader
+        title={`Welcome back, ${firstName}`}
+        subtitle="Here's where your study-abroad journey stands right now."
+      />
+
+      {readinessQuery.isLoading ? null : ready ? (
+        <div className="flex items-center gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">Your profile is complete.</p>
+            <p className="text-xs text-emerald-700 mt-0.5">
+              Personal details and documents are on your{' '}
+              <button type="button" className="font-semibold underline" onClick={() => navigate('/portal/student/profile')}>
+                Profile page
+              </button>. You can now apply to any program.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <ProfileCompletionPanel />
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        <StatCard label="Total Applications" value={stats.total} icon={FileText} color="navy" isLoading={applicationsQuery.isLoading} />
+        <StatCard label="Open / In Progress" value={stats.open} icon={Inbox} color="amber" isLoading={applicationsQuery.isLoading} />
+        <StatCard label="In Review" value={stats.inReview} icon={Sparkles} color="orange" isLoading={applicationsQuery.isLoading} />
+        <StatCard label="Offers Received" value={stats.offers} icon={CheckCircle2} color="green" isLoading={applicationsQuery.isLoading} />
+        <StatCard label="Unread Notices" value={unreadQuery.data?.count ?? 0} icon={Mail} color="navy" isLoading={unreadQuery.isLoading} />
+      </div>
+
+      <div className="grid lg:grid-cols-[1.4fr_0.9fr] gap-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base font-semibold text-brand-navy">Recent Applications</CardTitle>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/portal/student/applications')}>
+              View all
+              <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {applicationsQuery.isLoading ? (
+              <p className="text-sm text-muted-foreground">Loading applications…</p>
+            ) : recentApplications.length === 0 ? (
+              <EmptyState
+                icon={FileText}
+                heading="No applications yet"
+                description={ready ? 'Browse universities and submit your first application.' : 'Complete your profile above, then browse universities to apply.'}
+                action={
+                  <Button onClick={() => navigate('/portal/student/universities')}>
+                    Browse Universities
+                  </Button>
+                }
+              />
+            ) : (
+              recentApplications.map((app: any) => (
+                <div
+                  key={app.public_id}
+                  className="flex items-center justify-between gap-4 rounded-lg border border-border-warm bg-surface-warm/40 px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-brand-navy truncate">{app.program_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{app.university_name} · {app.reference_number}</p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-xs text-muted-foreground hidden sm:inline">{formatDate(app.created_at)}</span>
+                    {renderStatus(app.status)}
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card>
+            <CardContent className="p-5">
+              {ready ? (
+                <>
+                  <div className="flex items-center gap-2 text-brand-navy">
+                    <Globe className="h-4 w-4" />
+                    <p className="text-sm font-semibold">Browse Universities</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">Explore partner universities, programs, and open intakes.</p>
+                  <Button className="w-full mt-4" onClick={() => navigate('/portal/student/universities')}>
+                    Browse now
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 text-amber-700">
+                    <Lock className="h-4 w-4" />
+                    <p className="text-sm font-semibold">Applications locked</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">
+                    You can still browse universities and programs, but complete your profile above before applying.
+                  </p>
+                  <Button className="w-full mt-4" variant="secondary" onClick={() => navigate('/portal/student/universities')}>
+                    Browse Universities
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <UserCheck className="h-4 w-4 text-brand-orange-accessible" />
+              <CardTitle className="text-sm font-semibold text-brand-navy">Your Consultant</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {agentQuery.isLoading ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : agentQuery.data?.current_agent ? (
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold text-brand-navy">{agentQuery.data.current_agent.full_name}</p>
+                  {agentQuery.data.current_agent.agency_name && (
+                    <p className="text-xs text-muted-foreground">{agentQuery.data.current_agent.agency_name}</p>
+                  )}
+                  {agentQuery.data.current_agent.phone && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3" />{agentQuery.data.current_agent.phone}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">No consultant assigned yet.</p>
+              )}
+              <Button variant="secondary" size="sm" className="w-full mt-3" onClick={() => navigate('/portal/student/agent')}>
+                Manage
+              </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold text-brand-navy">Recent Activity</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ActivityFeedWidget rolePrefix="student" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    </PageWrapper>
+  )
+}

@@ -1,17 +1,20 @@
 import * as React from 'react'
+import { useNavigate } from 'react-router-dom'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card'
 import { Button } from '../../shared/components/ui/Button'
 import { useAuth } from '../../shared/hooks/useAuth'
 import { toast } from 'sonner'
-import { User, Shield, Key, Eye, EyeOff } from 'lucide-react'
+import { User, Shield, Key, Eye, EyeOff, FileCheck } from 'lucide-react'
 import {
   changePassword,
+  fetchReadiness,
   fetchStudentProfile,
   updateStudentProfile,
   type StudentProfileResponse,
 } from '../../lib/api'
+import { isProfileReady } from '../../shared/constants/readiness'
 
 type ProfileFormState = {
   first_name: string
@@ -103,6 +106,7 @@ function PasswordField({
 
 export default function StudentProfile() {
   const { user } = useAuth()
+  const navigate = useNavigate()
   const [profile, setProfile] = React.useState<StudentProfileResponse | null>(null)
   const [formData, setFormData] = React.useState<ProfileFormState>({
     first_name: '',
@@ -130,6 +134,8 @@ export default function StudentProfile() {
   const [savingProfile, setSavingProfile] = React.useState(false)
   const [savingPassword, setSavingPassword] = React.useState(false)
 
+  const [readiness, setReadiness] = React.useState<any>(null)
+
   const loadProfile = React.useCallback(async () => {
     try {
       setLoading(true)
@@ -143,9 +149,19 @@ export default function StudentProfile() {
     }
   }, [])
 
+  const loadReadiness = React.useCallback(async () => {
+    try {
+      const data = await fetchReadiness()
+      setReadiness(data)
+    } catch (error) {
+      // Non-fatal: the profile summary card simply won't render.
+    }
+  }, [])
+
   React.useEffect(() => {
     void loadProfile()
-  }, [loadProfile])
+    void loadReadiness()
+  }, [loadProfile, loadReadiness])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -441,6 +457,28 @@ export default function StudentProfile() {
           </CardContent>
         </Card>
       </div>
+
+      {readiness && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-3 border-b border-border-warm pb-2">
+            <div className="flex items-center gap-3">
+              <FileCheck className={`h-5 w-5 ${isProfileReady(readiness.profile_status) ? 'text-emerald-600' : 'text-amber-600'}`} />
+              <CardTitle className="text-base font-semibold text-brand-navy">Application Profile</CardTitle>
+            </div>
+            <Button variant="secondary" size="sm" onClick={() => navigate('/portal/student/profile/complete')}>
+              {isProfileReady(readiness.profile_status) ? 'Edit' : 'Complete Profile'}
+            </Button>
+          </CardHeader>
+          <CardContent className="mt-4 space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {isProfileReady(readiness.profile_status)
+                ? 'Your personal details, academic history, and documents are complete — apply to any program without re-entering this information.'
+                : 'Finish your personal details, academic history, and required documents to unlock applying to programs.'}
+            </p>
+            <p className="text-xs text-muted-foreground">{(readiness.documents ?? []).length} document(s) on file</p>
+          </CardContent>
+        </Card>
+      )}
     </PageWrapper>
   )
 }

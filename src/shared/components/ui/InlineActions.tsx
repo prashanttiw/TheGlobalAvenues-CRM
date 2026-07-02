@@ -6,7 +6,7 @@ import { cn } from '../../../lib/utils'
 
 export interface ActionItem {
   label: string
-  icon: LucideIcon
+  icon?: LucideIcon
   onClick: () => void
   hidden?: boolean
   variant?: 'default' | 'danger'
@@ -42,7 +42,7 @@ export function InlineActions({ actions }: InlineActionsProps) {
                   : "text-brand-navy focus:bg-brand-orange-accessible/10 focus:text-brand-orange-accessible"
               )}
             >
-              <action.icon className="mr-2 h-4 w-4" />
+              {action.icon ? <action.icon className="mr-2 h-4 w-4" /> : null}
               {action.label}
             </DropdownMenu.Item>
           ))}

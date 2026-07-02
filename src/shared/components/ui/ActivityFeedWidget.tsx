@@ -7,7 +7,7 @@ import * as Icons from 'lucide-react'
 export function ActivityFeedWidget({ rolePrefix = 'admin' }: { rolePrefix?: string }) {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['activityFeed', rolePrefix],
-    queryFn: () => api.get(`/${rolePrefix}/dashboard/activity-feed`).then(r => r.data.data),
+    queryFn: () => api.get(`/${rolePrefix}/dashboard/activity-feed`).then(r => r.data),
     staleTime: 30_000,
   })
 

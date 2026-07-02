@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useNavigate } from 'react-router-dom'
 import { fetchAdminStudents } from '../../lib/api'
 import { usePermission } from '../../hooks/usePermission'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
@@ -17,7 +18,9 @@ import {
   PreviewDrawerBody,
   PreviewDrawerFooter,
 } from '../../shared/components/ui/PreviewDrawer'
-import { Calendar, Edit, Eye, FileUp, Globe, Mail, Phone, User, UserCheck } from 'lucide-react'
+import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
+import { CustomFieldsManagerPanel } from '../../shared/components/students/CustomFieldsManagerPanel'
+import { Calendar, Edit, Eye, FileUp, Globe, ListPlus, Mail, Phone, User, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface AdminStudent {
@@ -57,10 +60,12 @@ function renderStatus(status: string) {
 }
 
 export default function AdminStudentsPage() {
+  const navigate = useNavigate()
   const [searchTerm, setSearchTerm] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('')
   const [agentFilter, setAgentFilter] = React.useState('')
   const [selectedStudent, setSelectedStudent] = React.useState<AdminStudent | null>(null)
+  const [isManageFieldsOpen, setIsManageFieldsOpen] = React.useState(false)
 
   const canEdit = usePermission('students', 'edit')
   const canReassign = usePermission('students', 'reassign')
@@ -120,7 +125,7 @@ export default function AdminStudentsPage() {
         <div onClick={(e) => e.stopPropagation()}>
           <InlineActions
             actions={[
-              { label: 'View Full Profile', icon: Eye, onClick: () => setSelectedStudent(row) },
+              { label: 'View Full Profile', icon: Eye, onClick: () => navigate(`/portal/admin/students/${row.public_id}`) },
               { label: 'Request Document', icon: FileUp, onClick: () => toast.success(`Use application-level document requests for ${row.name}.`) },
               { label: 'Edit Student Details', icon: Edit, onClick: () => toast.success(`Live edit flow is not wired on this page yet for ${row.name}.`), hidden: !canEdit },
               { label: 'Reassign Agent', icon: UserCheck, onClick: () => toast.success(`Use the reassignment queue for ${row.name}.`), hidden: !canReassign },
@@ -136,6 +141,14 @@ export default function AdminStudentsPage() {
       <PageHeader
         title="Students Directory"
         subtitle="Manage real student records across the portal pipeline."
+        actions={
+          canEdit ? (
+            <Button variant="secondary" onClick={() => setIsManageFieldsOpen(true)}>
+              <ListPlus className="mr-2 h-4 w-4" />
+              Manage Custom Fields
+            </Button>
+          ) : undefined
+        }
       />
 
       <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-surface-card p-4 rounded-xl border border-border-warm">
@@ -246,6 +259,10 @@ export default function AdminStudentsPage() {
           )}
         </PreviewDrawerContent>
       </PreviewDrawer>
+
+      <SlideOverPanel title="Manage Custom Fields" open={isManageFieldsOpen} onOpenChange={setIsManageFieldsOpen}>
+        <CustomFieldsManagerPanel />
+      </SlideOverPanel>
     </PageWrapper>
   )
 }

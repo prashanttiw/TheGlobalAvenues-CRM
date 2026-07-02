@@ -7,7 +7,7 @@ import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
 import { StatCard } from '../../shared/components/ui/StatCard';
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card';
 import { DollarSign, User, Globe, Calendar, Clock, CheckCircle, ArrowRightLeft, AlertTriangle } from 'lucide-react';
-import { toast, Toaster } from 'sonner';
+import { toast } from 'sonner';
 import { fetchAgentCommissions, fetchAgentCommissionsSummary } from '../../lib/api';
 
 export default function AgentCommissionsPage() {
@@ -166,8 +166,7 @@ export default function AgentCommissionsPage() {
 
   return (
     <PageWrapper className="space-y-8">
-      <Toaster position="top-center" richColors />
-      <PageHeader 
+      <PageHeader
         title="Agency Commissions Ledger" 
         subtitle="Manage and view your direct commissions alongside B2B override summaries in your subtree network." 
       />
