@@ -152,6 +152,7 @@ export type CatalogUniversity = {
   partnershipType: 'exclusive' | 'non_exclusive';
   isExclusive: boolean;
   programCount: number;
+  siblingCount: number;
   startingTuition: number | null;
   startingTuitionCurrency: string | null;
   startingTuitionLabel: string | null;
@@ -188,6 +189,7 @@ export type AdminPermissionSummary = {
   catalogReadOnly: boolean;
   canReviewDocuments: boolean;
   canManageUsers: boolean;
+  canViewAgentDirectory: boolean;
   canChangeInternalRoles: boolean;
   canViewAuditLog: boolean;
   canApproveAgents: boolean;
@@ -350,6 +352,8 @@ export type AdminDocumentQueueItem = {
   program_name: string;
 };
 
+export type PageAccessLevel = 'read' | 'write';
+
 export type AdminUserSummary = {
   public_id: string;
   email: string;
@@ -362,7 +366,7 @@ export type AdminUserSummary = {
   last_login_at: string | null;
   firstName: string | null;
   lastName: string | null;
-  pages: string[];
+  pages: Record<string, PageAccessLevel>;
 };
 
 export type AdminUserDetail = {
@@ -770,6 +774,7 @@ export async function fetchUniversities(params: {
       partnershipType: row.partnership_type,
       isExclusive: row.partnership_type === 'exclusive',
       programCount: row.course_count ?? 0,
+      siblingCount: row.sibling_count ?? 0,
       startingTuition: null,
       startingTuitionCurrency: null,
       startingTuitionLabel: null,
@@ -1107,7 +1112,7 @@ export async function updateAdminUser(payload: {
   public_id: string;
   status?: string;
   role?: string;
-  pages?: string[];
+  pages?: Record<string, PageAccessLevel>;
 }): Promise<void> {
   await request('/?route=admin&action=update_user', {
     method: 'PUT',
@@ -1990,15 +1995,80 @@ export async function verifyAgentRegistrationOtp(email: string, code: string): P
   return response.data;
 }
 
-export async function fetchAdminActivityLogs(params: Record<string, any> = {}): Promise<{ logs: any[], meta: PaginationMeta }> {
+export interface ActivityLogEntry {
+  id: number;
+  actor_user_id: number | null;
+  actor_user_type: string | null;
+  actor_display_name: string | null;
+  action: string;
+  target_type: string | null;
+  target_public_id: string | null;
+  target_display: string | null;
+  before_value: string | null;
+  after_value: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  created_at: string;
+  /** Plain-English sentence describing the action, computed server-side. */
+  label?: string;
+  /** lucide-react icon name, computed server-side. */
+  icon?: string;
+  /** Relative time string (e.g. "2h ago"), computed server-side. */
+  time_ago?: string;
+}
+
+export interface ActivityLogParams {
+  page?: number;
+  perPage?: number;
+  actorType?: string;
+  /** Filters on the log's own action column. Sent as ?log_action= — NOT ?action=,
+   * which is reserved by the /?route=X&action=Y routing convention. */
+  logAction?: string;
+  targetType?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+function buildActivityLogQuery(params: ActivityLogParams): string {
   const searchParams = new URLSearchParams();
-  Object.entries(params).forEach(([key, value]) => {
+  const map: Record<string, string | number | undefined> = {
+    page: params.page,
+    per_page: params.perPage,
+    actor_type: params.actorType,
+    log_action: params.logAction,
+    target_type: params.targetType,
+    date_from: params.dateFrom,
+    date_to: params.dateTo,
+  };
+  Object.entries(map).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') {
       searchParams.append(key, String(value));
     }
   });
-  const response = await api.get(`/?route=admin&action=activity-logs&` + searchParams.toString());
-  return { logs: response.data.logs, meta: response.data.meta as PaginationMeta };
+  return searchParams.toString();
+}
+
+async function fetchActivityLogs(routeAction: string, params: ActivityLogParams): Promise<{ logs: ActivityLogEntry[]; meta: PaginationMeta }> {
+  const response = await api.get(`/?${routeAction}&` + buildActivityLogQuery(params));
+  return {
+    logs: Array.isArray(response.data) ? response.data : [],
+    meta: response.meta as PaginationMeta,
+  };
+}
+
+/** Own activity log — every admin sees only their own actions. */
+export async function fetchAdminActivityLogs(params: ActivityLogParams = {}): Promise<{ logs: ActivityLogEntry[]; meta: PaginationMeta }> {
+  return fetchActivityLogs('route=admin&action=activity-logs', params);
+}
+
+/** Super Activity Log — system-wide. Gated by activity_logs.view_all (super admin bypasses). */
+export async function fetchSuperActivityLogs(params: ActivityLogParams = {}): Promise<{ logs: ActivityLogEntry[]; meta: PaginationMeta }> {
+  return fetchActivityLogs('route=admin&action=super-activity-logs', params);
+}
+
+/** Agent activity log — self + tier-aware subtree. */
+export async function fetchAgentActivityLogs(params: ActivityLogParams = {}): Promise<{ logs: ActivityLogEntry[]; meta: PaginationMeta }> {
+  return fetchActivityLogs('route=agent&action=activity-logs', params);
 }
 
 
@@ -2129,11 +2199,52 @@ export async function fetchAdminUniversitiesLive(params: {
   page?: number;
   perPage?: number;
   status?: string;
+  q?: string;
 } = {}): Promise<{ universities: any[]; meta: PaginationMeta }> {
   const response = await api.get<any[]>('admin/universities', {
-    params: { page: params.page, per_page: params.perPage, status: params.status },
+    params: { page: params.page, per_page: params.perPage, status: params.status, q: params.q },
   });
   return { universities: Array.isArray(response.data) ? response.data : [], meta: response.meta as PaginationMeta };
+}
+
+export async function fetchAdminCoursesAll(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  universityId?: string;
+  degreeLevel?: string;
+} = {}): Promise<{ courses: any[]; meta: any }> {
+  const response = await api.get<any[]>('admin/courses', {
+    params: {
+      page: params.page,
+      per_page: params.perPage,
+      q: params.q,
+      university_id: params.universityId,
+      degree_level: params.degreeLevel,
+    },
+  });
+  return { courses: Array.isArray(response.data) ? response.data : [], meta: response.meta };
+}
+
+export async function fetchAdminIntakesAll(params: {
+  page?: number;
+  perPage?: number;
+  q?: string;
+  universityId?: string;
+  courseId?: string;
+  status?: string;
+} = {}): Promise<{ intakes: any[]; meta: any }> {
+  const response = await api.get<any[]>('admin/intakes', {
+    params: {
+      page: params.page,
+      per_page: params.perPage,
+      q: params.q,
+      university_id: params.universityId,
+      course_id: params.courseId,
+      status: params.status,
+    },
+  });
+  return { intakes: Array.isArray(response.data) ? response.data : [], meta: response.meta };
 }
 
 export async function fetchAdminUniversityLive(publicId: string): Promise<any> {
@@ -2166,7 +2277,11 @@ export async function uploadUniversityLogo(publicId: string, file: File): Promis
 }
 
 export async function fetchAdminUniversityCourses(universityPublicId: string): Promise<any[]> {
-  const response = await api.get<any[]>(`admin/universities/${encodeURIComponent(universityPublicId)}/courses`);
+  // per_page is set high (not the endpoint's default of 20) because callers treat the
+  // returned array as the complete course list — e.g. AdminUniversitiesPage.tsx derives its
+  // displayed course count from .length, and fetchAdminPrograms flattens this across every
+  // university. Universities can have 100+ courses, so a low page size silently truncates both.
+  const response = await api.get<any[]>(`admin/universities/${encodeURIComponent(universityPublicId)}/courses?per_page=1000`);
   return Array.isArray(response.data) ? response.data : [];
 }
 
@@ -2230,11 +2345,6 @@ export async function eraseAdminFile(filePublicId: string, reason: string): Prom
   });
   return { message: response.message || response.data?.message || 'File permanently erased successfully.' };
 }
-export async function fetchAdminRoles(): Promise<{ id: number; public_id: string; name: string; description: string | null; admin_count: number; permissions: string[] }[]> {
-  const response = await request<{ roles: any[] }>('/?route=admin&action=roles');
-  return response.data.roles ?? [];
-}
-
 export async function fetchAdminSecurityEvents(params: {
   page?: number;
   perPage?: number;
@@ -2255,7 +2365,7 @@ export async function createAdminStaffAccount(payload: {
   phone?: string;
   password: string;
   is_super_admin?: boolean;
-  pages?: string[];
+  pages?: Record<string, PageAccessLevel>;
 }): Promise<void> {
   await request('/?route=auth&action=register/admin', {
     method: 'POST',
