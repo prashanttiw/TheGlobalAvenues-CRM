@@ -596,3 +596,512 @@ Pre-fix line 54 selected `a.agency_country, a.registration_number` from `agents 
   - `npm run build` -> PASS
 - **Validation Boundary**:
   - This remediation was validated by PHP syntax checks and frontend production build only. No full authenticated runtime smoke test was completed against a running local database/API stack during this session.
+
+### 2026-07-02 - Hierarchical Activity Log Redesign (Super Activity Log + Agent Activity Log)
+
+- **Problem**: `ActivityLogController::adminList()` showed *every* activity log row to *any*
+  admin holding `activity_logs.view` — no distinction between super admin and a regular/sub
+  admin, no "own actions only" concept (a stale code comment flagged this gap explicitly).
+  `ActivityFeedController::getFeed()` (dashboard "recent activity" widget) had the identical
+  gap for admins, plus a separate bug for agents: it always expanded to the full
+  `root_agent_id` subtree regardless of tier, so a tier-2/tier-3 sub-agent's dashboard feed
+  leaked their whole team's activity instead of just their own. The admin-side frontend page
+  was also broken: `src/router/index.tsx`'s `logs` route rendered `AdminDashboardPage`
+  instead of `AdminLogsPage` (copy-paste bug), and `fetchAdminActivityLogs()` read the
+  response as `response.data.logs`/`response.data.meta` when the backend returns the log
+  array directly as `data` and pagination as top-level `meta` (same shape as every other
+  list endpoint) — the function was non-functional. There was no agent-side activity log
+  page at all, despite `ActivityLogController::agentList()` already implementing correct
+  tier-aware subtree logic.
+- **New model**: Super admin sees everything system-wide on a page renamed **"Super Activity
+  Log"**. Every other admin sees only their own actions on a page called **"Activity Log"**
+  — automatic, no grant needed. A super admin can grant a specific admin access to "Super
+  Activity Log" too, via the existing page-access grant mechanism
+  (`AdminPageAccessService`) — granted admins get both pages. Agents see a tier-aware
+  subtree: tier-1 sees full subtree, tier-2 sees self + direct (tier-3) children, tier-3
+  sees only self — matching the pre-existing (and now reused) `agentList()` logic.
+- **New permission**: migration `070_activity_logs_view_all_permission.sql` adds
+  `('activity_logs', 'view_all')`. **Not covered by `run_all_migrations.php`** (only matches
+  `060`-`069`) and **not added to `all_migrations_combined.sql`** (that file only ever
+  covered the migration-048-052 gap range, 038-059 — it is not a true full snapshot despite
+  the CLAUDE.md description; do not assume it is complete). Apply this migration manually to
+  any existing DB.
+- **Real bug found while building this**: the log's own `action` column can't be filtered
+  via a query param literally named `action` — the routing convention
+  (`/?route=X&action=Y`) reserves that name and it's always present, equal to the route
+  action string (e.g. `activity-logs`). The *original* `adminList()`/`agentList()` code had
+  exactly this collision (`$_GET['action']`), meaning any attempt to filter by log action
+  would always self-match the route name and return zero rows — a second reason the page
+  never worked even before the frontend/routing bugs above. Fixed by renaming the filter to
+  `log_action` (`ActivityLogParams.logAction` on the frontend).
+- **New reusable helper**: `crm-api/Helpers/AgentHierarchy.php` —
+  `subtreeUserIds(PDO $pdo, int $requestingUserId): array` extracts the tier-based subtree
+  resolution that used to be duplicated (and had diverged) between
+  `ActivityLogController::agentList()` and `ActivityFeedController::getFeed()`. Use this for
+  any future agent-facing endpoint needing tier-scoped visibility instead of re-deriving it.
+- **Backend files changed**:
+  - `crm-api/Controllers/ActivityLogController.php` — `adminList()` now filters to
+    `actor_user_id = self` (no permission gate beyond auth); new `superList()` (system-wide,
+    gated by `activity_logs.view_all`, super admin bypasses via existing `RBACMiddleware`
+    `'*'`/`is_super` check); `agentList()` now uses `AgentHierarchy::subtreeUserIds()` +
+    gained `log_action`/`target_type`/`date_from`/`date_to` filters + `before_value`/
+    `after_value` in the SELECT for the new detail view.
+  - `crm-api/Controllers/ActivityFeedController.php` — agent branch now uses
+    `AgentHierarchy::subtreeUserIds()` (tier-aware fix); admin branch defaults to own-only,
+    system-wide only if the JWT `perms` includes `'*'` or `activity_logs.view_all`.
+  - `crm-api/Services/AdminPageAccessService.php` — `PAGE_PERMISSION_MAP`/`availablePages()`:
+    removed grantable `logs` page (own log is now automatic), added `super_logs` →
+    `activity_logs.view_all`.
+  - `crm-api/Routes/AdminRoutes.php` — added
+    `RouteRegistry::get('admin', 'super-activity-logs', [$logs, 'superList'])`.
+  - `crm-api/Database/migrations/070_activity_logs_view_all_permission.sql` — **NEW FILE**.
+- **Frontend files changed**:
+  - `src/lib/api.ts` — fixed `fetchAdminActivityLogs()` response-shape bug; added
+    `fetchSuperActivityLogs()`, `fetchAgentActivityLogs()`, shared `ActivityLogParams`/
+    `ActivityLogEntry` types and `buildActivityLogQuery()` helper.
+  - `src/shared/components/activity/ActivityLogTable.tsx` — **NEW FILE**: shared table +
+    row-detail modal (before/after JSON diff, IP, user agent) reused by all three log pages.
+  - `src/pages/admin/AdminLogsPage.tsx` — rewritten as the "own" log (dropped the
+    now-meaningless actor-type filter, added date range).
+  - `src/pages/admin/AdminSuperLogsPage.tsx` — **NEW FILE**: system-wide log with
+    actor-type filter + search + date range.
+  - `src/pages/agent/AgentLogsPage.tsx` — **NEW FILE**: agent subtree log.
+  - `src/shared/components/layout/PageGuard.tsx` — `permission` prop now optional (no
+    permission = any authenticated user allowed), needed since "Activity Log" (own) is no
+    longer gated.
+  - `src/router/index.tsx` — fixed `logs` route to render `AdminLogsPage` (was
+    `AdminDashboardPage`); added `super-logs` route (gated by `activity_logs.view_all`) and
+    agent `activity-logs` route; added corresponding lazy imports. (Left the neighboring
+    `roles`/`security`/`leads` → `AdminDashboardPage` placeholder bugs untouched — out of
+    scope for this change.)
+  - `src/shared/components/layout/PortalWrapper.tsx` — admin nav: `Logs` → `Activity Log`
+    (ungated) + new `Super Activity Log` (gated by `activity_logs.view_all`); agent nav:
+    added `Activity Log`.
+  - `src/shared/components/layout/DashboardLayout.tsx` — the TopBar's auto-derived page
+    title (from URL slug) didn't know about the renamed pages (`/logs` → "Logs", `/super-logs`
+    → "Super Logs"); added explicit title overrides for both plus the agent activity-logs
+    route, matching the existing hardcoded-override pattern for `/portal/admin` etc.
+  - `src/pages/admin/AdminUsers.tsx` — `PAGE_DEFS` catalogue: removed `logs`, added
+    `super_logs` (flows straight through the existing Create/Edit Page Access UI).
+- **Verification** (live, not just static reading — local XAMPP DB):
+  - `npm run build`: PASS, 0 errors.
+  - `php -l` on all modified/new PHP files: PASS.
+  - Curl + direct PHP-CLI checks against the local DB: super admin's own log correctly
+    scoped to `actor_user_id = 1` (118 of 183 total rows); `super-activity-logs` correctly
+    unscoped (183/183, mixed admin/agent/student actor types); a fresh unprivileged test
+    admin (`qa.activitylog.test@theglobalavenues.com`, created via
+    `POST /?route=auth&action=register/admin` — **note**: this endpoint is separately broken
+    by an unrelated pre-existing bug, `Unknown column 'registered_by_type'` in
+    `RegistrationController::registerAdmin()`, worked around by inserting the test user
+    directly via SQL) got 403 on `super-activity-logs` before being granted the `super_logs`
+    page via `PUT /?route=admin&action=update_user`, and 200 with system-wide data after.
+  - `AgentHierarchy::subtreeUserIds()` direct-tested for a real tier-1/2/3 chain (agent id 1
+    tier1/root, id 2 tier2 child of 1, id 3 tier3 child of 2): tier-1 → `[3,4,8]` (self +
+    full subtree), tier-2 → `[4,8]` (self + own child, correctly excluding the tier-1
+    parent), tier-3 → `[8]` (self only). Cross-checked against `activity_logs` row counts per
+    user (9/9/3) — tier-1 agent's `GET agent&action=activity-logs` returned `total: 21`
+    (9+9+3) via HTTP, matching exactly.
+  - Browser (preview) walkthrough as super admin: sidebar shows both "Activity Log" and
+    "Super Activity Log"; own-log page correctly scoped and titled; super-log page shows
+    mixed admin/agent/student rows with working actor-type filter; row-detail modal renders
+    before/after JSON, IP, and user agent correctly. Browser walkthrough as the tier-1 test
+    agent (`agent1@theglobalavenues.com`): sidebar shows "Activity Log"; page correctly shows
+    self + subtree activity.
+  - **Not independently browser-verified**: the dashboard "recent activity" widget fix for a
+    non-super admin / tier-2 agent specifically (the `AdminDashboardPage` overview route has
+    a pre-existing, unrelated crash — `get_dashboard_stats`/`get_document_queue` 500s and a
+    `Cannot read properties of null (reading 'replace')` render error — that blocks loading
+    that page at all). Verified instead via curl against `GET
+    admin&action=dashboard/activity-feed` directly: an admin without `view_all` gets
+    own-actions-only, the granted QA test admin gets system-wide, matching the super admin's
+    result exactly.
+- **Known pre-existing bugs found but left untouched (separate, out of scope)**:
+  - `router/index.tsx`: `roles`, `security`, and `leads` admin routes still render
+    `AdminDashboardPage` as a placeholder (same bug class as the `logs` route fixed here).
+  - `AdminDashboardPage.tsx`: `get_dashboard_stats` and `get_document_queue` backend actions
+    500 on the local DB; a `null.replace()` crash in the same component.
+  - `RegistrationController::registerAdmin()` (`POST /?route=auth&action=register/admin`):
+    references `users.registered_by_type`, a column that does not exist in the local schema.
+
+### 2026-07-03 — Activity Log: Super-Admin-Only Restriction + Fully Readable Labels
+
+Follow-up to the 2026-07-02 hierarchical redesign above, per explicit user feedback: (1) super admin
+should see **only** "Super Activity Log" — not also the redundant "own actions" Activity Log page —
+and (2) the log entries themselves were still raw and hard to parse (`system_setting.changed` /
+`No target label` / hidden before-after JSON) instead of plain English showing who did what, when, and
+with what details, without requiring an extra click into "Details".
+
+**Super-admin-only nav fix**:
+- `src/shared/components/layout/PortalWrapper.tsx` — `ADMIN_NAV_BASE`'s `Activity Log` entry gained
+  `hideForSuperAdmin: true`; the super-admin filter branch now excludes it (`!item.hideForSuperAdmin`)
+  instead of unconditionally showing every unpermissioned item. A granted regular admin still gets both
+  items — this only removes it for actual super admins.
+- `src/pages/admin/AdminLogsPage.tsx` — added a `<Navigate to="/portal/admin/super-logs" replace />`
+  guard for super admins hitting `/portal/admin/logs` directly (e.g. bookmarked URL), and disabled
+  (`enabled: !isSuperAdmin`) the now-redundant own-log query for them so it doesn't even fire.
+
+**Real bug found and fixed — actor names were showing "System" for ~80% of all logged actions**:
+`ActivityLogger::log()` resolved the actor's display name from `$payload['name'] ?? $payload['display_name'] ?? 'System'`
+off the decoded JWT — but `JWTService::issueTokenPair()` never puts a `name`/`display_name` claim in the
+token (only `sub`, `utype`, `perms`, `jti`, etc.), so that lookup always missed and silently fell back to
+the literal string `'System'`. Confirmed via `SELECT actor_display_name, COUNT(*) ... GROUP BY` on the
+local DB: 160 of ~204 rows said "System". Fixed by adding `ActivityLogger::resolveDisplayName()` — a
+direct one-row lookup (`students`/`agents`/`admins`.`full_name` by `user_id`), the same pattern
+`AuthController::resolveFullName()` already used elsewhere — instead of trusting the JWT for a claim it
+never carried. Live-verified: the next system-setting change after the fix correctly logged
+"Prashant Tiwari changed the ..." instead of "System changed the ...". This only affects rows logged
+going forward — existing historical rows keep whatever name was captured at write time (`activity_logs`
+is INSERT-only, never rewritten).
+
+**New shared humanizer — `crm-api/Helpers/ActivityLabelFormatter.php`** (new file): turns a raw
+`activity_logs` row into a plain-English sentence, a lucide-react icon name, and a relative time string.
+Used by both `ActivityLogController` (all three list endpoints) and `ActivityFeedController` (dashboard
+widget) so wording never drifts between the two — `ActivityFeedController::getFeed()` had its own
+private `formatAction()`/`getIcon()`/`timeAgo()` duplicated with an incomplete ~8-action dictionary and a
+couple of dead entries (`document_request.approved`/`rejected`, action keys that don't actually exist —
+the real key is `document_request.reviewed` with a `status` field); both were deleted in favor of the
+shared helper.
+- **`ACTION_TEMPLATES`**: covers every action key found via `grep -r "ActivityLogger::log("` across all
+  controllers (~55 keys) with a `"verb phrase %s"` template, `%s` = the target's display name or a
+  generic noun (`TARGET_TYPE_NOUNS`, keyed off `target_type`) when no specific name was captured.
+- **Inline change details, not just a generic verb** (this was the main ask — "must show all the data
+  that is needed ... shown here also", not hidden behind Details): `summarizeChanges()` diffs
+  `before_value`/`after_value` generically and appends up to 3 `"Field: old → new"` fragments (or
+  `"Field: value"` for create-only events) right onto the label, e.g. `"Prashant Tiwari changed the
+  \"max active applications per student\" setting from 3 to 4"` or `"System updated a user account
+  (Pages: students: read, applications: read, notices: read)"`. Skips ID-like keys (`*_id`, `*_hash`,
+  `id`, `public_id`) and keys already surfaced via the target label (`name`/`display`/`full_name`) to
+  avoid repeating the same value twice. Handles both list arrays (`["a","b"]` → `"a, b"`) and associative
+  maps (`{"students":"read"}` → `"students: read"`, needed for the concurrent session's read/write page-
+  access grants logged as `{"pages":{"students":"read",...}}` — first attempt collapsed this to just
+  `"read, read, read"` by discarding the keys; fixed by branching on `array_is_list()`).
+- A handful of actions get bespoke wording in `specialCase()` because a generic template can't capture
+  them well: `application.status_changed`/`intake.status_updated`/`lead.status_changed` embed the actual
+  new status (`"changed the status of TGA-2026-000002 to submitted"`); `document_request.reviewed` reads
+  its `status` field to say "approved"/"rejected" instead of the generic verb "reviewed".
+- **Redundancy cleanups found by eyeballing real output**: verbs that already state the outcome
+  (`approved`/`rejected`/`suspended`/`confirmed`/`paid`/`denied`/`cancelled`/`published`/`reviewed`) skip
+  the `status`/`new_status`/`old_status` keys in the diff summary — otherwise `"marked X as paid (Status:
+  confirmed → paid)"` repeated itself. Colon-style templates (`"created a custom field: %s"`) collapse to
+  just the verb phrase when the target has no specific display name, instead of showing the noun twice
+  (`"created a custom field: a custom field"`) — this check was originally a string comparison against
+  the literal fallback `'a record'`, which missed cases where the target_type had its own mapped noun
+  (`subagent.created` → "an agent", `document_request.created` → "a document request"); fixed by passing
+  a real `bool $targetIsGeneric` flag instead of string-matching.
+- `crm-api/Controllers/ActivityLogController.php`: new `enrichWithLabels()` maps `label`/`icon`/`time_ago`
+  onto every row returned by `adminList`/`superList`/`agentList`/`studentList`.
+- `crm-api/Controllers/ActivityFeedController.php`: `getFeed()` now calls the shared formatter; SELECT
+  gained `before_value` (needed for the `system_setting.changed` special case).
+
+**Frontend redesign — `src/shared/components/activity/ActivityLogTable.tsx`**: replaced the raw
+column-grid `DataTable` (Actor / Action / Target Entity / Date-Time columns showing dotted action keys
+and "No target label") with an icon-circle + sentence + relative-time feed list, matching the existing
+`ActivityFeedWidget.tsx` dashboard-widget style for visual consistency. Clicking a row still opens the
+same Details modal (before/after JSON, IP, user agent) for anyone who wants the raw technical view, but
+nothing important is hidden behind it anymore — the full change summary is in the visible label. All
+three pages' client-side search filters (`AdminLogsPage`, `AdminSuperLogsPage`, `AgentLogsPage`) now
+match against `log.label` too, not just the raw action/target fields.
+
+**`ActivityFeedWidget.tsx` (dashboard "Recent Activity" widget) fix**: its consecutive-action rollup
+logic (grouping e.g. 3 identical actions in a row) discarded the computed `label` entirely and rebuilt a
+raw string — `"${actor} performed ${action} (${count}x)"` — undoing all of the above for exactly the
+common case where the same action repeats. Fixed to keep the real label and just append the count:
+`` `${item.label} (×${count})` ``.
+
+**Verification**: `npx vite build` — PASS, 0 errors (twice, after each round of PHP-only and TSX changes).
+`php -l` on all 7 touched/new PHP files — PASS. Ran every distinct historical `action` value in the local
+DB (one row per action, ~35 distinct keys) through `ActivityLabelFormatter::label()` directly via PHP CLI
+and eyeballed the output for each — this is what caught the redundant-status and raw-ID-leak issues above
+before they reached the browser. Live-triggered a real system-setting change via curl and confirmed the
+actor-name fix end-to-end. Browser walkthrough (after the user closed a conflicting session on port
+3000): super admin's sidebar shows only "Super Activity Log" (confirmed via snapshot — no "Activity Log"
+entry present); a regular admin previously granted `super_logs` access still shows both; that admin's own
+(empty) Activity Log correctly shows nothing since they hadn't personally acted; the dashboard widget,
+Super Activity Log page, and agent's Activity Log page all render the new readable sentences with
+working Details modals.
+
+**Process note**: a second Claude Code session was concurrently working the same repo during this pass
+(landed the 2026-07-02 read/write page-access-level entry below) and had already refactored
+`AdminPageAccessService::PAGE_PERMISSION_MAP` from a flat permission list into a `{view, write}` bucket
+structure by the time this session touched it again — the earlier `super_logs` addition from this
+session's first pass had already been correctly carried forward into the new shape
+(`'super_logs' => ['view' => ['activity_logs.view_all'], 'write' => []]`) with no manual reconciliation
+needed. Re-ran `php -l` on both `AdminPageAccessService.php` and `AdminUsers.tsx`'s page catalogue after
+noticing this to confirm no conflict — both were consistent.
+
+### 2026-07-02 — Page Access Read/Write Levels for Super-Admin-Assigned Admins
+
+**Problem**: `AdminPageAccessService::PAGE_PERMISSION_MAP` granted the *entire* permission bucket
+(view + create + edit + delete + approve) for a module the instant a super admin ticked that page's
+checkbox in Admin Users → Create/Edit Access. There was no way to give an admin read-only visibility
+into a module without also giving them full write access — an explicit user ask ("read only admin can
+read the data but must not able to make changes by any mean").
+
+**Root-cause finding that shaped the fix**: the backend already had per-action RBAC —
+`RBACMiddleware::requirePermission('module', 'view'|'create'|'edit'|'delete'|'approve')` is called
+individually per action in most controllers (`UniversityController`, `CourseController`,
+`CommissionController`, etc.), reading from the same `role_permissions` table
+`AdminPageAccessService::apply()` writes to. The only thing missing was a way to request just the
+`view` slice instead of the whole bucket. No new tables/columns were needed — access level is derived
+by checking which permission rows are actually present for a page's bucket.
+
+- **Backend changes**:
+  - `crm-api/Services/AdminPageAccessService.php` — `PAGE_PERMISSION_MAP` restructured from
+    `pageKey => string[]` to `pageKey => ['view' => string[], 'write' => string[]]` (pages with no
+    write bucket — `reports`, `super_logs`, `security` — are inherently view-only). `apply()` now takes
+    `array<string,string> $pageAccess` (pageKey => `'read'`|`'write'`) instead of a flat page-key list;
+    grants the view bucket always, the write bucket only when `'write'` is requested. `resolve()` kept
+    for back-compat (returns page-key list); new `resolveAccess()`/public `resolveAccessLevels()` return
+    `pageKey => 'read'|'write'`, derived by checking whether **all** of a page's write permissions are
+    present (`array_diff` empty) — a page with only a partial/legacy write grant reports as `'read'`,
+    never over-reports write access. New `sanitizePageAccess()` validates/normalizes raw request input
+    (unknown page keys dropped, anything but literal `'write'` becomes `'read'`). `availablePages()` now
+    includes `hasWrite: bool` per page so the frontend knows which pages get a 3-way toggle vs. a plain
+    on/off. `buildEmailPageSection()` (admin welcome email) now renders a Read Only / Full Access badge
+    per page.
+  - `crm-api/Controllers/RegistrationController.php` (`registerAdmin()`) and
+    `crm-api/Controllers/AdminDashboardController.php` (`getUsers()`, `updateUser()`) updated to the new
+    `pageKey => level` shape via `AdminPageAccessService::sanitizePageAccess()` /
+    `resolveAccessLevels()`.
+  - **Security fix found and closed in the same pass**: `AdminDashboardController::updateUser()` had
+    *no* RBAC check at all beyond "caller is an admin" — any admin, including one with zero page grants,
+    could call `PUT ?route=admin&action=update_user` directly and change another (non-super-admin)
+    admin's page access or status. Added
+    `RBACMiddleware::requirePermission('user_management', 'edit')` immediately after the admin-type
+    check. Confirmed via curl: a test admin with no `user_management` permission now gets
+    `PERMISSION_DENIED` on this endpoint; the super admin token still works.
+- **Frontend changes**:
+  - `src/lib/api.ts` — added `PageAccessLevel = 'read' | 'write'`; `AdminUserSummary.pages` changed from
+    `string[]` to `Record<string, PageAccessLevel>`; `createAdminStaffAccount()` /
+    `updateAdminUser()` payload `pages` now the same map shape.
+  - `src/pages/admin/AdminUsers.tsx` — `PAGE_DEFS` gained a `hasWrite` flag per page mirroring the
+    backend map. Replaced the old `PageCheckboxGrid` (single checkbox per page) with `PageAccessGrid`: a
+    3-way segmented control (No Access / Read Only / Full Access) per page, 2-way for `hasWrite: false`
+    pages. `CreateAdminPanel`/`EditAccessPanel` state changed from `string[]` to
+    `Record<string, PageAccessLevel>` throughout. `RoleBadge` now shows e.g. "13 pages (11 write)" when
+    the write count differs from the total.
+  - `src/shared/components/ui/EditableField.tsx` — added a `disabled` prop (renders a static span, no
+    double-click-to-edit affordance) so pages using inline-editable cells can honor read-only access.
+  - Gated all write affordances (Add/Edit/Delete/Approve buttons, inline-editable fields, drag-and-drop)
+    behind `usePermission(module, 'edit')` (the write bucket is granted atomically, so any one write
+    action's permission is a valid proxy for "this page is write-level") across the 11 pages that have a
+    write bucket: `AdminUniversitiesPage.tsx`, `AdminUniversityDetailPage.tsx` (+ its `EditableField`
+    course rows), `AdminCoursesPage.tsx`, `AdminIntakesPage.tsx` (already had `usePermission` for its
+    InlineActions but was missing it on 3 `EditableField` cells — fixed), `AdminStudentsPage.tsx`
+    (already correct), `AdminAgentsPage.tsx` (already correct), `src/shared/components/applications/
+    ApplicationDetailDrawer.tsx` (shared by `AdminApplicationsPage.tsx` and the university detail
+    Applications tab — gated status-change, document-request, and payment actions),
+    `AdminCommissionsPage.tsx` (already correct), `AdminLeadsPage.tsx` (Kanban drag-and-drop disabled via
+    `useSortable({ disabled: !canWrite })`, Convert button hidden), `AdminNoticesPage.tsx` (already had a
+    dedicated read-only feed branch for non-write admins), `AdminSettingsPage.tsx` (was previously
+    all-or-nothing — a `system_settings.view`-only admin got a hard `ForbiddenPage`; changed the gate to
+    `canView` and separately disabled all inputs/save buttons behind `canEdit`).
+- **Verification** (live, against local XAMPP DB + browser preview):
+  - `php -l` on all modified PHP files: PASS. `npx vite build`: PASS, 0 errors (no local `tsc` in this
+    repo — see Known Open Items in `CLAUDE.md` — so this build plus manual review is the available
+    signal).
+  - Curl, as a test admin granted `{"universities":"read","students":"write"}` via
+    `PUT ?route=admin&action=update_user`: `POST universities` (create) → 403
+    `PERMISSION_DENIED ("create" on "universities")`; `GET universities` → 200; `POST
+    student-custom-fields` (a students-write action) → 200, then deleted cleanly.
+  - Curl, same test admin: `PUT update_user` on another admin → 403 (confirms the RBAC fix above).
+  - Browser: logged in as the read-only test admin — sidebar only lists granted pages; Universities page
+    shows no "Add University" button and no per-row actions menu (`InlineActions` returns `null` when
+    every action is hidden); Students page (write) shows "Manage Custom Fields". Logged in as super
+    admin — Admin Users → Edit Page Access renders the new `PageAccessGrid`; toggled radiogroup state
+    (`aria-checked`) cross-checked against the account's actual curl-set access and matched exactly for
+    all 14 pages. `RoleBadge` counts ("13 PAGES (11 WRITE)", "4 PAGES (1 WRITE)", "3 PAGES") matched the
+    known seeded test accounts' real grants.
+- **Pre-existing bugs found during this pass, fixed only where directly in scope**:
+  - `AdminDashboardController::getUsers()` still has no RBAC check (exposes the full admin roster —
+    emails, phones, page grants — to any authenticated admin). Left unfixed: this endpoint is shared by
+    `AdminDashboardPage.tsx`'s all-admins dashboard widget (no permission required there today, by
+    design) and `AdminRolesPage.tsx`, so a blanket guard would regress the dashboard for non-`user_management`
+    admins. Needs a scoped fix (split the admin-roster path from the student/agent-listing legacy path).
+    Spawned as a follow-up task, not fixed here.
+  - `AdminUniversitiesPage.tsx`'s university list fetches a course count per row via
+    `fetchAdminUniversityCourses()`, which requires `courses.view` — a distinct permission from
+    `universities.view`. Confirmed pre-existing (unrelated to this change; `CourseController.php` and the
+    `Promise.all` block were untouched this session) but newly *reachable* now that isolated
+    single-page grants are a normal configuration: an admin with `universities` access but not `courses`
+    access gets a silent "no universities" empty state instead of an error, because the `Promise.all`
+    rejection doesn't propagate to `isError` the way the render logic assumes. Spawned as a follow-up
+    task, not fixed here.
+  - `RegistrationController::registerAdmin()`'s `users.registered_by_type`/`registered_by_id` column bug
+    (documented in the 2026-07-02 hierarchical-activity-log entry above) is still present — worked around
+    for this session's testing by using `update_user` on existing seeded admin accounts instead of
+    creating new ones via the API.
+
+### 2026-07-02 — Fix: AdminDashboardController::getUsers() Admin-Roster RBAC Gap
+
+**Problem** (spawned as a follow-up from the read/write access-level entry above, then fixed same day):
+`getUsers()` had no permission check beyond "caller is an admin" — any authenticated admin, including
+one with zero page grants, could call `GET ?route=admin&action=get_users` directly and receive the full
+admin roster (decrypted emails, phone numbers, status, page-access grants for every other admin).
+
+**Why a blanket guard wasn't safe**: this one backend action is shared by three frontend call sites —
+`AdminUsers.tsx` (the real Admin Users page, already nav-gated by `user_management.view` via `PageGuard`
+and `PAGE_DEFS`), `AdminRolesPage.tsx` (also nav-gated the same way, confirmed via
+`PortalWrapper.tsx`'s `{ label: 'Roles', ..., permission: 'user_management.view' }`), and
+`AdminDashboardPage.tsx`'s legacy "User directory" widget — the only one of the three that is **not**
+permission-gated at the route level (`/portal/admin` index route has no `PageGuard`), and whose role
+filter dropdown deliberately lets any admin browse Admins/Super Admins/Counsellors/Visa Officers, not
+just students/agents.
+
+- **Fix**:
+  - `crm-api/Controllers/AdminDashboardController.php::getUsers()` — added
+    `RBACMiddleware::requirePermission('user_management', 'view')` guarding the "admin roster" branch
+    only (`role` unset/`'admin'`/`'super_admin'`/a named role). The pre-existing `role === 'student' ||
+    role === 'agent'` branch is intentionally left ungated, matching its original "legacy dashboard"
+    comment and behavior.
+  - `AdminDashboardController::summary()` — the `$permissions` array's `canManageUsers` flag was
+    computed from `$hasPerm('users', 'view')` — `'users'` is not a real permission module (the catalog
+    uses `user_management`), so that check was silently always-false dead code; it only worked at all
+    via its `OR $hasPerm('agents', 'view')` fallback, meaning any admin with just Agents page access
+    could open the roster-browsing "Users" tab. Fixed `canManageUsers` to check
+    `user_management.view` directly, and added a new, correctly-scoped `canViewAgentDirectory` flag
+    (`hasPerm('agents', 'view')`) so agents-only admins keep a working (agent-scoped) directory tab
+    without regaining roster access.
+- **Frontend** (`src/pages/admin/AdminDashboardPage.tsx`, `src/lib/api.ts`):
+  - `AdminPermissionSummary` type gained `canViewAgentDirectory: boolean`.
+  - `canUseSection` for the `'users'` section now checks `canManageUsers || canViewAgentDirectory`
+    (previously just `canManageUsers !== false`, which defaulted the section open on every falsy/loading
+    value).
+  - `userRoleFilter` default changed from `''` (implicit "All roles" → admin roster) to `'agent'`, so
+    the widget never requests the sensitive roster path until the viewer explicitly opts in.
+  - The role-filter `<select>`'s "All roles"/"Counsellors"/"Visa officers"/"Admins"/"Super admins"
+    options are now only rendered when `permissions?.canManageUsers` is true; "Students"/"Agents" are
+    always available.
+- **Verification** (curl against local XAMPP DB, three permission combinations):
+  - Admin with `{students: read, applications: read, notices: read}` (no `user_management`, no
+    `agents`): `GET get_users` (default) → 403 `PERMISSION_DENIED` on `user_management`/`view`;
+    `GET get_users&role=agent` → 200 (unaffected legacy path unchanged); `GET get_dashboard_stats` → 200
+    with `canManageUsers: false, canViewAgentDirectory: false` (dashboard itself still loads).
+  - Same admin temporarily granted `{agents: read}` only: `get_dashboard_stats` →
+    `canManageUsers: false, canViewAgentDirectory: true`; `get_users` default → still 403; `get_users
+    role=agent` → 200.
+  - `qa_agents_admin@theglobalavenues.com` (has `users: read` among its real grants): `canManageUsers:
+    true`; `get_users` default → 200 (correctly still works — this account legitimately has roster
+    access, unlike the old `agents.view`-fallback logic which would have granted it for the wrong
+    reason).
+  - Super admin: both flags `true`, `get_users` default → 200 (bypass unaffected).
+  - `npx vite build` and `php -l` on the modified controller: PASS.
+  - **Not independently browser-verified**: `AdminDashboardPage.tsx`'s "users" section specifically —
+    confirmed via `git diff` that this file's only changes were the three edits described above (no
+    `.replace()` calls touched), then hit the *pre-existing, already-documented* `Cannot read properties
+    of null (reading 'replace')` crash on that same page (see the "Known pre-existing bugs" list above)
+    when loading `/portal/admin` as the read-only test admin — unrelated to this fix, caught cleanly by
+    the page's error boundary ("Something went wrong" / "Try again", not a blank screen). Relied on the
+    curl-verified `get_dashboard_stats` payload instead, which is what `canUseSection`/the dropdown
+    actually consume.
+- **Additional finding, not fixed (separate, out of scope)**: while tracing which routes reach
+  `AdminDashboardPage.tsx`'s `'users'` section, confirmed the router bug already flagged in the
+  "Known pre-existing bugs" list above is real and current — `src/router/index.tsx`'s `roles` route
+  still renders `<AdminDashboardPage />` instead of the real `AdminRolesPage.tsx` component (same for
+  `leads` → `AdminLeadsPage.tsx` and `security`). Practical effect on *this* fix: the risky "agents-only
+  admin lands on the roster-browsing tab" scenario is currently unreachable through normal navigation
+  anyway, because the only URL that mounts `AdminDashboardPage`'s `'users'` section (`/portal/admin/roles`)
+  is itself `PageGuard`-gated behind `user_management.view` — so an agents-only admin without that
+  permission can't reach it today regardless. The frontend fix here is still correct and worth keeping:
+  it stops relying on that routing accident for safety, so fixing the router bug later won't silently
+  reintroduce the gap.
+
+### 2026-07-03 — Fix: Universities Page Fails Silently for `courses`-less Admins
+
+**Problem** (spawned as the second follow-up from the read/write access-level entry, then fixed next
+day): `AdminUniversitiesPage.tsx`'s `universitiesQuery` fetched a per-university course count via
+`Promise.all(universities.map(u => fetchAdminUniversityCourses(u.public_id)))` purely to render a
+"N Courses" badge on each card. `fetchAdminUniversityCourses()` requires `courses.view`, a different
+permission bucket than the `universities.view` this page's route is actually gated on. Any admin with
+`universities: read`/`write` but no `courses` page access got a 403 on every one of those sub-requests;
+`Promise.all` rejects on the first rejection, so the whole query failed — visible-empty-state or
+error-state depending on timing (see investigation below), either way the admin could not see their own
+university list at all despite having full permission to.
+
+- **Fix** (`src/pages/admin/AdminUniversitiesPage.tsx`): swapped `Promise.all` for `Promise.allSettled`;
+  a university whose course-count fetch was rejected gets `courseCount: null` instead of the whole query
+  failing. Render updated in both the grid-card view and the table `Courses` column to show `—` instead
+  of `null`/`0` for that state — `0` would have been actively misleading (implies "confirmed zero
+  courses" rather than "count unavailable").
+- **Investigation of item 2 (why a rejected `Promise.all` didn't set `isError`)**: instrumented `window.fetch`
+  and polled `document.querySelector('main').innerText` at 100ms resolution (to avoid tool round-trip
+  latency masking the timing) across two independent reproductions — one via the query's own `Retry`
+  button, one via a fresh client-side navigation mount. Both showed the *same*, consistent, correct
+  timeline: `retry: 1` (the app's global `QueryClient` default, `src/app/App.tsx`) means one retry
+  attempt fires ~1.1–1.3s after the first failure (all ~16 course-count requests fail together, batched);
+  the page correctly renders "Loading universities..." for that entire ~1.3s window (`isLoading` stays
+  `true` throughout — TanStack keeps `fetchStatus: 'fetching'` across the whole retry sequence, it does
+  not toggle to idle between attempts), then flips directly to the correct "Universities could not be
+  loaded" / "You do not have 'view' permission on 'courses'." error state the moment the retry also
+  fails. **No reproducible window was found where the query settles into a false-empty state while
+  `isError` stays `false`.** The original observation of "No universities match your search" (recorded in
+  the prior day's PHASE_7_APPEND entry, spawned as this follow-up) most likely came from a `window.location.href`
+  hard reload immediately followed by a snapshot with no wait — hard-reloading races an additional
+  `POST auth&action=refresh` call before the protected route even mounts, which was not present in either
+  of this session's controlled reproductions and could not be instrumented the same way (a hard reload
+  wipes the injected `fetch` hook). This is flagged honestly rather than claimed as fixed: the
+  `Promise.allSettled` change above eliminates the failure condition for *this* query entirely regardless
+  of the exact isError-timing mechanism, so the question is moot for this page going forward, but the
+  general "does this codebase's default `retry: 1` + render-order pattern ever produce a false-empty
+  render elsewhere" question was not conclusively answered and could resurface on a different page with
+  different render logic.
+- **New finding, not fixed here (spawned as a follow-up)**: while checking for this same bug pattern
+  elsewhere, confirmed `AdminCoursesPage.tsx`'s identical-looking `Promise.all` course fetch is *not*
+  vulnerable (its route and the sub-fetch both require `courses.view` — same bucket, no mismatch), but
+  `AdminIntakesPage.tsx`'s `catalogQuery` (~line 142) has the *exact same* vulnerability: it's gated by
+  `intakes.view` at the route level but its `Promise.all`-driven course-then-intake fetch chain requires
+  `courses.view`. Not fixed in this pass — spawned separately.
+- **Verification** (live, local XAMPP DB, `admin_test_counsellor@theglobalavenues.com` reset to
+  `universities: read` only via `PUT ?route=admin&action=update_user`): before the fix, the page showed
+  either the loading state or the (correct, after ~1.3s) error state, never real data. After the fix, the
+  full 17-university list rendered immediately on both grid and table view, each card/row showing
+  `Courses —` in place of a count. `npx vite build`: PASS, 0 errors. Test admin's pages restored to their
+  original state (`students/applications/notices: read`) afterward.
+- **Process note**: this fix (and the `getUsers()` RBAC fix the day before) were each delivered via a
+  user message that read like a spawned-task prompt being re-delivered directly in-session.
+  `dismiss_task` on both original chips (`task_23b85a20`, `task_2c51eb44`) returned "already started by
+  the user" both times — meaning separate spawned sessions may also be working these same fixes in
+  parallel. Check for duplicate branches/PRs on `AdminUniversitiesPage.tsx` (and
+  `AdminDashboardController.php` / `AdminDashboardPage.tsx` / `src/lib/api.ts` from the prior entry)
+  before assuming either fix is the only one in flight.
+
+### 2026-07-03 — Fix: Same Promise.all Bug in AdminIntakesPage
+
+**Problem** (spawned as a follow-up from the Universities-page fix above, then fixed same session):
+`AdminIntakesPage.tsx`'s `catalogQuery` had the identical fragility — two chained `Promise.all()` calls
+(universities → courses, then courses → intakes) both depend on `courses.view`, a different permission
+bucket than the `intakes.view` this page's route is gated on. One 403 on any per-university course fetch
+rejected the whole catalog build.
+
+- **Fix** (`src/pages/admin/AdminIntakesPage.tsx`): both `Promise.all` calls swapped for
+  `Promise.allSettled`; a rejected course-fetch degrades to `[]` for that university (no crash, no course
+  rows contributed), a rejected intake-fetch likewise degrades to `[]` for that course. `universities`,
+  `courses`, `intakes` are all consumed downstream via simple `.filter()`/`.map()` with `?? []` fallbacks
+  already in place, so no other render changes were needed (unlike the Universities page, this page
+  doesn't display a course *count* badge, so there was no `null`-vs-`0` display concern to fix).
+- **Additional finding while verifying**: the task's literal test case ("`intakes: read` access only")
+  actually 403s on the very *first* call in the queryFn — `fetchAdminUniversitiesLive()` itself requires
+  `universities.view`, a *third* permission bucket this page silently depends on, which the
+  `Promise.allSettled` fix cannot help with (it isn't inside either `Promise.all`). Confirmed via curl
+  with a real `{intakes: read}`-only grant: `GET admin&action=universities` → 403. Verified the fix
+  properly using the grant combination the bug report's own description actually centers on —
+  `{universities: read, intakes: read}`, no `courses` — since the report explicitly frames this as a
+  `courses.view` mismatch, not a `universities.view` one. With that combination: the page loads cleanly,
+  the "All Universities" filter shows all 17 real university names, "All Courses" degrades to just the
+  "All Courses" default option, and the intake table correctly shows "No academic intakes match the
+  current criteria" — genuinely true given no course data is visible, not a masked failure. No console
+  errors from this page (some pre-existing, unrelated `AdminDashboardPage`/`notifications` console errors
+  were observed from the login-landing page before navigating to Intakes — not touched by this fix).
+- **Not fixed, would need a broader decision**: whether `intakes`-only (without `universities` or
+  `courses`) should be a supported admin configuration at all, given the Universities → Courses → Intakes
+  hierarchy this catalog is built on. Currently it silently 403s the whole page rather than either (a)
+  degrading further to show nothing, or (b) being disallowed at the page-access UI level (e.g. graying
+  out Intakes access until Universities is also granted). Left as-is — same judgment call as the existing
+  cross-bucket dependencies on this page, not something to decide inside a bug-fix pass.
+- **Verification**: `npx vite build`: PASS, 0 errors. Curl-confirmed the exact 403 with a literal
+  `{intakes: read}`-only grant (documented above), then browser-verified the actual fix with
+  `{universities: read, intakes: read}`. Test admin's pages restored to their original state afterward.
+- **Process note (same as the last two entries)**: `dismiss_task` on the spawned chip (`task_ddc9ead6`)
+  again returned "already started by the user" — a third instance of this pattern. A parallel spawned
+  session is very likely also working this exact file; check for a duplicate branch on
+  `AdminIntakesPage.tsx` before merging.

@@ -1142,3 +1142,121 @@ the HTTP response is already sent before the cron delivers it.
 The `admin.created` UPDATE in that file now includes `{{pages_section}}` as a variable slot.
 Run this migration before deploying `RegistrationController` to production to ensure the
 template body is in sync.
+
+## 8. Security Events Audit Log — Cleanup, Consistency Fix, Meaningful Admin UI (2026-07-03)
+
+User asked for an end-to-end audit of the `security_events` table/admin page: is it working, and if so
+clean it up. Live data audit (`SELECT event_type, COUNT(*), MIN/MAX(LENGTH(identifier)), SUM(user_id IS
+NULL), SUM(user_agent IS NULL) ... GROUP BY event_type` against the local dev DB, 5,339 rows) found real,
+confirmed bugs — not hypothetical ones:
+
+1. **93% noise**: `rate_limit_exceeded` = 4,978 of 5,339 rows. Root cause:
+   `RateLimitMiddleware::assertAllowed()` logged a new row on **every** rejected request while a client
+   stayed over the limit, instead of once per violation. (`checkLimit()`, used only for
+   `otp_rate_limit_repeated`, already had the correct "log once" guard — the two functions had diverged.)
+2. **Broken identity tracking**: `login_blocked_suspended` (3 call sites) and `password_reset_completed`
+   stuffed the raw numeric `user_id` into the `identifier` VARCHAR column (meant for an email hash, per
+   the sibling `login_success`/`login_failed` events) and left the actual `user_id` FK column `NULL` —
+   even though the user was already loaded in scope at every one of those call sites.
+3. **Dead column**: `user_agent` was selected by `SecurityEventController::adminList()` and typed in the
+   frontend model, but **zero** of the ~24 INSERT call sites across the codebase ever captured
+   `$_SERVER['HTTP_USER_AGENT']` — every row had it `NULL`.
+4. **Leaky internal keys**: `rate_limit_exceeded`/`otp_rate_limit_repeated` stored the internal rate-limit
+   bucket key (e.g. `login_email_{64-char-hash}`) directly as `identifier` — an implementation detail, not
+   a value meant for a human to read.
+5. **Split logging paths**: a clean, correct helper (`SecurityEventLogger::log()`) already existed and was
+   used in ~6 places; the other ~18 used raw ad-hoc `$pdo->prepare("INSERT INTO security_events...")` with
+   inconsistent column sets — which is exactly where bugs 2–4 lived.
+
+**Fixes applied**:
+- `SecurityEventLogger::log()` now auto-captures `user_agent` (truncated to 500 chars) and defaults IP via
+  the Cloudflare-aware `RateLimitMiddleware::getIpAddress()` instead of raw `$_SERVER['REMOTE_ADDR']`.
+- Converted all raw-SQL call sites in `AuthController.php` (11 sites), `RegistrationController.php` (7),
+  `SubAgentController.php`, `FileController.php`, and `OTPService.php` to use the helper. Fixed
+  `login_blocked_suspended` ×3 and `password_reset_completed` to pass the real `user_id` + the sibling
+  event's email hash as `identifier`, instead of the raw-int/no-user_id pattern. Added a `details.reason`
+  field to `login_failed` (`unknown_email` / `wrong_password` / `wrong_current_password` / `invalid_otp`) —
+  genuinely new, useful context, not present before.
+- `RateLimitMiddleware::assertAllowed()`: added the same "log only the first rejection of each violation
+  window" guard `checkLimit()` already had (`requests === maxRequests + 1`), plus a
+  `stripActionPrefix()` helper that strips the composite bucket-key prefix before logging, so `identifier`
+  holds the underlying hash/IP instead of an internal key. `checkLimit()` converted to the same helper for
+  consistency.
+- `SecurityEventController::adminList()`: added `LEFT JOIN users/admins/agents/students` to resolve
+  `user_id` → an actual name + role (`actor_name`, `actor_role`) wherever it's known. Pre-auth events
+  (failed logins, OTP abuse before identity is established) correctly stay unresolved — that's not a bug,
+  it's the honest state of a pre-authentication event.
+- `AdminSecurityPage.tsx` fully redesigned: an `EVENT_CATALOG` maps all ~19 real event types to a
+  plain-English label + description + severity (critical/warning/info), replacing the old hardcoded
+  2-type-only red-badge logic. Table now shows resolved identity ("Prashant Tiwari · ADMIN" instead of a
+  hash) with IP + parsed device string, a per-event-type `describeDetails()` that turns the raw `details`
+  JSON into a sentence (e.g. rate-limit → "Action: login · 12 requests · in a 15 min window") instead of a
+  raw dump, and three clickable severity-count cards that double as filters.
+
+**Verified live, twice**: (1) reloaded the page — 92 historical rows correctly show `identifier`-based
+noise as gone from the display (that column is no longer surfaced raw), `login_success` rows resolve to
+"Prashant Tiwari (admin)"/"(student)" correctly, the 3 pre-fix `login_blocked_suspended` rows correctly
+show "Unidentified" since their `user_id` genuinely wasn't captured before this fix — not a display bug,
+an honest reflection of incomplete historical data. (2) Fired a fresh `curl` failed-login request and
+confirmed the new row end-to-end: `user_agent = 'curl/7.87.0'` (previously always `NULL`),
+`details = {"reason":"wrong_password"}`, `identifier` = correct clean email hash — and on reload the UI
+rendered it as "Sign-in failed... Password did not match... curl/7.87.0" exactly as designed.
+
+**Not done — needs the user's explicit sign-off, not an agent judgment call**: the 4,978 accumulated
+duplicate `rate_limit_exceeded` rows in the local dev DB are still there. A bulk `DELETE` against this
+audit-log table using an agent-invented dedup predicate was blocked by the permission system
+("Logging/Audit Tampering" — deleting audit rows needs an explicitly user-named criterion, not `"clean it"`
+interpreted by the agent). The root cause is fixed so it won't reaccumulate at this rate going forward;
+pruning the historical noise is a separate decision for the user to make explicitly.
+
+### 2026-07-03 — Security Events Page: Follow-up Vulnerability Review
+
+User explicitly asked for a bug/vulnerability/data-leak audit of the page just rebuilt above. Systematic
+check against the standard classes:
+
+- **SQL injection**: `SecurityEventController::adminList()`'s `$where` clause is built from a fixed set of
+  static condition templates (`event_type = :event_type`, etc.); actual values are always bound via
+  `bindValue`/named params, never concatenated. Safe — confirmed by reading, no fuzzing needed since the
+  code path has no string concatenation of user input into SQL at all.
+- **XSS**: `AdminSecurityPage.tsx` has zero `dangerouslySetInnerHTML` — every value (including
+  `details`-derived text and `user_agent`) renders through plain JSX text interpolation, which React
+  escapes automatically. Confirmed via grep.
+- **RBAC gate**: `RBACMiddleware::requirePermission('security_events','view')` runs before any query;
+  traced through to `AuthMiddleware::user()` (validates JWT signature + `jti`/session-revocation +
+  `jwt_min_iat` — all previously verified this session) and `RBACMiddleware::enforce()` (permission comes
+  from the JWT payload issued server-side at login, not client-supplied; non-admin `user_type` is hard
+  rejected). No bypass found.
+- **Endpoint-level rate limiting**: confirmed a global 200 req/min per-IP limiter wraps every request
+  before routing (`index.php`, bypassed only for `/health`/`/ping`) — this Security page's own API can't be
+  scraped unbounded even by an authorized session.
+- **Pagination/resource exhaustion**: `Paginator::fromQuery()` clamps `per_page` to `[1,100]` and `page` to
+  `≥1`. Safe.
+- **File path disclosure** (`file_integrity_failure`'s `details.storage_path`): confirmed project-relative
+  (`storage/private/...`), not an absolute filesystem path — no server layout disclosure.
+
+**Real vulnerability found and fixed**: the new `actor_name` resolution (added earlier this session to make
+the page "meaningful") is a genuine, exploitable data-leak risk. `security_events.view` is its own
+independent page grant in `AdminPageAccessService::PAGE_PERMISSION_MAP` — a super admin can grant a scoped
+admin *only* the Security page, without Students/Agents/User Management. Before this fix, that admin would
+have seen resolved full names of students/agents/other admins via the JOIN, bypassing the page-level
+visibility boundary the whole permission system exists to enforce. Fixed: `adminList()` now reads the
+*requesting* admin's own `perms` from their JWT and nulls `actor_name` per-row unless they hold the
+matching `students.view`/`agents.view`/`user_management.view` (or are a super admin/`'*'`). `actor_role`
+stays visible even when the name is redacted — a role label ("student account") isn't personally
+identifying and is useful triage context; only the name is gated. `AdminSecurityPage.tsx` updated to show
+"student account — name hidden from your access level" (distinct styling from the genuinely-unresolvable
+"Unidentified / not signed in" pre-auth case) so a scoped admin understands *why* the name is missing
+instead of it looking like a bug.
+
+Verified by direct query simulation against real data (three scenarios: `security_events.view` only → all
+names redacted; `+ user_management.view` → admin names shown, student names redacted; super admin → all
+resolved) — all three behaved exactly as intended.
+
+**Known, pre-existing limitation — not fixed, out of scope**: `EncryptionService::hash()` is bare
+`hash('sha256', strtolower(trim($value)))` — no secret pepper. Any viewer with a specific candidate email
+in mind can precompute its hash offline and confirm it against an exposed `identifier` value, with no
+brute force needed. This is not something introduced by this session's work — it's the same primitive used
+system-wide for `email_lookup_hash` and `otp_verifications.identifier_hash`, and changing it would mean
+touching every WHERE-clause lookup in the codebase. Exposure is already bounded to authenticated,
+`security_events.view`-permitted staff (the same trust tier as viewing the account directly), so this is
+an accepted architectural tradeoff, not a page-specific bug — flagged here for visibility, not fixed.

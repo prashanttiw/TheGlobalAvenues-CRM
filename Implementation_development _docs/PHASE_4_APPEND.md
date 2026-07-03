@@ -2097,3 +2097,373 @@ the DB and is honored immediately. Final `npm run build` (3247 modules, all-port
 clean with zero errors. Only the same pre-existing, unrelated `notifications`/`unread-count` and
 `admin/activityFeed` console errors remained — present before this session, out of scope, already documented
 above and in [[project_gotchas]].
+
+### 2026-07-03 — Real University Catalog Import from TGA Toolkit Spreadsheets (Non-Exclusive + Exclusive)
+
+Replaced all sample/test universities, courses, and intakes with real data sourced from two internal
+spreadsheets (`Non- Exclusive TGA- Toolkit.xlsx`, `Exclusive TGA- Toolkit.xlsx`) covering ~20 countries.
+This was a data-engineering task, not a code feature — see `crm-api/Database/import_universities_from_toolkit.php`
+for the reusable importer (takes a JSON path built by an ETL pass over the two spreadsheets).
+
+**Schema change**: new migration `077_university_campuses.sql` — universities can have several physical
+campuses (observed up to 9 for one German school) and `universities.city` only ever held one value. Added
+`university_campuses` (`university_id`, `city`, `is_primary`) rather than cramming multiple locations into
+one column or duplicating the university row per campus. **Gap**: no frontend surfaces this table yet
+(`AdminUniversityDetailPage.tsx` still only shows/edits the single `city` field) — flagged to the user,
+not built, since it wasn't asked for and this session was scoped to data import.
+
+**Source data was not clean tabular data** — hand-formatted spreadsheets with merged-cell-style forward-fill
+(university/campus/course names only present on a block's first row), inconsistent column layouts per
+country tab, degree-level section-header rows mixed into data rows, and a completely different wide-matrix
+layout for one USA sheet section. Built a Python ETL (forward-fill per column + column-name-driven header
+resolution, not positional) rather than hand-transcribing. Notable source-data defects found and handled,
+each verified against the raw sheet before deciding a fix (never assumed regex output was correct):
+- Curly apostrophes (`'` vs `'`) made "BACHELOR'S PROGRAMMES" section headers invisible to the header-marker
+  regex, so ~40 of these leaked through as phantom zero-fee "courses" until unicode punctuation was
+  normalized before matching.
+- Latvia sheet: several rows had `TUITION FEE` and `DURATION` values swapped at the cell level (e.g. fee
+  column literally contained `"3 years"`, duration column contained `4200.0`) — added a value-shape sanity
+  check (does the fee cell look like a duration string?) that swaps them back rather than trusting column
+  position blindly.
+- USA (non-exclusive) sheet turned out to be **two different layouts glued into one tab**: rows 1–9 are a
+  wide matrix (degree level spans multiple columns), row 11 onward reverts to the standard forward-fill
+  layout — including one block (Benedictine University) with scraped-webpage course names carrying
+  literal `+15Benedictine University+15Benedictine University+15`-style suffixes from a copy-pasted "related
+  programs" widget, stripped via regex.
+- A one-off column-shift in the exclusive UAE sheet (two universities: Quantum University College,
+  International American University RAK) put course/degree names in the `COUNTRY` cell — added a
+  country-value whitelist so a bogus value falls back to the sheet's own country hint instead of creating a
+  phantom country/university.
+- The non-exclusive Lithuania sheet had 3 course names corrupted by what looks like a manual find-and-replace
+  of "Euro" → "€" that also hit the substring inside "European"/"neurobiology" (e.g. `"€pean and russian
+  studies"`, `"n€biology"`) — fixed with a targeted regex (€ immediately followed by a lowercase letter is
+  never a real currency amount) and patched the 3 already-imported rows directly.
+- Two entries showing `"�"` when read back (`Universidad Católica...`, `IFH - Institut Français...`) turned
+  out to be a false alarm — verified at the byte level (`mb_check_encoding`/hex dump) that the actual stored
+  UTF-8 was correct (é/ô/ç); the `�` was only ever a terminal/MySQL-CLI display limitation, not stored
+  corruption. Don't trust visual "mojibake" in a terminal without checking raw bytes first.
+
+**Merging exclusive/non-exclusive overlap** (per user decision: same university listed in both toolkits →
+one row, `partnership_type='exclusive'`, courses merged): built on Jaccard similarity over significant
+name tokens (stopwords + all dataset country names excluded, since two same-country entries can otherwise
+score a false 100% match purely by sharing the country word — caught this exact bug with "UE Germany" vs
+"IU Germany" both being reduced to just `{germany}`). Also added a small manual-alias table for 5
+same-institution pairs confirmed by inspection but scoring just under the auto-merge threshold (e.g. "FH
+Kufstein University of Applied Science" vs "University of Applied Sciences - Kufstein, Tirol"; "GBS Dubai"
+vs "Global Business Studies - GBS"), and a hard-coded never-merge blocklist for one confirmed false-positive
+domain trap ("International American University - RAK Campus" vs "American University of Ras Al Khaimah" —
+different real institutions that happen to share every significant word).
+
+**Existing test data removed first** (per user decision): all 15 test `applications` and dependents
+(`application_payments`, `application_updates`, `document_requests`, `commissions`, related `sla_events`)
+were deleted — they all referenced the sample `intakes` being replaced. A full `mysqldump` backup was taken
+before any destructive step (`storage/backups/tga_crm_pre_university_import_*.sql`).
+
+**Result**: 200 universities (16 exclusive / 184 non-exclusive), 2,606 courses, 4,419 intakes, 412 campus
+records, across 20 countries. Verified via direct DB queries (0 orphaned courses/intakes, 0 exact
+name+country duplicates, 0 empty course names, 0 zero/negative fees) and by driving the real admin UI:
+Universities list/search/detail pages, Courses list — all render correctly at this scale.
+
+**Pre-existing bug found and fixed in passing** (only visible now that real data has universities with
+90+ courses instead of the old test data's max of ~14): `fetchAdminUniversityCourses()` in `src/lib/api.ts`
+called the paginated `admin/universities/:pid/courses` endpoint (default `per_page=20`) and callers
+(`AdminUniversitiesPage.tsx`'s course-count column, `fetchAdminPrograms` used by `AdminCoursesPage.tsx`)
+took `.length` of that single page as if it were the total — silently truncating both the displayed count
+and the course list itself for any university with more than 20 courses. Fixed by requesting `per_page=1000`
+in that one function (all current and near-future universities fit in one page); confirmed Vilnius
+University's admin list count changed from a wrong "20" to the correct "97" after the fix, and the Courses
+page renders the full cross-university list without errors.
+
+### 2026-07-03 — Fixed N+1 Fan-Out Overload on Universities/Courses/Intakes Admin Pages
+
+The `per_page=1000` band-aid above made the truncation bug go away but made the underlying architecture
+problem worse: `AdminUniversitiesPage.tsx` fanned out one `admin/universities/:pid/courses` request per
+university just to compute a course count, and `AdminCoursesPage.tsx` / `AdminIntakesPage.tsx` did the same
+plus (for Intakes) a THIRD layer — one `admin/courses/:pid/intakes` request per course on top of that. Fine
+against ~16 test universities; against the real catalog (200 universities, 2,606 courses) this was 200+
+parallel requests for Courses and 2,600+ for Intakes, which is what produced the "Too many requests" /
+`RateLimitMiddleware` errors and multi-second load times the user hit after the import.
+
+Fixed by adding real server-side pagination + filtering instead of fetch-everything-then-filter-in-JS:
+- `UniversityController::adminList()` now computes `course_count` via a subquery in the same list query
+  (no more per-row follow-up request) and accepts `q` (name/country/city).
+- New `CourseController::adminListAll()` (route `admin/courses`, distinct from the existing per-university
+  `admin/universities/:pid/courses`) — flat, JOINed, paginated, filterable by `q`/`university_id`/`degree_level`.
+- New `IntakeController::adminListAll()` (route `admin/intakes`) — same idea, JOINed across
+  intakes→courses→universities, filterable by `q`/`university_id`/`course_id`/`status`.
+- New shared `src/shared/components/ui/Pagination.tsx` (Prev/Next + "page X of Y" — user explicitly chose
+  classic pagination over infinite scroll when asked, to match the pattern the rest of the app already uses
+  for nested lists).
+- All three admin pages (`AdminUniversitiesPage.tsx`, `AdminCoursesPage.tsx`, `AdminIntakesPage.tsx`)
+  rewritten to hit these paginated/filtered endpoints directly (debounced search on a 350ms timer, matching
+  `AdminUsers.tsx`'s existing pattern) instead of loading everything and filtering client-side. Dropdown
+  pickers (university list for filters/forms, course list scoped to one chosen university) still use the
+  original lightweight single-university endpoints on demand — those were never the problem; fanning them
+  out across *every* university at once was.
+
+**Unrelated infra issue hit during verification**: MySQL/MariaDB wasn't running when this session started
+testing in the browser (`php-mysql` `SQLSTATE[HY000] [2002] No connection could be made` in
+`storage`-adjacent Apache error log, not a code bug) — XAMPP's MySQL service had stopped independently of
+this work. Restarted via `mysqld.exe --standalone`; data was untouched. Worth checking `netstat -ano |
+findstr 3306` first if `Database connection failed` shows up unexpectedly rather than assuming a code
+regression.
+
+**Verified**: all three pages load in well under a second against the full real catalog with zero rate-limit
+errors; Prev/Next pagination confirmed advancing (`page 1 of 131` → `page 2 of 131` on Courses); search
+("Business Administration") and university filter (Vilnius University) both confirmed hitting the backend
+and returning correctly scoped results; Intakes' cascading course dropdown confirmed populating with only
+the selected university's own courses. Only remaining console errors are the same pre-existing, unrelated
+`notifications/unread-count` ones documented earlier in this file.
+
+### 2026-07-03 — Multi-Campus Universities: Each Campus a Separate, Linked Entity
+
+Reworked the university_campuses table added earlier this session (2026-07-03, university catalog import
+entry above) — it turned out to be the wrong model. The user clarified each physical campus needs to be
+independently manageable (own courses, fees, intakes, students/applications), not a read-only location list
+under one parent record; and student/agent portals need one card per campus (same name, different location),
+with name search surfacing all campuses and city/country search surfacing just the match.
+
+**Schema**: migration `078_university_campus_groups.sql` adds `universities.campus_group_id CHAR(26) NULL`
++ index — a shared ULID tag (not a FK) copied onto every sibling campus row. `university_campuses` is now
+dormant (stopped writing to it, kept as an audit trail, not dropped).
+
+**Data quality finding, load-bearing for the whole design**: auditing the already-imported
+`university_campuses` rows showed the source spreadsheets' free-text "OTHER CAMPUSES" cells are frequently
+NOT clean city lists — fee fragments, street addresses, department names, full sentences, and even bare
+country names ("UAE", "Uzbekistan") were mixed in with real cities. Built `crm-api/Helpers/CampusCityValidator.php`
+(reject-wins: digits, currency symbols, `,`/`;`/`|`/`/`/`&`/`\band\b`, >3 words, unbalanced parens, a country-name
+list, and a blacklist of non-city words) plus `crm-api/Database/campus_city_country_overrides.php` (hand-curated,
+~13 entries, for bare cross-country cities with no parenthetical hint, e.g. Dubai→UAE, Vienna→Austria — built
+by reading the actual candidate list, not a general geocoder). One-time migration
+`crm-api/Database/promote_university_campuses.php`: idempotent (skips universities that already have a
+`campus_group_id`), for each university with ≥2 `university_campuses` rows, promotes validated cities into
+new empty `universities` rows sharing a fresh `campus_group_id`, and appends rejected text as a plain note
+to the parent's `description` ("Other locations mentioned in source data (unverified): ..."), per explicit
+user decision — nothing silently dropped, and new campuses start with **no** courses/fees copied from the
+main campus (we don't know if a real campus actually offers the same programs at the same price).
+
+**Two real bugs found via manual spot-checking after the first run, both fixed in the script for future
+re-runs and cleaned up in the already-promoted data**:
+1. MCAST University's `university_campuses` list included "Aquatics" and "Animal Sciences" (department
+   names, not cities) — validator blacklist extended (`aquatics`, `sciences`, `agriculture`, `hub`, `college`,
+   `university`, `school`); the 2 bad rows deleted directly.
+2. 40 promoted rows across ~35 universities were exact duplicates of the university's own pre-existing
+   `city` (the "primary campus" row in `university_campuses` restates what's already on the parent) — script
+   now skips any candidate matching the parent's own city (case-insensitive) before promoting. Deleted the 40
+   duplicate rows and cleared `campus_group_id` on 19 universities left with a "group" of only themselves.
+   Final state: 310 universities (200 imported + 152 promoted − 2 MCAST − 40 duplicates), 168 with a real
+   `campus_group_id` across 58 groups.
+
+**Backend**: `UniversityModel::findSiblings()` (self-lookup on `campus_group_id`, `ORDER BY created_at ASC`
+puts the original campus first, no `is_primary` column needed) wired into `adminGet()`/`publicGet()` as
+`siblings`. `sibling_count` subquery added to `adminList()`/`publicList()` (same pattern as the `course_count`
+subquery added earlier this session — bundled into the same queries). `create()` accepts an optional
+`parent_public_id`: resolves/creates the group id server-side so two admins adding a campus to the same
+university at the same moment can't create two divergent group ids.
+
+**Frontend**: `AdminUniversityDetailPage.tsx` gained an "Other Campuses" card (links to each sibling's own
+detail page) + "Add Campus" `SlideOverPanel` (pre-fills name/partnership_type, asks only city/country, submits
+with `parent_public_id`). `UniversityBrowse.tsx` (shared by student and agent portals via its `mode` prop —
+confirmed both `StudentUniversitiesPage.tsx` and `AgentUniversitiesPage.tsx` render it, so this one change
+covers both) gained an "Other Campuses" chip row in the detail view; clicking a chip constructs a minimal
+placeholder university object from `{public_id, name, city, country}` and re-enters the same detail view.
+`sibling_count`/`siblingCount` threaded through to a "+N campuses" badge on list/grid cards in
+`AdminUniversitiesPage.tsx` and `UniversityBrowse.tsx`. No changes needed to `publicList()`'s search — `q`
+already does `LIKE` across name/country/city, so once campuses are separate rows with accurate city/country
+and a shared name, "search by name → all campuses, search by city → just the match" already worked.
+
+**Verified live**: admin — searched "Fachhochschule", opened Fachhochschule des Mittelstands (FHM), confirmed
+"+9 campuses" badge and an "Other Campuses" card listing all 9 (Bielefeld, Bamberg, Berlin, Düren, Frechen,
+Hanover, Cologne, Rostock, Schwerin); clicked into Berlin, confirmed its own siblings list correctly excludes
+itself and includes the original "Campus Bielefeld" row; "Add Campus" create flow verified directly against
+the API (new row correctly reused the existing `campus_group_id` rather than minting a new one). Student
+portal — searched "Fachhochschule" and got multiple campus cards back; opened the main one, saw the same
+9-chip "Other Campuses" row, clicked "Berlin, Germany" and landed on that campus's own (empty, as designed)
+program list with its own correctly-filtered sibling chips; searched the unique city name "Schwerin" alone
+and got back exactly one card — confirming city search isolates to the single matching campus. Agent portal
+not separately screenshotted — confirmed via source that `AgentUniversitiesPage.tsx` renders the identical
+`UniversityBrowse` component, just with `mode="agent-apply"`, so the same verification applies.
+
+**Known limitation, not fixed**: pre-existing cross-country splits created at import time with divergent
+names (e.g. "International American University" USA vs "International American University - RAK Campus"
+UAE) don't share a `campus_group_id` and won't show up as each other's siblings — deliberately out of scope,
+since automatically name-matching them risks linking two actually-different institutions. Can be linked
+manually via "Add Campus" later if wanted.
+
+### 2026-07-03 — Admin Security/Roles/Leads: Router Dead-Code Bug Fixed (Confirmed Same Class as Earlier Fixes)
+
+User asked which of Security/Settings/Reports/Commissions were actually working. Live-testing (not just code
+reading) found Settings, Reports (all 6 tabs), and Commissions fully functional against real backend data —
+no changes needed there. But `AdminSecurityPage.tsx`, `AdminRolesPage.tsx`, and `AdminLeadsPage.tsx` were all
+complete, real, API-backed components (144/61/364 lines respectively, each with working backend routes
+already registered in `AdminRoutes.php`) that had simply never been wired into `src/router/index.tsx` — the
+`leads`, `roles`, and `security` routes all pointed at `AdminDashboardPage` instead of their own component.
+This is the exact same class of bug flagged as an open follow-up in the 2026-07-01 entry above
+("`src/router/index.tsx` admin routes for students/leads/roles/settings/logs/security all rendering
+`AdminDashboardPage`") — students/settings/logs had since been fixed in other sessions, but leads/roles/
+security were still dead code. Confirmed live: clicking "Security" in the sidebar rendered the Dashboard's
+stat cards, not a security events table.
+
+**Fix**: added the three missing lazy imports and swapped the three route elements
+(`router/index.tsx:172,168,176` prior to this fix) to their real components. All three verified live
+immediately after: Security shows the real `security_events` stream (login success/failed rows with
+IP/timestamp), Roles shows live role cards with real permission scopes and admin counts, Leads shows a
+populated 3-column kanban board.
+
+**Second bug this exposed** (same "dead code was never exercised" pattern as the 2026-07-01 entry above):
+`AdminLeadsPage.tsx`'s `useQuery` did `api.get('/admin/leads').then(r => r.data.data as Lead[])` — but
+`LeadsController::adminList()` returns `Response::json(['data' => $leads])`, and per the `src/lib/api.ts`
+auto-unwrap rule (documented in `[[project_gotchas]]`/`academic_core_build` memory), `r.data` is already the
+leads array, so `r.data.data` was always `undefined`. Combined with `const { data: rawLeads = [] } = useQuery(...)`,
+every render while `data` stayed `undefined` created a **new** `[]` reference, which fed a
+`useEffect(() => setLeads(...), [rawLeads, showArchive])` — new reference every render → effect fires →
+setState → re-render → repeat. Fixed by removing the extra `.data` (line 155: `r.data as Lead[]`). Verified
+the board now renders real cards in all three columns (New/Contacted/Qualified) with correct data.
+
+**Not fully resolved**: even after that fix, React still logs a bounded burst of ~30 "Maximum update depth
+exceeded" warnings once per mount (confirmed via a patched `console.error` counter: 0 further warnings after
+3s idle, network shows `/admin/leads` fetched only twice — not a runaway loop, page stays fully interactive).
+Suspect cause is `SortableContext items={leads.map(l => l.public_id)}` and `useSensors(useSensor(...), ...)`
+in the render body creating new array/object references every render, which `@dnd-kit`'s internal context
+sync may treat as a real change during the loading→loaded transition. Cosmetic/console-only as far as this
+session could verify — flagged as a follow-up if it needs to be silenced, not fixed here (out of scope for
+"fix the router wiring").
+
+### 2026-07-03 — System Settings: 6 Never-Wired Fields Removed (Not Fixed, By User Decision)
+
+User asked whether `max_active_applications_per_student` (and the Settings page generally) actually controls
+app behavior end-to-end. Traced the full save path: `SystemSettingsController::update()` writes the DB row,
+logs to `activity_logs`, calls `SystemSettings::clearCache()` (deletes `storage/cache/settings.json`, a
+file shared across all PHP worker processes — not per-session). Confirmed `max_active_applications_per_student`
+is genuinely live end-to-end via `ApplicationController.php:41`.
+
+Auditing all 16 `system_settings` rows against actual backend consumers found 6 that saved fine, logged fine,
+and did **nothing**:
+- `otp_max_attempts` — `OTPService::verify($email, $code, $purpose, $maxAttempts = 3)`; all 8 call sites
+  across `AuthController`/`RegistrationController` omit the 4th argument, so it's always the hardcoded default.
+- `commission_pending_alert_days` — no cron or service ever compares commission age against this to fire
+  a reminder; `ReminderEngine::buildCommissionVars()` computes `days_pending` for display only, on demand,
+  not on a schedule driven by this setting.
+- `reminder_days_before_deadline` — `ReminderService::schedule()` takes offsets as a parameter; the only
+  caller (`PaymentTrackingController.php:124`) hardcodes `[7 => 'payment_upcoming', 1 => 'payment_urgent']`
+  inline instead of reading this JSON setting.
+- `api_log_slow_threshold_ms` — the `api_request_logs` table (migration 033) it would gate is never written
+  to anywhere in the codebase; the whole slow-API-logging feature is dormant.
+- `argon2_memory_cost` / `argon2_time_cost` — every `password_hash(..., PASSWORD_ARGON2ID, [...])` call site
+  (11 of them, across `AuthController`, `RegistrationController` ×6, `StudentController`, `SubAgentController`,
+  `LeadsController`) reads `ARGON2_MEMORY_COST`/`ARGON2_TIME_COST` from `crm-api/.env` via
+  `TGA\CRM\Config\Environment::get()`, never from `system_settings`.
+
+User's explicit instruction: don't wire these up, remove them entirely from both frontend and backend, keep
+only the fields that actually work. Implemented as a removal, not a fix:
+- New migration `079_remove_dead_system_settings.sql` — `DELETE FROM system_settings WHERE setting_key IN (...)`
+  for the 6 dead keys. Applied directly to the local dev DB in this session (6 rows deleted, confirmed 10
+  real settings remain) and cleared `storage/cache/settings.json` so the running app picked it up immediately
+  with no restart.
+- `setup_database.php`'s `$settingsSeed` array, `schema.sql`, and `all_migrations_combined.sql` (migration
+  042's argon2 INSERT block) all trimmed so fresh installs never seed the dead rows in the first place.
+  Old numbered migration files (`038_seeds.sql`, `042_system_settings_additions.sql`) left untouched as
+  historical record — neither is executed by any current setup path anyway
+  (`run_all_migrations.php` only picks up `06x` files per the known gotcha).
+- `AdminSettingsPage.tsx`: removed the now-dead `'reminders'` case from `getGroupIcon()` and the unused
+  `Bell` import. No other frontend change needed — the page renders whatever groups the API returns, so the
+  now-empty "Commissions" and "Reminders" setting groups simply stopped rendering on their own.
+
+**Verified live**: reloaded `/portal/admin/settings` after the DB delete + cache clear — page now shows
+exactly 5 groups (Applications, Backup, Otp, Security, Upload) with exactly the 10 real settings; Commissions
+and Reminders groups are gone entirely. No new console errors (only the pre-existing, unrelated
+`notifications/unread-count` / `admin/activityFeed` noise documented earlier in this file).
+
+### 2026-07-03 — System Settings: Backup Group Hidden (Frontend Only), Upload Confirmed Real
+
+Same session, follow-up. User reported Drive backup sync isn't reliably running in practice (matches the
+"Drive Backup Synchronization Warning — 56 file(s) waiting to sync" banner already visible on the admin
+dashboard) and asked to hide the Backup retention fields from the Settings UI **without** deleting the
+underlying setting rows or `BackupRetentionManager`/`cron/backup-db.php` logic — explicitly wants it kept
+in backend to re-enable later once Drive sync is fixed.
+
+Implemented as a pure frontend render filter, not a deletion: `AdminSettingsPage.tsx`'s group-rendering
+loop now does `.filter(([groupName]) => groupName !== 'backup')` before mapping. `backup_retain_daily/
+weekly/monthly` rows remain untouched in `system_settings`, still fully wired to
+`BackupRetentionManager::enforce()` via `cron/backup-db.php:89`. Re-enabling later is a one-line revert
+(remove the filter).
+
+Also verified, per user's request, that `upload_max_size_mb` (the other setting still showing) is
+genuinely real before leaving it alone: `FileUploadService::upload()` calls `assertFileSize()`
+(`FileUploadService.php:224-234`), which reads `SystemSettings::get('upload_max_size_mb', '10')` as the
+actual document size ceiling enforced on every upload. Confirmed no competing `UPLOAD_MAX_SIZE_MB` env var
+read anywhere in code (it only exists as an unused line in `.env.example`/`CLAUDE.md`) — the system_settings
+value is the sole source of truth. Confirmed 7 controllers (`DocumentRequestController`, `StudentController`,
+`AgentController`, `SubAgentController`, `UniversityController`, `NoticeController`,
+`StudentCustomFieldController`) all route through this same `FileUploadService::upload()` call, so the
+setting genuinely governs every file upload path in the system. No change needed — kept as-is on both ends.
+
+**Verified live**: reloaded `/portal/admin/settings` — page now shows exactly 4 groups (Applications, Otp,
+Security, Upload); Backup Settings card no longer renders. Confirmed via direct DB query that all 3
+`backup_retain_*` rows are still present. No new console errors.
+
+### 2026-07-03 — System Settings: Disk Threshold Fields Hidden (Cron-Only Effect, Not Immediate)
+
+Same session, second follow-up. User asked to remove security settings whose effect isn't immediate/direct
+— specifically ones that only take effect via a cron job — since those aren't being actively managed right
+now either. `disk_warn_threshold_pct`/`disk_critical_threshold_pct` fit this: both are real (read by
+`cron/monitor-disk.php` on its 12-hour schedule per `CLAUDE.md`'s cron table), but changing them in the UI
+produces no visible effect until the next cron run, unlike `session_max_per_user` (checked synchronously in
+`AuthController::saveSession()` on every login) and `jwt_min_iat` (checked synchronously in
+`AuthMiddleware::user()` on every authenticated request) which remain in the Security group.
+
+Generalized the filtering approach from the Backup fix into a `HIDDEN_SETTING_KEYS` set plus a single
+`useMemo` in `AdminSettingsPage.tsx` that derives a filtered `settingsGroups` (drops the `backup` group
+entirely, drops individual hidden keys from any other group, and drops a group altogether if it ends up
+empty) — replaces the earlier ad-hoc `.filter(([groupName]) => groupName !== 'backup')` inline in the
+render loop with one central, reusable place. `rawSettingsGroups` (the raw query result) is never rendered
+directly; `handleSaveGroup`/the `localValues` init effect both consume the filtered version automatically,
+so a hidden setting can never be accidentally re-saved from a stale local value. DB rows and
+`cron/monitor-disk.php` untouched — same "hide, don't delete" treatment as Backup.
+
+**Verified live**: Security group now shows exactly 2 fields (JWT Minimum Issued-At, Max Active Sessions
+Per User). Confirmed via direct DB query both `disk_warn_threshold_pct` and `disk_critical_threshold_pct`
+rows are still present. No new console errors.
+
+### 2026-07-03 — Roles Page Removed End-to-End (Dead Parallel System, Not a Fix)
+
+Same session, third follow-up. User asked whether the "Roles" page had any capability not already covered
+by the "Users" (admin management) page, intending to remove it if not. Investigation found two completely
+separate permission systems both writing into the same `roles`/`role_permissions` tables:
+
+1. **The real, live system** (used by the Users page every day): `AdminPageAccessService::apply()`
+   auto-generates an opaque, 1:1, per-admin role named `page_access_{userPublicId}` behind the scenes
+   whenever a super admin sets an admin's page-access grid on the Users page. Nobody ever sees or picks a
+   "role" — it's fully abstracted.
+2. **The dead system** (what `AdminRolesPage.tsx` displayed): named, reusable, shareable roles. Backend
+   `RoleController` had full CRUD (`list`/`create`/`update`/`delete`, all 4 routes registered in
+   `AdminRoutes.php`), but the frontend page only ever called `list` — no create/edit/delete UI existed
+   anywhere. `fetchAdminRoles()` (`src/lib/api.ts`) was called nowhere else, including the admin-creation
+   form on `AdminUsers.tsx` (confirmed via grep — no `role_id`/role-picker UI there at all).
+
+Querying the live `roles` table confirmed the practical result of this split: 6 rows total — 3 opaque
+`page_access_*` rows from the real system, and 3 orphaned `Counsellor Test`/`Manager Test`/`Visa Officer
+Test` rows (leftover manual test data with no live creation path) that the Roles page happened to also
+render as cards, mixed in with a synthetic "Super Administrator" card. Zero unique, actionable value —
+qualifies for the same full end-to-end removal as the earlier dead system-settings.
+
+**Removed**:
+- Frontend: `AdminRolesPage.tsx` deleted; `roles` route + lazy import removed from `router/index.tsx`;
+  `Roles` nav item + now-unused `Key` icon import removed from `PortalWrapper.tsx`; `fetchAdminRoles()`
+  removed from `api.ts`; one stale dead-route line (`if (pathname === '/portal/admin/roles') return
+  'users'`) removed from `AdminDashboardPage.tsx`'s `resolveSection()` — a leftover from before the router
+  wiring fix earlier this session, never reachable since `/portal/admin/roles` no longer renders
+  `AdminDashboardPage`.
+- Backend: `RoleController.php` deleted entirely; its import, instantiation, and all 4 route registrations
+  removed from `AdminRoutes.php`.
+- **Explicitly NOT touched** (this is the real, live permission system): `roles` table, `role_permissions`
+  table, all 6 existing rows (including the 3 test roles some seeded QA admin accounts still depend on for
+  their actual permissions), and `AdminPageAccessService.php` in its entirety — it does its own direct SQL
+  against `roles`/`role_permissions`, has no dependency on `RoleController`.
+
+**Verification**: `npm run build` succeeded clean, `AdminRolesPage` chunk no longer emitted, no unresolved
+imports anywhere in the app. Live: sidebar no longer shows "Roles"; `/portal/admin/roles` now renders the
+generic 404 page; `curl` against `?route=admin&action=roles` returns `404 NOT_FOUND` confirming the route
+is gone server-side; Users page reloaded and still correctly shows all 6 admins' real access levels (SUPER
+ADMIN, 1 PAGE, 13 PAGES (11 WRITE), 3 PAGES, 4 PAGES (1 WRITE), 1 PAGE) — proof `AdminPageAccessService`
+and existing admin permissions are completely unaffected by the removal.
