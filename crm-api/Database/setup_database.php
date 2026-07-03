@@ -196,19 +196,13 @@ try {
     // Seed System Settings
     $settingsSeed = [
         ['otp_expiry_minutes','10','integer','OTP Expiry (minutes)','How long an OTP remains valid','otp'],
-        ['otp_max_attempts','3','integer','OTP Max Attempts','Failed attempts before OTP is blocked','otp'],
         ['upload_max_size_mb','10','integer','Max Upload Size (MB)','Maximum file size per document upload','upload'],
-        ['reminder_days_before_deadline','[3,1]','json','Reminder Days Before Deadline','Days before deadline to send reminders','reminders'],
-        ['commission_pending_alert_days','30','integer','Commission Pending Alert (days)','Alert when pending this long','commissions'],
         ['disk_warn_threshold_pct','80','integer','Disk Warning Threshold (%)','Warning threshold','security'],
         ['disk_critical_threshold_pct','95','integer','Disk Critical Threshold (%)','Critical threshold','security'],
         ['session_max_per_user','5','integer','Max Active Sessions Per User','Max sessions per user','security'],
-        ['api_log_slow_threshold_ms','500','integer','Slow API Threshold (ms)','Slow API logging threshold','security'],
         ['backup_retain_daily','7','integer','Daily Backup Retention','Retention count','backup'],
         ['backup_retain_weekly','4','integer','Weekly Backup Retention','Retention count','backup'],
         ['backup_retain_monthly','6','integer','Monthly Backup Retention','Retention count','backup'],
-        ['argon2_memory_cost','19456','integer','Argon2 Memory Cost','Memory cost for Argon2id','security'],
-        ['argon2_time_cost','2','integer','Argon2 Time Cost','Time cost for Argon2id','security'],
         // Migration 065 — global JWT revocation baseline
         ['jwt_min_iat','0','integer','JWT Minimum Issued-At','Invalidates all tokens issued before this Unix timestamp (0 = none)','security'],
     ];
