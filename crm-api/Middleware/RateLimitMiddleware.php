@@ -59,26 +59,40 @@ final class RateLimitMiddleware
                 $secondsRemaining = 0;
             }
 
-            // Log rate limit violation to security_events
-            try {
-                $logStmt = $pdo->prepare(
-                    "INSERT INTO security_events (event_type, identifier, ip_address, details, created_at)
-                     VALUES ('rate_limit_exceeded', ?, ?, JSON_OBJECT('action', ?, 'requests', ?, 'window_seconds', ?), NOW())"
+            // Log only the first rejection of each violation window — logging on every
+            // subsequent retry while still blocked drowns the security log in duplicates
+            // (a single blocked client retrying for minutes previously produced hundreds
+            // of near-identical rows for one incident).
+            if ((int) $row['requests'] === $maxRequests + 1) {
+                \TGA\CRM\Services\SecurityEventLogger::log(
+                    'rate_limit_exceeded',
+                    null,
+                    self::stripActionPrefix($identifier, $action),
+                    self::getIpAddress(),
+                    ['action' => $action, 'requests' => (int) $row['requests'], 'window_seconds' => $windowSeconds]
                 );
-                $logStmt->execute([
-                    $identifier,
-                    $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
-                    $action,
-                    (int) $row['requests'],
-                    $windowSeconds
-                ]);
-            } catch (\Throwable $e) {
-                error_log('[RateLimitMiddleware] Failed to log security event: ' . $e->getMessage());
             }
 
             header('Retry-After: ' . $secondsRemaining);
             Response::error('Too many requests', 'RATE_LIMIT_EXCEEDED', 429);
         }
+    }
+
+    /**
+     * Rate-limit bucket keys are composite (e.g. "login_email_{$hash}") so distinct actions
+     * don't collide in the `rate_limits` table. For the security_events log that composite
+     * key is just noise — this strips a leading "{action}_" (or the action's own prefix
+     * before its trailing "_ip"/"_email" qualifier) so the log shows the underlying
+     * hash/IP instead of an internal implementation detail.
+     */
+    private static function stripActionPrefix(string $identifier, string $action): string
+    {
+        foreach ([$action . '_', preg_replace('/_(ip|email)$/', '', $action) . '_ip_', preg_replace('/_(ip|email)$/', '', $action) . '_email_'] as $prefix) {
+            if ($prefix !== '_' && str_starts_with($identifier, $prefix)) {
+                return substr($identifier, strlen($prefix));
+            }
+        }
+        return $identifier;
     }
 
     /**
@@ -123,21 +137,13 @@ final class RateLimitMiddleware
 
             // Log security event ONLY on repeated hits (e.g. maxRequests + 2 which means 2nd rejection)
             if ((int) $row['requests'] === $maxRequests + 2) {
-                try {
-                    $logStmt = $pdo->prepare(
-                        "INSERT INTO security_events (event_type, identifier, ip_address, details, created_at)
-                         VALUES ('otp_rate_limit_repeated', ?, ?, JSON_OBJECT('action', ?, 'requests', ?, 'window_seconds', ?), NOW())"
-                    );
-                    $logStmt->execute([
-                        $identifier,
-                        self::getIpAddress(),
-                        $action,
-                        (int) $row['requests'],
-                        $windowSeconds
-                    ]);
-                } catch (\Throwable $e) {
-                    error_log('[RateLimitMiddleware] Failed to log security event: ' . $e->getMessage());
-                }
+                \TGA\CRM\Services\SecurityEventLogger::log(
+                    'otp_rate_limit_repeated',
+                    null,
+                    self::stripActionPrefix($identifier, $action),
+                    self::getIpAddress(),
+                    ['action' => $action, 'requests' => (int) $row['requests'], 'window_seconds' => $windowSeconds]
+                );
             }
 
             return $secondsRemaining > 0 ? $secondsRemaining : 1;
