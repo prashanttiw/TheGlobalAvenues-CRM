@@ -17,17 +17,19 @@ final class SecurityEventLogger
     ): void {
         try {
             $pdo = Database::getConnection();
-            $ip = $ipAddress ?? ($_SERVER['REMOTE_ADDR'] ?? '127.0.0.1');
+            $ip = $ipAddress ?? \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress();
+            $userAgent = isset($_SERVER['HTTP_USER_AGENT']) ? substr((string) $_SERVER['HTTP_USER_AGENT'], 0, 500) : null;
 
             $stmt = $pdo->prepare(
-                'INSERT INTO security_events (event_type, user_id, identifier, ip_address, details, created_at) 
-                 VALUES (?, ?, ?, ?, ?, NOW())'
+                'INSERT INTO security_events (event_type, user_id, identifier, ip_address, user_agent, details, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, NOW())'
             );
             $stmt->execute([
                 $eventType,
                 $userId,
                 $identifier,
                 $ip,
+                $userAgent,
                 $details ? json_encode($details, JSON_UNESCAPED_SLASHES) : null
             ]);
         } catch (\Exception $e) {
