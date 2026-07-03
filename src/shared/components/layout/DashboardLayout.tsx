@@ -28,7 +28,10 @@ export function DashboardLayout({ sidebarItems, logo, user, onLogout }: Dashboar
     if (path === '/portal/student' || path === '/portal/student/') return 'Student Journey'
     if (path === '/portal/agent' || path === '/portal/agent/') return 'Agent Overview'
     if (path === '/portal/admin' || path === '/portal/admin/') return 'Admin Dashboard'
-    
+    if (path === '/portal/admin/logs') return 'Activity Log'
+    if (path === '/portal/admin/super-logs') return 'Super Activity Log'
+    if (path === '/portal/agent/activity-logs') return 'Activity Log'
+
     const segments = path.split('/').filter(Boolean)
     if (segments.length === 0) return 'Portal'
     // Skip a trailing ULID/id-like segment (e.g. .../universities/01kw...) so detail

@@ -3,7 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, FileText, User, Settings, CreditCard,
   Users, FolderOpen, Globe, BookOpen, Calendar, Handshake,
-  Target, Megaphone, BarChart2, Key, Activity, Lock, Network, DollarSign, UserCheck, Bell, ListPlus
+  Target, Megaphone, BarChart2, Activity, Lock, Network, DollarSign, UserCheck, Bell, ListPlus, Radar
 } from 'lucide-react'
 import { DashboardLayout } from './DashboardLayout'
 import { useAuth } from '../../hooks/useAuth'
@@ -28,10 +28,11 @@ const AGENT_NAV: NavItem[] = [
   { label: 'Applications', icon: FileText, path: '/portal/agent/applications' },
   { label: 'Commissions', icon: DollarSign, path: '/portal/agent/commissions' },
   { label: 'Notices', icon: Bell, path: '/portal/agent/notices' },
+  { label: 'Activity Log', icon: Activity, path: '/portal/agent/activity-logs' },
   { label: 'Profile', icon: User, path: '/portal/agent/profile' },
 ]
 
-const ADMIN_NAV_BASE: (NavItem & { permission?: string })[] = [
+const ADMIN_NAV_BASE: (NavItem & { permission?: string; hideForSuperAdmin?: boolean })[] = [
   { label: 'Overview', icon: LayoutDashboard, path: '/portal/admin' },
   { label: 'Universities', icon: Globe, path: '/portal/admin/universities', permission: 'universities.view' },
   { label: 'Courses', icon: BookOpen, path: '/portal/admin/courses', permission: 'courses.view' },
@@ -44,9 +45,9 @@ const ADMIN_NAV_BASE: (NavItem & { permission?: string })[] = [
   { label: 'Notices', icon: Megaphone, path: '/portal/admin/notices', permission: 'notices.view' },
   { label: 'Reports', icon: BarChart2, path: '/portal/admin/reports', permission: 'reports.view' },
   { label: 'Users', icon: Users, path: '/portal/admin/users', permission: 'user_management.view' },
-  { label: 'Roles', icon: Key, path: '/portal/admin/roles', permission: 'user_management.view' },
   { label: 'Settings', icon: Settings, path: '/portal/admin/settings', permission: 'system_settings.view' },
-  { label: 'Logs', icon: Activity, path: '/portal/admin/logs', permission: 'activity_logs.view' },
+  { label: 'Activity Log', icon: Activity, path: '/portal/admin/logs', hideForSuperAdmin: true },
+  { label: 'Super Activity Log', icon: Radar, path: '/portal/admin/super-logs', permission: 'activity_logs.view_all' },
   { label: 'Security', icon: Lock, path: '/portal/admin/security', permission: 'security_events.view' },
 ]
 
@@ -70,10 +71,12 @@ export function PortalWrapper() {
   if (user.role === 'agent') navItems = AGENT_NAV
   if (user.role === 'admin') {
     const isSuperAdmin = user.isSuperAdmin === true || (user.permissions?.includes('*') ?? false)
-    // Super admins always see every page — their access cannot be filtered
+    // Super admins see every page except the ones explicitly hidden from them
+    // (e.g. the "own actions" Activity Log — super admins only need Super Activity Log,
+    // which already covers their own actions and everyone else's).
     navItems = ADMIN_NAV_BASE.filter(item => {
+      if (isSuperAdmin) return !item.hideForSuperAdmin
       if (!item.permission) return true
-      if (isSuperAdmin) return true
       return user.permissions?.includes(item.permission) ?? false
     })
   }

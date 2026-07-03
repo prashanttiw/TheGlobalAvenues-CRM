@@ -51,6 +51,7 @@ const AgentOnboardingPage = React.lazy(() => import('../pages/agent/AgentOnboard
 const AgentInfoPage = React.lazy(() => import('../pages/agent/AgentInfoPage'));
 const AgentPendingPage = React.lazy(() => import('../pages/agent/AgentPendingPage'));
 const AgentRejectedPage = React.lazy(() => import('../pages/agent/AgentRejectedPage'));
+const AgentLogsPage = React.lazy(() => import('../pages/agent/AgentLogsPage'));
 
 // Admin
 const AdminDashboardPage = React.lazy(() => import('../pages/admin/AdminDashboardPage').then(m => ({ default: m.AdminDashboardPage })));
@@ -68,6 +69,10 @@ const AdminUsersPage = React.lazy(() => import('../pages/admin/AdminUsers'));
 const AdminStudentsPage = React.lazy(() => import('../pages/admin/AdminStudentsPage'));
 const AdminStudentDetailPage = React.lazy(() => import('../pages/admin/AdminStudentDetailPage'));
 const AdminSettingsPage = React.lazy(() => import('../pages/admin/AdminSettingsPage'));
+const AdminLogsPage = React.lazy(() => import('../pages/admin/AdminLogsPage'));
+const AdminSuperLogsPage = React.lazy(() => import('../pages/admin/AdminSuperLogsPage'));
+const AdminLeadsPage = React.lazy(() => import('../pages/admin/AdminLeadsPage'));
+const AdminSecurityPage = React.lazy(() => import('../pages/admin/AdminSecurityPage'));
 
 export function AppRouter() {
   return (
@@ -137,6 +142,7 @@ export function AppRouter() {
           <Route path="universities" element={<AgentUniversitiesPage />} />
           <Route path="commissions" element={<AgentCommissionsPage />} />
           <Route path="notices" element={<AgentNoticesPage />} />
+          <Route path="activity-logs" element={<AgentLogsPage />} />
           <Route path="profile" element={<AgentProfilePage />} />
         </Route>
 
@@ -161,14 +167,14 @@ export function AppRouter() {
           <Route path="agents/:pid/tree" element={<PageGuard permission="agents.view"><AdminAgentDetailPage /></PageGuard>} />
           <Route path="applications" element={<PageGuard permission="applications.view"><AdminApplicationsPage /></PageGuard>} />
           <Route path="commissions" element={<PageGuard permission="commissions.view"><AdminCommissionsPage /></PageGuard>} />
-          <Route path="leads" element={<PageGuard permission="leads.view"><AdminDashboardPage /></PageGuard>} />
+          <Route path="leads" element={<PageGuard permission="leads.view"><AdminLeadsPage /></PageGuard>} />
           <Route path="notices" element={<PageGuard permission="notices.view"><AdminNoticesPage /></PageGuard>} />
           <Route path="reports" element={<PageGuard permission="reports.view"><AdminReportsPage /></PageGuard>} />
           <Route path="users" element={<PageGuard permission="user_management.view"><AdminUsersPage /></PageGuard>} />
-          <Route path="roles" element={<PageGuard permission="user_management.view"><AdminDashboardPage /></PageGuard>} />
           <Route path="settings" element={<PageGuard permission="system_settings.view"><AdminSettingsPage /></PageGuard>} />
-          <Route path="logs" element={<PageGuard permission="activity_logs.view"><AdminDashboardPage /></PageGuard>} />
-          <Route path="security" element={<PageGuard permission="security_events.view"><AdminDashboardPage /></PageGuard>} />
+          <Route path="logs" element={<PageGuard><AdminLogsPage /></PageGuard>} />
+          <Route path="super-logs" element={<PageGuard permission="activity_logs.view_all"><AdminSuperLogsPage /></PageGuard>} />
+          <Route path="security" element={<PageGuard permission="security_events.view"><AdminSecurityPage /></PageGuard>} />
         </Route>
 
         <Route path="403" element={<ForbiddenPage />} />

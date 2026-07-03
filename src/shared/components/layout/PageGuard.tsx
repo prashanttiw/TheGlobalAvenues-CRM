@@ -3,7 +3,7 @@ import { ShieldOff } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 
 interface PageGuardProps {
-  permission: string
+  permission?: string
   children: React.ReactNode
 }
 
@@ -13,7 +13,7 @@ export function PageGuard({ permission, children }: PageGuardProps) {
   if (!user) return null
 
   const isSuperAdmin = user.isSuperAdmin === true || (user.permissions?.includes('*') ?? false)
-  const hasPermission = isSuperAdmin || (user.permissions?.includes(permission) ?? false)
+  const hasPermission = !permission || isSuperAdmin || (user.permissions?.includes(permission) ?? false)
 
   if (!hasPermission) {
     return (

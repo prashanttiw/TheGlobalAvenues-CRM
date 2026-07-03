@@ -52,11 +52,9 @@ export function ActivityFeedWidget({ rolePrefix = 'admin' }: { rolePrefix?: stri
         const Icon = (Icons as any)[item.icon] || Activity
         const count = group.length
         
-        let displayLabel = item.label
-        if (count > 1) {
-          // If we grouped, alter the label slightly to indicate multiple e.g. Admin performed action 3x
-          displayLabel = `${item.actor_display_name || 'System'} performed ${item.action} (${count}x)`
-        }
+        // Keep the same readable label when grouping repeats of the same
+        // actor+action — just note the count, don't fall back to raw action keys.
+        const displayLabel = count > 1 ? `${item.label} (×${count})` : item.label
 
         return (
           <div key={`${item.id || item.created_at}-${idx}`} className="flex items-start gap-3 rounded-2xl border border-border-warm bg-white p-3 hover:bg-surface-warm transition-colors">
