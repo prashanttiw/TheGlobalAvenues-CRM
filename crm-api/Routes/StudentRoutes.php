@@ -45,6 +45,7 @@ final class StudentRoutes
         RouteRegistry::post('student', 'document-requests/:pid/submit', $requireStudent([$docController, 'studentSubmit']));
 
         $paymentController = new \TGA\CRM\Controllers\PaymentTrackingController();
+        RouteRegistry::get('student', 'payments', $requireStudent([$paymentController, 'studentList']));
         RouteRegistry::put('student', 'payments/:pid/mark-paid', $requireStudent([$paymentController, 'studentSubmit']));
 
         $academicCtrl = new \TGA\CRM\Controllers\StudentAcademicController();

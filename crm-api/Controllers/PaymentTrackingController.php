@@ -212,6 +212,39 @@ class PaymentTrackingController
         }
     }
 
+    public function studentList(): void
+    {
+        $user = AuthMiddleware::user();
+        if (($user['utype'] ?? '') !== 'student' && ($user['user_type'] ?? '') !== 'student') {
+            Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        $stmt = $this->pdo->prepare("SELECT id FROM students WHERE user_id = ? AND deleted_at IS NULL");
+        $stmt->execute([$user['id']]);
+        $studentId = $stmt->fetchColumn();
+
+        if (!$studentId) {
+            Response::error('Student profile not found', 'NOT_FOUND', 404);
+        }
+
+        $stmt = $this->pdo->prepare("
+            SELECT ap.public_id, ap.label, ap.amount, ap.currency, ap.due_date, ap.status, ap.payment_link,
+                   app.public_id as application_pid, app.reference_number as application_reference,
+                   u.name as university_name, c.name as program_name
+            FROM application_payments ap
+            JOIN applications app ON ap.application_id = app.id
+            JOIN intakes i ON app.intake_id = i.id
+            JOIN courses c ON i.course_id = c.id
+            JOIN universities u ON c.university_id = u.id
+            WHERE app.student_id = ? AND app.deleted_at IS NULL
+                  AND ap.status IN ('pending', 'student_marked_paid', 'disputed')
+            ORDER BY ap.due_date IS NULL, ap.due_date ASC
+        ");
+        $stmt->execute([$studentId]);
+
+        Response::json(['payments' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
+    }
+
     public function studentSubmit(string $pid): void
     {
         $user = AuthMiddleware::user();
@@ -286,6 +319,24 @@ class PaymentTrackingController
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    public function adminQueue(): void
+    {
+        RBACMiddleware::requirePermission('applications', 'view');
+
+        $stmt = $this->pdo->query("
+            SELECT ap.public_id, ap.label, ap.amount, ap.currency, ap.due_date, ap.status, ap.marked_paid_at,
+                   app.public_id as application_pid, app.reference_number as application_reference,
+                   s.full_name as student_name
+            FROM application_payments ap
+            JOIN applications app ON ap.application_id = app.id
+            JOIN students s ON app.student_id = s.id
+            WHERE ap.status = 'student_marked_paid'
+            ORDER BY ap.marked_paid_at ASC
+        ");
+
+        Response::json(['queue' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
     }
 
     public function adminVerify(string $pid): void

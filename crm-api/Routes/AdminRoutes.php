@@ -51,7 +51,10 @@ final class AdminRoutes
         $docControllerForAdmin = new \TGA\CRM\Controllers\DocumentRequestController();
         RouteRegistry::get('admin', 'get_document_queue', [$docControllerForAdmin, 'getDocumentQueue']);
         RouteRegistry::post('admin', 'review_document', [$docControllerForAdmin, 'adminReview']);
-        
+
+        $paymentControllerForAdmin = new \TGA\CRM\Controllers\PaymentTrackingController();
+        RouteRegistry::get('admin', 'get_payment_queue', [$paymentControllerForAdmin, 'adminQueue']);
+
         RouteRegistry::get('admin', 'dashboard/activity-feed', [$feedCtrl, 'getFeed']);
 
         // ── Reports & Analytics ──────────────────────────────────────────────

@@ -613,13 +613,6 @@ class DocumentRequestController
             WHERE dr.status = 'submitted'
             ORDER BY dr.created_at ASC
         ");
-        $queue = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $studentName = \TGA\CRM\Services\EncryptionService::decrypt($row['student_name']);
-            $row['student_name'] = $studentName ?: $row['student_name'];
-            $queue[] = $row;
-        }
-
-        Response::json(['queue' => $queue]);
+        Response::json(['queue' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
     }
 }
