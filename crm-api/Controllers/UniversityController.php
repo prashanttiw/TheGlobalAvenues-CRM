@@ -37,18 +37,26 @@ class UniversityController
         $offset = ($page - 1) * $perPage;
         $q = trim((string) ($_GET['q'] ?? ''));
 
-        $whereClauses = ['deleted_at IS NULL'];
+        $whereClauses = ['u.deleted_at IS NULL'];
         $params = [];
         if ($q !== '') {
-            $whereClauses[] = '(name LIKE ? OR country LIKE ? OR city LIKE ?)';
+            // EXISTS (not a JOIN) so a university with N matching courses/intakes still
+            // contributes exactly one row — a JOIN would duplicate the university per match and
+            // corrupt both the count and the pagination.
+            $whereClauses[] = '(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?
+                OR EXISTS (SELECT 1 FROM courses c WHERE c.university_id = u.id AND c.deleted_at IS NULL AND c.name LIKE ?)
+                OR EXISTS (SELECT 1 FROM courses c2 JOIN intakes i ON i.course_id = c2.id WHERE c2.university_id = u.id AND c2.deleted_at IS NULL AND i.name LIKE ?)
+            )';
             $like = '%' . $q . '%';
+            $params[] = $like;
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
         }
         $where = implode(' AND ', $whereClauses);
 
-        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM universities WHERE {$where}");
+        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM universities u WHERE {$where}");
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
