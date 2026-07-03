@@ -7,7 +7,6 @@ namespace TGA\CRM\Routes;
 use TGA\CRM\Controllers\AdminAgentController;
 use TGA\CRM\Controllers\AdminStudentController;
 use TGA\CRM\Controllers\StudentCustomFieldController;
-use TGA\CRM\Controllers\RoleController;
 use TGA\CRM\Controllers\ReassignmentController;
 use TGA\CRM\Controllers\CommissionController;
 use TGA\CRM\Controllers\AdminDashboardController;
@@ -28,7 +27,6 @@ final class AdminRoutes
         $agentController = new AdminAgentController();
         $studentController = new AdminStudentController();
         $customFieldsCtrl = new StudentCustomFieldController();
-        $roleController  = new RoleController();
         $reassignCtrl    = new ReassignmentController();
         $commCtrl        = new CommissionController();
         $dashCtrl        = new AdminDashboardController();
@@ -116,6 +114,7 @@ final class AdminRoutes
 
         // ── Activity Logs ────────────────────────────────────────────────────
         RouteRegistry::get('admin', 'activity-logs', [$logs, 'adminList']);
+        RouteRegistry::get('admin', 'super-activity-logs', [$logs, 'superList']);
         RouteRegistry::get('admin', 'security-events', [$securityEvents, 'adminList']);
 
         // ── Notices ──────────────────────────────────────────────────────────
@@ -146,12 +145,6 @@ final class AdminRoutes
 
         // ── Global Search ────────────────────────────────────────────────────
         RouteRegistry::get('admin',    'search',                      [$search, 'search']);
-
-        // ── Role Management ──────────────────────────────────────────────────────
-        RouteRegistry::get('admin', 'roles', [$roleController, 'list']);
-        RouteRegistry::post('admin', 'roles', [$roleController, 'create']);
-        RouteRegistry::put('admin', 'roles/:publicId', [$roleController, 'update']);
-        RouteRegistry::delete('admin', 'roles/:publicId', [$roleController, 'delete']);
     }
 }
 
