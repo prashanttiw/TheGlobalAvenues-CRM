@@ -44,8 +44,46 @@ final class AdminStudentController
         }
 
         if ($search !== '') {
-            $conditions[] = "(s.full_name LIKE :search OR s.public_id LIKE :search OR COALESCE(a.agency_name, '') LIKE :search)";
-            $params['search'] = '%' . $search . '%';
+            // MySQL native prepares (Database::getConnection() runs with ATTR_EMULATE_PREPARES
+            // false) reject a named placeholder reused more than once in the same query with
+            // "Invalid parameter number" — bind a distinct name per occurrence instead.
+            // Email/phone are XSalsa20-encrypted (EncryptionService) — LIKE on the ciphertext is
+            // meaningless, so match those two fields by exact lookup-hash equality, plus
+            // fixed-length prefix-hash equality for a "starts with" match (see
+            // EncryptionService::hashPrefix()/hashPhonePrefix() — indexed equality lookups, same
+            // cost as the exact-match hashes, no decryption at query time).
+            $searchOr = [
+                's.full_name LIKE :search1',
+                's.public_id LIKE :search2',
+                "COALESCE(a.agency_name, '') LIKE :search3",
+                'u.email_lookup_hash = :searchEmailHash',
+                'u.phone_lookup_hash = :searchPhoneHash',
+            ];
+            $searchTerm = '%' . $search . '%';
+            $params['search1'] = $searchTerm;
+            $params['search2'] = $searchTerm;
+            $params['search3'] = $searchTerm;
+            $params['searchEmailHash'] = EncryptionService::hash($search);
+            $params['searchPhoneHash'] = EncryptionService::hash($search);
+
+            foreach ([4, 6, 8] as $len) {
+                $prefixHash = EncryptionService::hashPrefix($search, $len);
+                if ($prefixHash !== null) {
+                    $paramKey = "emailPrefix{$len}";
+                    $searchOr[] = "u.email_prefix{$len}_hash = :{$paramKey}";
+                    $params[$paramKey] = $prefixHash;
+                }
+            }
+            foreach ([4, 6] as $len) {
+                $phonePrefixHash = EncryptionService::hashPhonePrefix($search, $len);
+                if ($phonePrefixHash !== null) {
+                    $paramKey = "phonePrefix{$len}";
+                    $searchOr[] = "u.phone_prefix{$len}_hash = :{$paramKey}";
+                    $params[$paramKey] = $phonePrefixHash;
+                }
+            }
+
+            $conditions[] = '(' . implode(' OR ', $searchOr) . ')';
         }
 
         $where = implode(' AND ', $conditions);

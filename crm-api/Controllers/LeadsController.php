@@ -153,8 +153,10 @@ class LeadsController
     {
         RBACMiddleware::requirePermission('leads', 'view');
 
+        $search = trim((string) ($_GET['search'] ?? ''));
+
         $stmt = $this->pdo->prepare("
-            SELECT l.public_id, l.full_name, l.email, l.phone, l.source, l.source_detail, l.interested_country, 
+            SELECT l.public_id, l.full_name, l.email, l.phone, l.source, l.source_detail, l.interested_country,
                    l.interested_course, l.status, l.assigned_to, l.created_at, l.updated_at, l.notes,
                    (EXISTS(SELECT 1 FROM users u WHERE u.email_lookup_hash = l.email_lookup_hash AND u.deleted_at IS NULL)
                     OR EXISTS(SELECT 1 FROM leads l2 WHERE l2.email_lookup_hash = l.email_lookup_hash AND l2.id != l.id AND l2.deleted_at IS NULL)
@@ -173,6 +175,19 @@ class LeadsController
             if ($lead['source_detail']) {
                 $lead['source_detail'] = json_decode($lead['source_detail'], true);
             }
+        }
+        unset($lead);
+
+        // This endpoint already decrypts every lead's email unconditionally (no pagination, no
+        // per-row cost saved by filtering earlier), so a genuine partial match against the
+        // decrypted value is free here — no need to fall back to exact lookup-hash equality the
+        // way encrypted-column search does elsewhere. Phone intentionally excluded (leads has no
+        // phone_lookup_hash; adding partial/exact phone search here was deferred).
+        if ($search !== '') {
+            $leads = array_values(array_filter($leads, function ($lead) use ($search) {
+                return stripos((string) ($lead['full_name'] ?? ''), $search) !== false
+                    || stripos((string) ($lead['email'] ?? ''), $search) !== false;
+            }));
         }
 
         Response::json(['data' => $leads]);

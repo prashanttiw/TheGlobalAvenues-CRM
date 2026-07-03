@@ -402,8 +402,14 @@ final class AdminAgentController
             $params['country'] = $country;
         }
         if ($search !== '') {
-            $conditions[] = "(a.full_name LIKE :search OR a.agency_name LIKE :search OR a.referral_code LIKE :search)";
-            $params['search'] = "%{$search}%";
+            // MySQL native prepares (Database::getConnection() runs with ATTR_EMULATE_PREPARES
+            // false) reject a named placeholder reused more than once in the same query with
+            // "Invalid parameter number" — bind a distinct name per occurrence instead.
+            $conditions[] = "(a.full_name LIKE :search1 OR a.agency_name LIKE :search2 OR a.referral_code LIKE :search3)";
+            $searchTerm = "%{$search}%";
+            $params['search1'] = $searchTerm;
+            $params['search2'] = $searchTerm;
+            $params['search3'] = $searchTerm;
         }
 
         $where = implode(' AND ', $conditions);

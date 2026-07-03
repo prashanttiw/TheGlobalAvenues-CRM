@@ -36,12 +36,21 @@ class NoticeController
 
         $sort = ($_GET['sort'] ?? 'desc') === 'asc' ? 'ASC' : 'DESC';
         $noticeType = in_array($_GET['notice_type'] ?? '', ['notice', 'event'], true) ? $_GET['notice_type'] : null;
+        $search = trim((string) ($_GET['search'] ?? ''));
 
         $conditions = ['n.deleted_at IS NULL'];
         $bindParams = [];
         if ($noticeType !== null) {
             $conditions[] = 'n.notice_type = ?';
             $bindParams[] = $noticeType;
+        }
+        if ($search !== '') {
+            // n.content is raw TipTap HTML, so a match can land inside markup rather than visible
+            // text — acceptable for a first pass, title matches cover the common case.
+            $conditions[] = '(n.title LIKE ? OR n.content LIKE ?)';
+            $like = '%' . $search . '%';
+            $bindParams[] = $like;
+            $bindParams[] = $like;
         }
         $where = 'WHERE ' . implode(' AND ', $conditions);
 

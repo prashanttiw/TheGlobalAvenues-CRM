@@ -38,6 +38,7 @@ final class CommissionController
         $status   = trim($_GET['status']    ?? '');
         $from     = trim($_GET['from']      ?? '');
         $to       = trim($_GET['to']        ?? '');
+        $search   = trim($_GET['search']    ?? '');
 
         $conditions = ['c.deleted_at IS NULL'];
         $params     = [];
@@ -58,11 +59,25 @@ final class CommissionController
             $conditions[] = "DATE(c.created_at) <= :to";
             $params['to'] = $to;
         }
+        if ($search) {
+            // Distinct placeholder name per occurrence — MySQL native prepares (this project's
+            // Database::getConnection() runs ATTR_EMULATE_PREPARES false) reject a named
+            // placeholder reused more than once in the same query.
+            $conditions[] = "(a.full_name LIKE :search1 OR a.agency_name LIKE :search2 OR s.full_name LIKE :search3 OR app.reference_number LIKE :search4)";
+            $like = '%' . $search . '%';
+            $params['search1'] = $like;
+            $params['search2'] = $like;
+            $params['search3'] = $like;
+            $params['search4'] = $like;
+        }
         $where = implode(' AND ', $conditions);
 
         $countStmt = $this->pdo->prepare(
             "SELECT COUNT(*) FROM commissions c
-             JOIN agents a ON a.id = c.agent_id WHERE {$where}"
+             JOIN agents a ON a.id = c.agent_id
+             JOIN applications app ON app.id = c.application_id
+             JOIN students s ON s.id = app.student_id
+             WHERE {$where}"
         );
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
