@@ -1,14 +1,21 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../shared/components/layout/PageHeader';
 import { PageWrapper } from '../../shared/components/layout/PageWrapper';
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card';
-import { Users, FileText, CreditCard, ChevronRight, CheckCircle2, TrendingUp } from 'lucide-react';
-import { fetchAgentDashboardSummary } from '../../lib/api';
+import { Button } from '../../shared/components/ui/Button';
+import { EmptyState } from '../../shared/components/ui/EmptyState';
+import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
+import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidget';
+import { Users, CreditCard, ChevronRight, CheckCircle2, TrendingUp } from 'lucide-react';
+import { fetchAgentDashboardSummary, fetchAgentCommissions } from '../../lib/api';
 import { toast } from 'sonner';
 
 export default function AgentDashboard() {
+  const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
+  const [recentCommissions, setRecentCommissions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -16,8 +23,12 @@ export default function AgentDashboard() {
     async function loadData() {
       try {
         setLoading(true);
-        const summary = await fetchAgentDashboardSummary();
+        const [summary, commissionResult] = await Promise.all([
+          fetchAgentDashboardSummary(),
+          fetchAgentCommissions({ page: 1 }),
+        ]);
         setData(summary);
+        setRecentCommissions(commissionResult.commissions.slice(0, 5));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load dashboard data.');
         toast.error('Failed to load dashboard data.');
@@ -142,14 +153,53 @@ export default function AgentDashboard() {
               <span className="text-sm text-gray-600">Total Sub-Agents</span>
               <span className="font-bold text-gray-900">{team.total_sub_agents}</span>
             </div>
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center pb-2">
               <span className="text-sm text-gray-600">Pending Review</span>
               <span className={`font-bold ${team.pending_sub_agents > 0 ? 'text-amber-600' : 'text-gray-900'}`}>
                 {team.pending_sub_agents}
               </span>
             </div>
           </div>
+          <Button variant="secondary" size="sm" className="w-full mt-4" onClick={() => navigate('/portal/agent/team')}>
+            View team
+            <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
+          </Button>
         </div>
+      </div>
+
+      <div className="grid gap-6 md:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold">Recent Commissions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {recentCommissions.length === 0 ? (
+              <EmptyState icon={CreditCard} heading="No commissions yet" description="Commission records appear here as your students progress." />
+            ) : (
+              recentCommissions.map((c: any) => (
+                <div key={c.public_id} className="flex items-center justify-between gap-4 rounded-xl border border-gray-100 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{c.student_name}</p>
+                    <p className="text-xs text-gray-500">{new Date(c.created_at).toLocaleDateString()}</p>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm font-bold text-gray-900">{c.currency} {Number(c.amount).toLocaleString()}</span>
+                    <StatusBadge status={c.status as StatusType} />
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ActivityFeedWidget rolePrefix="agent" />
+          </CardContent>
+        </Card>
       </div>
     </PageWrapper>
   );

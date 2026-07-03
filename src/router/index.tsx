@@ -35,7 +35,6 @@ const StudentAdditionalInfoPage = React.lazy(() => import('../pages/student/Stud
 const CompleteApplicationDetailsPage = React.lazy(() => import('../pages/student/CompleteApplicationDetailsPage'));
 
 // Agent
-const AgentDashboardPage = React.lazy(() => import('../pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
 const AgentDashboard = React.lazy(() => import('../pages/agent/AgentDashboard'));
 const AgentStudents = React.lazy(() => import('../pages/agent/AgentStudents'));
 const AgentStudentDetailPage = React.lazy(() => import('../pages/agent/AgentStudentDetailPage'));

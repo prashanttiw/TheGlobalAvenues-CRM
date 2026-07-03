@@ -1,10 +1,13 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
 import {
   ArrowRight,
   CheckCircle2,
+  CreditCard,
   FileText,
+  GraduationCap,
   Globe,
   Inbox,
   Lock,
@@ -24,7 +27,14 @@ import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidge
 import { ProfileCompletionPanel } from '../../shared/components/student/ProfileCompletionPanel'
 import { useAuth } from '../../shared/hooks/useAuth'
 import { useUnreadCount } from '../../shared/hooks/useNotifications'
-import { fetchReadiness, fetchStudentAgentInfo, fetchStudentApplicationsList } from '../../lib/api'
+import {
+  fetchReadiness,
+  fetchStudentAgentInfo,
+  fetchStudentApplicationsList,
+  fetchStudentDocumentRequests,
+  fetchStudentPayments,
+  markPaymentPaid,
+} from '../../lib/api'
 import { isProfileReady } from '../../shared/constants/readiness'
 
 const KNOWN_STATUSES = new Set<StatusType>([
@@ -53,6 +63,7 @@ function formatDate(value?: string | null) {
 export default function StudentOverviewPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const readinessQuery = useQuery({
     queryKey: ['student', 'readiness'],
@@ -69,10 +80,31 @@ export default function StudentOverviewPage() {
     queryFn: fetchStudentAgentInfo,
   })
 
+  const documentRequestsQuery = useQuery({
+    queryKey: ['student', 'document-requests'],
+    queryFn: fetchStudentDocumentRequests,
+  })
+
+  const paymentsQuery = useQuery({
+    queryKey: ['student', 'payments'],
+    queryFn: fetchStudentPayments,
+  })
+
+  const markPaidMutation = useMutation({
+    mutationFn: markPaymentPaid,
+    onSuccess: () => {
+      toast.success('Marked as paid — awaiting confirmation.')
+      queryClient.invalidateQueries({ queryKey: ['student', 'payments'] })
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Failed to mark payment as paid.'),
+  })
+
   const unreadQuery = useUnreadCount()
 
   const applications = applicationsQuery.data ?? []
   const ready = isProfileReady(readinessQuery.data?.profile_status)
+  const documentsNeeded = (documentRequestsQuery.data ?? []).filter((d: any) => d.status === 'requested')
+  const paymentsDue = paymentsQuery.data ?? []
 
   const stats = React.useMemo(() => {
     let open = 0
@@ -115,11 +147,12 @@ export default function StudentOverviewPage() {
         <ProfileCompletionPanel />
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         <StatCard label="Total Applications" value={stats.total} icon={FileText} color="navy" isLoading={applicationsQuery.isLoading} />
         <StatCard label="Open / In Progress" value={stats.open} icon={Inbox} color="amber" isLoading={applicationsQuery.isLoading} />
         <StatCard label="In Review" value={stats.inReview} icon={Sparkles} color="orange" isLoading={applicationsQuery.isLoading} />
         <StatCard label="Offers Received" value={stats.offers} icon={CheckCircle2} color="green" isLoading={applicationsQuery.isLoading} />
+        <StatCard label="Enrolled" value={stats.enrolled} icon={GraduationCap} color="green" isLoading={applicationsQuery.isLoading} />
         <StatCard label="Unread Notices" value={unreadQuery.data?.count ?? 0} icon={Mail} color="navy" isLoading={unreadQuery.isLoading} />
       </div>
 
@@ -167,6 +200,72 @@ export default function StudentOverviewPage() {
         </Card>
 
         <div className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <FileText className="h-4 w-4 text-brand-orange-accessible" />
+              <CardTitle className="text-sm font-semibold text-brand-navy">Documents Needed</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {documentRequestsQuery.isLoading ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : documentsNeeded.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No outstanding document requests.</p>
+              ) : (
+                <>
+                  {documentsNeeded.slice(0, 3).map((doc: any) => (
+                    <div key={doc.public_id} className="flex items-center justify-between gap-3 rounded-card border border-border-warm px-3 py-2">
+                      <p className="text-xs font-medium text-brand-navy truncate">{doc.doc_label}</p>
+                      <span className="text-[11px] text-muted-foreground shrink-0">{doc.deadline ? `Due ${formatDate(doc.deadline)}` : 'No deadline'}</span>
+                    </div>
+                  ))}
+                  <Button variant="secondary" size="sm" className="w-full mt-1" onClick={() => navigate('/portal/student/documents')}>
+                    {documentsNeeded.length > 3 ? `View all ${documentsNeeded.length}` : 'Go to Documents'}
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center gap-2 pb-2">
+              <CreditCard className="h-4 w-4 text-brand-orange-accessible" />
+              <CardTitle className="text-sm font-semibold text-brand-navy">Payments Due</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {paymentsQuery.isLoading ? (
+                <p className="text-xs text-muted-foreground">Loading…</p>
+              ) : paymentsDue.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No payments due right now.</p>
+              ) : (
+                paymentsDue.slice(0, 3).map((payment: any) => (
+                  <div key={payment.public_id} className="rounded-card border border-border-warm px-3 py-2">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-medium text-brand-navy truncate">{payment.label}</p>
+                      <span className="text-xs font-semibold text-brand-navy shrink-0">{payment.currency} {Number(payment.amount ?? 0).toLocaleString()}</span>
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between gap-3">
+                      <span className="text-[11px] text-muted-foreground">{payment.due_date ? `Due ${formatDate(payment.due_date)}` : 'No due date'}</span>
+                      {payment.status === 'pending' ? (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={markPaidMutation.isPending}
+                          onClick={() => markPaidMutation.mutate(payment.public_id)}
+                        >
+                          Mark as Paid
+                        </Button>
+                      ) : (
+                        <span className="text-[11px] font-medium text-amber-700">
+                          {payment.status === 'disputed' ? 'Disputed — contact us' : 'Awaiting confirmation'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
           <Card>
             <CardContent className="p-5 sm:p-6">
               {ready ? (
