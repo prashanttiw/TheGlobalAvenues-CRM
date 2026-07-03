@@ -36,7 +36,9 @@ final class ActivityLogger
                     if ($userId === null || $userId === $currentUserId) {
                         $userId = $currentUserId;
                         $actorUserType = (string) ($payload['utype'] ?? $payload['user_type'] ?? 'system');
-                        $actorDisplayName = (string) ($payload['name'] ?? $payload['display_name'] ?? 'System');
+                        // The JWT itself never carries a name claim — look the real
+                        // display name up from the DB so logs don't just say "System".
+                        $actorDisplayName = self::resolveDisplayName($pdo, $actorUserType, $userId) ?? 'System';
                     }
                 }
             }
@@ -75,6 +77,32 @@ final class ActivityLogger
             ]);
         } catch (\Throwable $e) {
             error_log('[ActivityLogger Error] ' . $e->getMessage());
+        }
+    }
+
+    private static function resolveDisplayName(\PDO $pdo, string $userType, ?int $userId): ?string
+    {
+        if ($userId === null) {
+            return null;
+        }
+
+        $table = match ($userType) {
+            'student' => 'students',
+            'agent' => 'agents',
+            'admin' => 'admins',
+            default => null,
+        };
+        if ($table === null) {
+            return null;
+        }
+
+        try {
+            $stmt = $pdo->prepare("SELECT full_name FROM {$table} WHERE user_id = ? LIMIT 1");
+            $stmt->execute([$userId]);
+            $name = $stmt->fetchColumn();
+            return is_string($name) && trim($name) !== '' ? trim($name) : null;
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 
