@@ -195,7 +195,7 @@ export default function AdminUniversitiesPage() {
       <PageHeader title="Universities" subtitle="Manage live academic institutions and partners." actions={canWrite ? <Button variant="primary" onClick={() => setIsAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add University</Button> : undefined} />
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-surface-card border border-border-warm rounded-xl p-3">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search by university name or country…" className="sm:max-w-sm" />
+        <SearchInput value={search} onChange={setSearch} placeholder="Search by name, location, course, or intake…" className="sm:max-w-sm" />
         <div className="sm:ml-auto flex rounded-lg border border-border-warm overflow-hidden self-start">
           <button
             type="button"

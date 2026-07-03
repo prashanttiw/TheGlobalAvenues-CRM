@@ -8,9 +8,10 @@ import { toast } from 'sonner'
 import { DndContext, DragOverlay, closestCorners, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import api from '../../lib/api'
 import { usePermission } from '../../hooks/usePermission'
+import { SearchInput } from '../../shared/components/ui/SearchInput'
 
 interface Lead {
   public_id: string
@@ -29,6 +30,12 @@ interface Lead {
 
 const ACTIVE_COLUMNS: Lead['status'][] = ['new', 'contacted', 'qualified']
 const ALL_COLUMNS: Lead['status'][] = ['new', 'contacted', 'qualified', 'converted', 'dropped']
+
+// Stable reference for the `data = []` fallback below — a fresh `[]` literal in a destructuring
+// default is recreated on every render, which combined with the `[rawLeads, ...]` effect further
+// down triggers an infinite render loop ("Maximum update depth exceeded") on every render where
+// the query has no data yet (e.g. mid-refetch after the search term changes).
+const EMPTY_LEADS: Lead[] = []
 
 interface SortableLeadCardProps {
   lead: Lead
@@ -146,13 +153,21 @@ export default function AdminLeadsPage() {
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const [convertingLead, setConvertingLead] = React.useState<Lead | null>(null)
   const [showArchive, setShowArchive] = React.useState(false)
-  
+  const [search, setSearch] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
+
   // Convert Form State
   const [convertForm, setConvertForm] = React.useState({ password: '', nationality: '', date_of_birth: '', agent_referral_code: '' })
 
-  const { data: rawLeads = [], isLoading, isError } = useQuery({
-    queryKey: ['admin', 'leads'],
-    queryFn: () => api.get('/admin/leads').then(r => r.data as Lead[]),
+  const { data: rawLeads = EMPTY_LEADS, isLoading, isFetching, isError } = useQuery({
+    queryKey: ['admin', 'leads', debouncedSearch],
+    queryFn: () => api.get('/admin/leads', { params: { search: debouncedSearch || undefined } }).then(r => r.data as Lead[]),
+    placeholderData: keepPreviousData,
     staleTime: 30_000
   })
 
@@ -247,11 +262,19 @@ export default function AdminLeadsPage() {
       <PageHeader 
         title="Student Leads Pipeline" 
         subtitle="Manage prospective leads and convert them to system students." 
-        action={
+        actions={
           <Button variant={showArchive ? 'primary' : 'outline'} onClick={() => setShowArchive(!showArchive)}>
             {showArchive ? 'Hide Archive' : 'View Archive'}
           </Button>
         }
+      />
+
+      <SearchInput
+        value={search}
+        onChange={setSearch}
+        isLoading={isFetching}
+        placeholder="Search by name or email…"
+        className="max-w-sm"
       />
 
       {isLoading ? (

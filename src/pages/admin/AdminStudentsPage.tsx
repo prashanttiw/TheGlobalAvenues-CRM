@@ -155,7 +155,7 @@ export default function AdminStudentsPage() {
         <SearchInput
           value={searchTerm}
           onChange={setSearchTerm}
-          placeholder="Search by student name or ID..."
+          placeholder="Search by name, ID, email, or phone (from the start)..."
           className="w-full sm:max-w-xs"
         />
         <div className="flex gap-2 w-full sm:w-auto">

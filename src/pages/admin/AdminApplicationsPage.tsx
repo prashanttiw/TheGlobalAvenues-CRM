@@ -7,6 +7,7 @@ import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Button } from '../../shared/components/ui/Button'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
+import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { ApplicationDetailDrawer, renderApplicationStatus } from '../../shared/components/applications/ApplicationDetailDrawer'
 
 interface AdminApplicationRecord {
@@ -32,10 +33,17 @@ export default function AdminApplicationsPage() {
   const [univFilter, setUnivFilter] = React.useState('')
   const [yearFilter, setYearFilter] = React.useState('')
   const [selectedPid, setSelectedPid] = React.useState<string | null>(null)
+  const [search, setSearch] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
 
   const applicationsQuery = useQuery({
-    queryKey: ['admin', 'applications'],
-    queryFn: () => fetchAdminApplications({ perPage: 100 }),
+    queryKey: ['admin', 'applications', debouncedSearch],
+    queryFn: () => fetchAdminApplications({ perPage: 100, search: debouncedSearch || undefined }),
     staleTime: 30_000,
   })
 
@@ -103,7 +111,14 @@ export default function AdminApplicationsPage() {
       />
 
       <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
-        <div className="flex gap-2 flex-wrap w-full">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          isLoading={applicationsQuery.isFetching}
+          placeholder="Search by reference #, student, course, or university…"
+          className="sm:max-w-sm"
+        />
+        <div className="flex gap-2 flex-wrap w-full sm:w-auto">
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="w-full sm:w-40 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">
             <option value="">All Statuses</option>
             <option value="draft">Draft</option>

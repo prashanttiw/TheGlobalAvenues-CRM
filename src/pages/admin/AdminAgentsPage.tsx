@@ -30,6 +30,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
+import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { Dialog, DialogContent, DialogTitle } from '../../shared/components/ui/Dialog'
 import { AgentTreeNode, type AgentNode } from '../../components/agent/AgentTreeNode'
 
@@ -66,12 +67,19 @@ export default function AdminAgentsPage() {
   const [section, setSection] = React.useState<SectionKey>('pending')
   const [statusFilter, setStatusFilter] = React.useState('')
   const [tierFilter, setTierFilter] = React.useState('')
+  const [search, setSearch] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
   const [reviewPid, setReviewPid] = React.useState<string | null>(null)
   const [rejectReason, setRejectReason] = React.useState('')
   const [hierarchyRootPid, setHierarchyRootPid] = React.useState<string>('')
 
   const canApprove = usePermission('agents', 'approve')
   const canSuspend = usePermission('agents', 'delete')
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
 
   const invalidateAll = () =>
     queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'admin-agents' })
@@ -99,12 +107,13 @@ export default function AdminAgentsPage() {
   })
 
   const allQuery = useQuery({
-    queryKey: ['admin-agents', 'all', { statusFilter, tierFilter }],
+    queryKey: ['admin-agents', 'all', { statusFilter, tierFilter, debouncedSearch }],
     queryFn: () =>
       fetchAdminAgents({
         perPage: 100,
         status: statusFilter || undefined,
         tier: tierFilter || undefined,
+        q: debouncedSearch || undefined,
       }),
     enabled: section === 'all',
     staleTime: 30_000,
@@ -336,7 +345,14 @@ export default function AdminAgentsPage() {
       {section === 'all' && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
-            <div className="flex gap-2 flex-wrap w-full">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              isLoading={allQuery.isFetching}
+              placeholder="Search by agency, contact name, or referral code…"
+              className="sm:max-w-sm"
+            />
+            <div className="flex gap-2 flex-wrap w-full sm:w-auto">
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}

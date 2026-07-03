@@ -20,6 +20,7 @@ import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { Pagination } from '../../shared/components/ui/Pagination'
+import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { EditableField } from '../../shared/components/ui/EditableField'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
@@ -120,6 +121,8 @@ export default function AdminIntakesPage() {
   const [universityFilter, setUniversityFilter] = React.useState('')
   const [courseFilter, setCourseFilter] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('')
+  const [search, setSearch] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [form, setForm] = React.useState<IntakeFormState>(INITIAL_FORM)
   const [cloningIntake, setCloningIntake] = React.useState<IntakeRow | null>(null)
@@ -143,7 +146,12 @@ export default function AdminIntakesPage() {
   const canDelete = usePermission('intakes', 'delete')
 
   const [page, setPage] = React.useState(1)
-  React.useEffect(() => { setPage(1) }, [universityFilter, courseFilter, statusFilter])
+  React.useEffect(() => { setPage(1) }, [universityFilter, courseFilter, statusFilter, debouncedSearch])
+
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
 
   // Lightweight, single request -- just for the "All Universities" filter and the Create
   // Intake form's university picker. Never fans out per-university/per-course requests (that
@@ -174,7 +182,7 @@ export default function AdminIntakesPage() {
   })
 
   const catalogQuery = useQuery({
-    queryKey: ['admin', 'catalog', 'intakes', page, universityFilter, courseFilter, statusFilter],
+    queryKey: ['admin', 'catalog', 'intakes', page, universityFilter, courseFilter, statusFilter, debouncedSearch],
     queryFn: async () => {
       const result = await fetchAdminIntakesAll({
         page,
@@ -182,6 +190,7 @@ export default function AdminIntakesPage() {
         universityId: universityFilter || undefined,
         courseId: courseFilter || undefined,
         status: statusFilter || undefined,
+        q: debouncedSearch || undefined,
       })
       return { intakes: result.intakes as IntakeRow[], meta: result.meta }
     },
@@ -388,6 +397,13 @@ export default function AdminIntakesPage() {
       />
 
       <div className="flex flex-col lg:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          isLoading={catalogQuery.isFetching}
+          placeholder="Search by intake, course, or university name…"
+          className="lg:max-w-sm"
+        />
         <select
           value={universityFilter}
           onChange={(e) => {

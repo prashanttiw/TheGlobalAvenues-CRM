@@ -16,6 +16,7 @@ import { Card, CardContent } from '../../shared/components/ui/Card'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
+import { SearchInput } from '../../shared/components/ui/SearchInput'
 
 interface Notice {
   public_id: string
@@ -214,11 +215,18 @@ export default function AdminNoticesPage() {
   const [form, setForm] = React.useState(defaultForm)
   const [pendingFile, setPendingFile] = React.useState<File | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const [search, setSearch] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
 
-  React.useEffect(() => { setPage(1) }, [typeFilter, sortDir])
+  React.useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350)
+    return () => clearTimeout(t)
+  }, [search])
 
-  const { data: listResponse, isLoading } = useQuery<{ data: Notice[]; meta: ListMeta }>({
-    queryKey: ['admin', 'notices', { page, sortDir, typeFilter }],
+  React.useEffect(() => { setPage(1) }, [typeFilter, sortDir, debouncedSearch])
+
+  const { data: listResponse, isLoading, isFetching } = useQuery<{ data: Notice[]; meta: ListMeta }>({
+    queryKey: ['admin', 'notices', { page, sortDir, typeFilter, debouncedSearch }],
     queryFn: () => {
       const params = new URLSearchParams({
         page: String(page),
@@ -226,6 +234,7 @@ export default function AdminNoticesPage() {
         sort: sortDir,
       })
       if (typeFilter !== 'all') params.set('notice_type', typeFilter)
+      if (debouncedSearch) params.set('search', debouncedSearch)
       return api.get(`/admin/notices?${params}`).then(r => r.data)
     },
     placeholderData: keepPreviousData,
@@ -716,6 +725,13 @@ export default function AdminNoticesPage() {
       />
 
       <div className="flex flex-col sm:flex-row gap-3 bg-surface-card p-4 rounded-xl border border-border-warm items-center">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          isLoading={isFetching}
+          placeholder="Search by title or content…"
+          className="sm:max-w-sm"
+        />
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as typeof typeFilter)}

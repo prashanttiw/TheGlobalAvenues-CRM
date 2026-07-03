@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
-  AlertTriangle,
   ArrowUpRight,
   BadgeCheck,
   BookOpenCheck,
@@ -30,6 +29,7 @@ import {
   AdminApplicationDetail,
   AdminDashboardStats,
   AdminDocumentQueueItem,
+  AdminPaymentQueueItem,
   AdminPipelineItem,
   AdminProgramRecord,
   AdminUniversityRecord,
@@ -38,6 +38,7 @@ import {
   AuditLogEntry,
   approveAdminAgent,
   rejectAdminAgent,
+  adminVerifyPayment,
   createAdminProgram,
   createAdminUniversity,
   deleteAdminProgram,
@@ -48,6 +49,7 @@ import {
   fetchAdminAuditLog,
   fetchAdminDashboardStats,
   fetchAdminDocumentQueue,
+  fetchAdminPaymentQueue,
   fetchAdminPipeline,
   fetchAdminPrograms,
   fetchAdminUniversities,
@@ -122,6 +124,7 @@ export function AdminDashboardPage() {
   const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [documents, setDocuments] = useState<AdminDocumentQueueItem[]>([]);
+  const [pendingPayments, setPendingPayments] = useState<AdminPaymentQueueItem[]>([]);
   const [universities, setUniversities] = useState<AdminUniversityRecord[]>([]);
   const [programs, setPrograms] = useState<AdminProgramRecord[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditLogEntry[]>([]);
@@ -201,12 +204,14 @@ export function AdminDashboardPage() {
       setDashboard(stats);
 
       if (section === 'overview') {
-        const [agentResult, documentResult] = await Promise.all([
+        const [agentResult, documentResult, paymentQueue] = await Promise.all([
           fetchAdminAgents({ status: 'pending', perPage: 6 }),
           fetchAdminDocumentQueue({ status: 'pending', perPage: 6 }),
+          fetchAdminPaymentQueue(),
         ]);
         setAgents(agentResult.agents);
         setDocuments(documentResult.documents);
+        setPendingPayments(paymentQueue);
       }
 
       if (section === 'pipeline') {
@@ -414,6 +419,21 @@ export function AdminDashboardPage() {
     }
   }
 
+  async function decidePayment(paymentId: string, decision: 'confirmed' | 'disputed') {
+    setBusy(true);
+
+    try {
+      const note = decision === 'disputed' ? window.prompt('Dispute reason', 'Amount or reference does not match.') ?? '' : '';
+      await adminVerifyPayment(paymentId, { status: decision, note });
+      toast.success(`Payment ${decision}.`);
+      await loadSectionData();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to review payment.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitUniversity() {
     setBusy(true);
 
@@ -609,35 +629,6 @@ export function AdminDashboardPage() {
         <>
           {section === 'overview' && canUseSection && dashboard && (
             <div className="space-y-6">
-              {dashboard.file_sync_health && (dashboard.file_sync_health.failed_count > 0 || dashboard.file_sync_health.stuck_pending_count > 0) && (
-                <div className="rounded-[22px] border border-red-200 bg-red-50 p-5 shadow-sm">
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-red-100 text-red-600">
-                      <AlertTriangle className="h-5 w-5 animate-bounce" />
-                    </div>
-                    <div className="flex-1">
-                      <h4 className="text-sm font-black text-red-950">Drive Backup Synchronization Warning</h4>
-                      <p className="mt-1 text-sm text-red-800 leading-relaxed">
-                        {dashboard.file_sync_health.failed_count > 0 && (
-                          <span>• {dashboard.file_sync_health.failed_count} file(s) failed to back up to Google Drive (terminal failure). </span>
-                        )}
-                        {dashboard.file_sync_health.stuck_pending_count > 0 && (
-                          <span>• {dashboard.file_sync_health.stuck_pending_count} file(s) have been waiting to sync for over 30 minutes. </span>
-                        )}
-                      </p>
-                      <div className="mt-3">
-                        <button
-                          onClick={() => navigate('/portal/admin/documents')}
-                          className="text-xs font-bold text-red-700 hover:text-red-800 underline"
-                        >
-                          View Document Review Queue to investigate
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
                 <MetricCard icon={FileSearch} label="Pipeline Cases" value={dashboard.totalApplications} tone="purple" detail="All applications in CRM" />
                 <MetricCard icon={Users2} label="Student Accounts" value={dashboard.activeStudents} tone="gold" detail="Active student records" />
@@ -651,6 +642,7 @@ export function AdminDashboardPage() {
                   subtitle="Latest operational movement across the application pipeline."
                 >
                   <div className="space-y-3">
+                    {dashboard.recentStageMovement.length === 0 && <EmptyState label="No stage movement yet." />}
                     {dashboard.recentStageMovement.map((item) => (
                       <div key={item.reference_number} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
                         <div className="flex items-center justify-between gap-4">
@@ -694,7 +686,7 @@ export function AdminDashboardPage() {
                 </Panel>
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-2">
+              <div className="grid gap-6 xl:grid-cols-3">
                 <Panel title="Pending agent approvals" subtitle="New partner agencies waiting for internal review.">
                   <div className="space-y-3">
                     {agents.length === 0 && <EmptyState label="No pending agent approvals." />}
@@ -755,6 +747,40 @@ export function AdminDashboardPage() {
                               className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
                             >
                               Reject
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </Panel>
+
+                <Panel title="Pending payment verification" subtitle="Students who marked a payment as paid, awaiting confirmation.">
+                  <div className="space-y-3">
+                    {pendingPayments.length === 0 && <EmptyState label="No payments awaiting verification." />}
+                    {pendingPayments.map((payment) => (
+                      <div key={payment.public_id} className="rounded-2xl border border-gray-100 p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div>
+                            <div className="text-sm font-black text-gray-900">{payment.student_name}</div>
+                            <div className="mt-1 text-xs text-gray-500">
+                              {payment.label} · {payment.currency} {Number(payment.amount ?? 0).toLocaleString()} · {payment.application_reference}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              disabled={busy || !permissions?.canReviewDocuments}
+                              onClick={() => void decidePayment(payment.public_id, 'confirmed')}
+                              className="rounded-xl bg-green-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              disabled={busy || !permissions?.canReviewDocuments}
+                              onClick={() => void decidePayment(payment.public_id, 'disputed')}
+                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
+                            >
+                              Dispute
                             </button>
                           </div>
                         </div>

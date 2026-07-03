@@ -7,6 +7,7 @@ import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
+import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { Button } from '../../shared/components/ui/Button'
 import { DollarSign, Check, Trash2, Edit, ArrowLeft, ArrowRight, Calendar, Coins } from 'lucide-react'
 import { toast, Toaster } from 'sonner'
@@ -30,7 +31,14 @@ export default function AdminCommissionsPage() {
   const [statusFilter, setStatusFilter] = useState('')
   const [fromFilter, setFromFilter] = useState('')
   const [toFilter, setToFilter] = useState('')
-  
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [search])
+
   const [page, setPage] = useState(1)
   const [meta, setMeta] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -75,7 +83,8 @@ export default function AdminCommissionsPage() {
         status: statusFilter || undefined,
         agentPid: agentFilter || undefined,
         from: fromFilter || undefined,
-        to: toFilter || undefined
+        to: toFilter || undefined,
+        search: debouncedSearch || undefined
       })
       setCommissions(result.commissions)
       setMeta(result.meta)
@@ -84,7 +93,7 @@ export default function AdminCommissionsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, statusFilter, agentFilter, fromFilter, toFilter])
+  }, [page, statusFilter, agentFilter, fromFilter, toFilter, debouncedSearch])
 
   useEffect(() => {
     void loadCommissions()
@@ -368,6 +377,13 @@ export default function AdminCommissionsPage() {
         <h4 className="text-xs font-bold uppercase tracking-wider text-brand-navy flex items-center gap-1.5">
           <Coins className="h-4 w-4 text-brand-orange-accessible" /> Search & Ledger Filter
         </h4>
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          isLoading={loading}
+          placeholder="Search by agent, agency, student, or reference #…"
+          className="max-w-sm"
+        />
         <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-4">
           <div className="flex flex-col gap-1">
             <label className="text-xs font-semibold text-brand-navy">Agent / Agency</label>
@@ -432,15 +448,17 @@ export default function AdminCommissionsPage() {
           </div>
         </div>
 
-        {(agentFilter || statusFilter || fromFilter || toFilter) && (
+        {(agentFilter || statusFilter || fromFilter || toFilter || search) && (
           <div className="flex justify-end pt-1">
-            <Button 
-              variant="secondary" 
+            <Button
+              variant="secondary"
               onClick={() => {
                 setAgentFilter('')
                 setStatusFilter('')
                 setFromFilter('')
                 setToFilter('')
+                setSearch('')
+                setDebouncedSearch('')
                 setPage(1)
               }}
             >
