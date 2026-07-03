@@ -204,22 +204,6 @@ export type AdminDashboardStats = {
   activeUniversities: number;
   activePrograms: number;
   applicationsByStage: Array<{ status: string; total: string | number }>;
-  pendingAgentsPreview: Array<{
-    id: number;
-    agency_name: string;
-    agency_country: string;
-    registration_number: string | null;
-    email: string;
-    created_at: string;
-  }>;
-  pendingDocumentsPreview: Array<{
-    id: number;
-    document_type: string;
-    status: string;
-    created_at: string;
-    reference_number: string;
-    student_name: string;
-  }>;
   recentStageMovement: Array<{
     id: number;
     application_id: number;
@@ -1043,6 +1027,24 @@ export async function fetchAdminDocumentQueue(_params: {
   };
 }
 
+export type AdminPaymentQueueItem = {
+  public_id: string;
+  label: string;
+  amount: number | null;
+  currency: string | null;
+  due_date: string | null;
+  status: string;
+  marked_paid_at: string | null;
+  application_pid: string;
+  application_reference: string;
+  student_name: string;
+};
+
+export async function fetchAdminPaymentQueue(): Promise<AdminPaymentQueueItem[]> {
+  const response = await api.get<{ queue: AdminPaymentQueueItem[] }>('admin/get_payment_queue');
+  return response.data.queue ?? [];
+}
+
 export async function reviewAdminDocument(payload: {
   document_id: string;
   decision: 'verified' | 'rejected';
@@ -1527,6 +1529,7 @@ export async function fetchAdminCommissions(params: {
   agentPid?: string;
   from?: string;
   to?: string;
+  search?: string;
 } = {}): Promise<{ commissions: any[]; meta: PaginationMeta }> {
   const query = buildQuery({
     route: 'admin',
@@ -1537,6 +1540,7 @@ export async function fetchAdminCommissions(params: {
     agent_pid: params.agentPid,
     from: params.from,
     to: params.to,
+    search: params.search,
   });
   const response = await request<any>(`/?${query}`);
   return {
@@ -2127,9 +2131,10 @@ export async function fetchAdminApplications(params: {
   perPage?: number;
   status?: string;
   universityPid?: string;
+  search?: string;
 } = {}): Promise<{ applications: any[]; meta: PaginationMeta }> {
   const response = await api.get<any[]>('admin/applications', {
-    params: { page: params.page, per_page: params.perPage, status: params.status, university_pid: params.universityPid },
+    params: { page: params.page, per_page: params.perPage, status: params.status, university_pid: params.universityPid, search: params.search },
   });
   return {
     applications: Array.isArray(response.data) ? response.data : [],
@@ -2541,6 +2546,11 @@ export async function submitStudentDocumentRequest(requestPublicId: string, file
 export async function markPaymentPaid(paymentPublicId: string): Promise<any> {
   const response = await api.put<{ payment_request: any }>(`student/payments/${encodeURIComponent(paymentPublicId)}/mark-paid`, {});
   return response.data.payment_request;
+}
+
+export async function fetchStudentPayments(): Promise<any[]> {
+  const response = await api.get<{ payments: any[] }>('student/payments');
+  return response.data.payments ?? [];
 }
 
 export async function fetchReadiness(): Promise<any> {
