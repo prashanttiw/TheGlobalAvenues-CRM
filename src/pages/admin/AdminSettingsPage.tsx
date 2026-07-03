@@ -7,7 +7,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { usePermission } from '../../hooks/usePermission'
 import { ForbiddenPage } from '../../shared/components/ui/ForbiddenPage'
 import { toast } from 'sonner'
-import { Settings as SettingsIcon, ShieldAlert, Key, Upload, Bell, Database, Activity, GraduationCap } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Upload, Database, Activity, GraduationCap } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import { formatDistanceToNow } from 'date-fns'
@@ -23,16 +23,33 @@ interface SystemSetting {
 
 type SettingsGroup = Record<string, SystemSetting[]>;
 
+// Settings whose only effect runs on a periodic cron job (disk usage is checked every 12h by
+// cron/monitor-disk.php) rather than taking effect immediately — hidden here since we aren't
+// actively managing them right now. Backend rows + cron logic are left untouched.
+const HIDDEN_SETTING_KEYS = new Set(['disk_warn_threshold_pct', 'disk_critical_threshold_pct'])
+
 export default function AdminSettingsPage() {
-  const isSuperAdmin = usePermission('system_settings', 'edit') // Uses super_admin mostly
+  const canView = usePermission('system_settings', 'view')
+  const canEdit = usePermission('system_settings', 'edit')
 
   const queryClient = useQueryClient()
   const [localValues, setLocalValues] = useState<Record<string, string>>({})
 
-  const { data: settingsGroups, isLoading, isError } = useQuery<SettingsGroup>({
+  const { data: rawSettingsGroups, isLoading, isError } = useQuery<SettingsGroup>({
     queryKey: ['admin', 'system-settings'],
     queryFn: () => api.get('/admin/system-settings').then(r => r.data),
   })
+
+  const settingsGroups = React.useMemo(() => {
+    if (!rawSettingsGroups) return rawSettingsGroups
+    const filtered: SettingsGroup = {}
+    for (const [groupName, settings] of Object.entries(rawSettingsGroups)) {
+      if (groupName === 'backup') continue
+      const visible = settings.filter(s => !HIDDEN_SETTING_KEYS.has(s.setting_key))
+      if (visible.length > 0) filtered[groupName] = visible
+    }
+    return filtered
+  }, [rawSettingsGroups])
 
   const { data: recentChanges } = useQuery({
     queryKey: ['admin', 'system-settings-audit'],
@@ -67,7 +84,7 @@ export default function AdminSettingsPage() {
     },
   })
 
-  if (!isSuperAdmin) {
+  if (!canView) {
     return <ForbiddenPage />
   }
 
@@ -92,7 +109,6 @@ export default function AdminSettingsPage() {
     switch (group.toLowerCase()) {
       case 'otp': return <Key className="h-5 w-5 text-brand-orange-accessible" />
       case 'upload': return <Upload className="h-5 w-5 text-brand-navy" />
-      case 'reminders': return <Bell className="h-5 w-5 text-brand-amber" />
       case 'security': return <ShieldAlert className="h-5 w-5 text-red-500" />
       case 'backup': return <Database className="h-5 w-5 text-brand-navy" />
       case 'applications': return <GraduationCap className="h-5 w-5 text-brand-orange-accessible" />
@@ -128,7 +144,7 @@ export default function AdminSettingsPage() {
                         <select
                           value={localValues[setting.setting_key] ?? setting.setting_value}
                           onChange={(e) => handleChange(setting.setting_key, e.target.value)}
-                          disabled={setting.is_editable === 0}
+                          disabled={!canEdit || setting.is_editable === 0}
                           className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none disabled:opacity-50"
                         >
                           <option value="1">Enabled</option>
@@ -138,16 +154,16 @@ export default function AdminSettingsPage() {
                         <textarea
                           value={localValues[setting.setting_key] ?? setting.setting_value}
                           onChange={(e) => handleChange(setting.setting_key, e.target.value)}
-                          disabled={setting.is_editable === 0}
+                          disabled={!canEdit || setting.is_editable === 0}
                           rows={3}
                           className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none font-mono disabled:opacity-50"
                         />
                       ) : (
-                        <input 
+                        <input
                           type={setting.value_type === 'integer' ? 'number' : 'text'}
                           value={localValues[setting.setting_key] ?? setting.setting_value}
                           onChange={(e) => handleChange(setting.setting_key, e.target.value)}
-                          disabled={setting.is_editable === 0}
+                          disabled={!canEdit || setting.is_editable === 0}
                           className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none disabled:opacity-50"
                         />
                       )}
@@ -155,16 +171,18 @@ export default function AdminSettingsPage() {
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-end pt-4 border-t border-border-warm">
-                  <Button 
-                    variant="primary" 
-                    size="sm" 
-                    onClick={() => handleSaveGroup(groupName)}
-                    isLoading={saveMutation.isPending}
-                  >
-                    Save {groupName} Settings
-                  </Button>
-                </div>
+                {canEdit && (
+                  <div className="flex justify-end pt-4 border-t border-border-warm">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => handleSaveGroup(groupName)}
+                      isLoading={saveMutation.isPending}
+                    >
+                      Save {groupName} Settings
+                    </Button>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}

@@ -10,6 +10,7 @@ import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrate
 import { CSS } from '@dnd-kit/utilities'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
+import { usePermission } from '../../hooks/usePermission'
 
 interface Lead {
   public_id: string
@@ -34,10 +35,11 @@ interface SortableLeadCardProps {
   onConvert: (lead: Lead) => void
   isConverting: boolean
   isDuplicate: boolean
+  canWrite: boolean
 }
 
-function SortableLeadCard({ lead, onConvert, isConverting, isDuplicate }: SortableLeadCardProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.public_id })
+function SortableLeadCard({ lead, onConvert, isConverting, isDuplicate, canWrite }: SortableLeadCardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: lead.public_id, disabled: !canWrite })
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -48,7 +50,7 @@ function SortableLeadCard({ lead, onConvert, isConverting, isDuplicate }: Sortab
   const daysStale = Math.floor((Date.now() - new Date(lead.updated_at || lead.created_at).getTime()) / (1000 * 60 * 60 * 24))
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className="touch-none cursor-grab active:cursor-grabbing">
+    <div ref={setNodeRef} style={style} {...attributes} {...listeners} className={`touch-none ${canWrite ? 'cursor-grab active:cursor-grabbing' : ''}`}>
       <Card className={`hover:shadow-card transition-shadow pointer-events-auto ${isDuplicate ? 'border-amber-300 bg-amber-50' : ''}`}>
         <CardContent className="p-4 space-y-3">
           <div className="flex justify-between items-start">
@@ -82,11 +84,11 @@ function SortableLeadCard({ lead, onConvert, isConverting, isDuplicate }: Sortab
             </div>
           </div>
 
-          {lead.status === 'qualified' && (
+          {canWrite && lead.status === 'qualified' && (
             <div className="pt-2 border-t border-border-warm" onPointerDown={e => e.stopPropagation()}>
-              <Button 
-                variant="primary" 
-                size="sm" 
+              <Button
+                variant="primary"
+                size="sm"
                 className="w-full flex items-center justify-center gap-1.5"
                 onClick={() => onConvert(lead)}
                 isLoading={isConverting}
@@ -102,7 +104,7 @@ function SortableLeadCard({ lead, onConvert, isConverting, isDuplicate }: Sortab
   )
 }
 
-function Column({ id, title, leads, onConvert, convertingId, duplicateEmails }: { id: string, title: string, leads: Lead[], onConvert: (lead: Lead) => void, convertingId: string | null, duplicateEmails: Set<string> }) {
+function Column({ id, title, leads, onConvert, convertingId, duplicateEmails, canWrite }: { id: string, title: string, leads: Lead[], onConvert: (lead: Lead) => void, convertingId: string | null, duplicateEmails: Set<string>, canWrite: boolean }) {
   const { setNodeRef } = useSortable({ id: `column-${id}` })
 
   return (
@@ -117,12 +119,13 @@ function Column({ id, title, leads, onConvert, convertingId, duplicateEmails }: 
       <div className="flex flex-col gap-3 flex-1 overflow-y-auto">
         <SortableContext items={leads.map(l => l.public_id)} strategy={verticalListSortingStrategy}>
           {leads.map((lead) => (
-            <SortableLeadCard 
-              key={lead.public_id} 
-              lead={lead} 
-              onConvert={onConvert} 
+            <SortableLeadCard
+              key={lead.public_id}
+              lead={lead}
+              onConvert={onConvert}
               isConverting={convertingId === lead.public_id}
               isDuplicate={!!lead.email && duplicateEmails.has(lead.email)}
+              canWrite={canWrite}
             />
           ))}
         </SortableContext>
@@ -139,6 +142,7 @@ function Column({ id, title, leads, onConvert, convertingId, duplicateEmails }: 
 
 export default function AdminLeadsPage() {
   const queryClient = useQueryClient()
+  const canWrite = usePermission('leads', 'edit')
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const [convertingLead, setConvertingLead] = React.useState<Lead | null>(null)
   const [showArchive, setShowArchive] = React.useState(false)
@@ -148,7 +152,7 @@ export default function AdminLeadsPage() {
 
   const { data: rawLeads = [], isLoading, isError } = useQuery({
     queryKey: ['admin', 'leads'],
-    queryFn: () => api.get('/admin/leads').then(r => r.data.data as Lead[]),
+    queryFn: () => api.get('/admin/leads').then(r => r.data as Lead[]),
     staleTime: 30_000
   })
 
@@ -206,7 +210,7 @@ export default function AdminLeadsPage() {
     const { active, over } = event
     setActiveId(null)
 
-    if (!over) return
+    if (!canWrite || !over) return
 
     const activeId = String(active.id)
     const overId = String(over.id)
@@ -263,14 +267,15 @@ export default function AdminLeadsPage() {
             {columnsToRender.map((colName) => {
               const colLeads = leads.filter(ld => ld.status === colName)
               return (
-                <Column 
-                  key={colName} 
-                  id={colName} 
-                  title={colName} 
-                  leads={colLeads} 
+                <Column
+                  key={colName}
+                  id={colName}
+                  title={colName}
+                  leads={colLeads}
                   onConvert={setConvertingLead}
                   convertingId={convertingLead?.public_id || null}
                   duplicateEmails={duplicateEmails}
+                  canWrite={canWrite}
                 />
               )
             })}

@@ -97,7 +97,6 @@ function resolveSection(pathname: string): Section {
   if (pathname === '/portal/admin/users') return 'users';
   if (pathname === '/portal/admin/agents') return 'users';
   if (pathname === '/portal/admin/students') return 'users';
-  if (pathname === '/portal/admin/roles') return 'users';
   if (pathname === '/portal/admin/documents') return 'documents';
   if (pathname === '/portal/admin/universities') return 'catalog';
   if (pathname === '/portal/admin/courses') return 'catalog';
@@ -139,7 +138,10 @@ export function AdminDashboardPage() {
   const [pipelineQuery, setPipelineQuery] = useState('');
   const [pipelineStatus, setPipelineStatus] = useState('');
   const [documentStatus, setDocumentStatus] = useState('pending');
-  const [userRoleFilter, setUserRoleFilter] = useState('');
+  // Defaults to 'agent' (not '') so this widget doesn't request the full admin roster —
+  // decrypted emails/phones/page grants — until the viewer explicitly picks an admin-scoped
+  // filter, which the backend only allows for callers with user_management.view.
+  const [userRoleFilter, setUserRoleFilter] = useState('agent');
   const [selectedApplicationNote, setSelectedApplicationNote] = useState('');
   const [selectedApplicationStatus, setSelectedApplicationStatus] = useState('inquiry');
   const [selectedApplicationPriority, setSelectedApplicationPriority] = useState('normal');
@@ -540,7 +542,7 @@ export function AdminDashboardPage() {
   const canUseSection =
     section === 'overview' ||
     section === 'pipeline' ||
-    (section === 'users' && permissions?.canManageUsers !== false && currentUser.role !== 'visa_officer') ||
+    (section === 'users' && (permissions?.canManageUsers || permissions?.canViewAgentDirectory) && currentUser.role !== 'visa_officer') ||
     (section === 'documents' && permissions?.canReviewDocuments === true) ||
     (section === 'catalog' && permissions?.canManageCatalog === true) ||
     (section === 'audit' && permissions?.canViewAuditLog === true);
@@ -1001,13 +1003,17 @@ export function AdminDashboardPage() {
                     onChange={(event) => setUserRoleFilter(event.target.value)}
                     className="rounded-2xl border border-gray-200 bg-[#F8F7FF] px-4 py-3 text-sm outline-none"
                   >
-                    <option value="">All roles</option>
                     <option value="student">Students</option>
                     <option value="agent">Agents</option>
-                    <option value="counsellor">Counsellors</option>
-                    <option value="visa_officer">Visa officers</option>
-                    <option value="admin">Admins</option>
-                    <option value="super_admin">Super admins</option>
+                    {permissions?.canManageUsers && (
+                      <>
+                        <option value="">All roles</option>
+                        <option value="counsellor">Counsellors</option>
+                        <option value="visa_officer">Visa officers</option>
+                        <option value="admin">Admins</option>
+                        <option value="super_admin">Super admins</option>
+                      </>
+                    )}
                   </select>
                   <button onClick={() => void loadSectionData()} className="rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white">
                     Refresh

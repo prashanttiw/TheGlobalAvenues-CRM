@@ -1,9 +1,9 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Activity, Ban, BarChart2, BookOpen, Calendar, Check, Crown, DollarSign,
+  Ban, BarChart2, BookOpen, Calendar, Check, Crown, DollarSign,
   Eye, EyeOff, FileText, Globe, Handshake, Key, Lock, Megaphone, Plus,
-  Search, Settings, Shield, Target, Trash2, UserCog, Users, UserX,
+  Radar, Search, Settings, Shield, Target, Trash2, UserCog, Users, UserX,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import {
@@ -12,6 +12,7 @@ import {
   fetchAdminUsers,
   updateAdminUser,
   type AdminUserSummary,
+  type PageAccessLevel,
 } from '../../lib/api'
 import { usePermission } from '../../hooks/usePermission'
 import { useAuth } from '../../shared/hooks/useAuth'
@@ -42,25 +43,28 @@ import {
 } from '../../shared/components/ui/Modal'
 
 // ─── Page catalogue (mirrors AdminPageAccessService::PAGE_PERMISSION_MAP) ─────
+// hasWrite mirrors the backend's write bucket — pages without one (reports, super_logs,
+// security) are inherently view-only, so they skip the read/write toggle entirely.
 
 const PAGE_DEFS = [
-  { key: 'universities', label: 'Universities',   icon: Globe,      description: 'Manage university catalog' },
-  { key: 'courses',      label: 'Courses',         icon: BookOpen,   description: 'Manage course catalog' },
-  { key: 'intakes',      label: 'Intakes',         icon: Calendar,   description: 'Manage intake windows' },
-  { key: 'students',     label: 'Students',        icon: Users,      description: 'View and manage students' },
-  { key: 'agents',       label: 'Agents',          icon: Handshake,  description: 'Approve and manage agents' },
-  { key: 'applications', label: 'Applications',    icon: FileText,   description: 'Application pipeline' },
-  { key: 'commissions',  label: 'Commissions',     icon: DollarSign, description: 'Commission tracking' },
-  { key: 'leads',        label: 'Leads',           icon: Target,     description: 'CRM lead pipeline' },
-  { key: 'notices',      label: 'Notices',         icon: Megaphone,  description: 'Publish portal notices' },
-  { key: 'reports',      label: 'Reports',         icon: BarChart2,  description: 'Analytics and reports' },
-  { key: 'users',        label: 'User Management', icon: Key,        description: 'Manage admin accounts' },
-  { key: 'settings',     label: 'Settings',        icon: Settings,   description: 'System configuration' },
-  { key: 'logs',         label: 'Activity Logs',   icon: Activity,   description: 'Audit logs' },
-  { key: 'security',     label: 'Security',        icon: Lock,       description: 'Security event log' },
+  { key: 'universities', label: 'Universities',   icon: Globe,      description: 'Manage university catalog', hasWrite: true },
+  { key: 'courses',      label: 'Courses',         icon: BookOpen,   description: 'Manage course catalog', hasWrite: true },
+  { key: 'intakes',      label: 'Intakes',         icon: Calendar,   description: 'Manage intake windows', hasWrite: true },
+  { key: 'students',     label: 'Students',        icon: Users,      description: 'View and manage students', hasWrite: true },
+  { key: 'agents',       label: 'Agents',          icon: Handshake,  description: 'Approve and manage agents', hasWrite: true },
+  { key: 'applications', label: 'Applications',    icon: FileText,   description: 'Application pipeline', hasWrite: true },
+  { key: 'commissions',  label: 'Commissions',     icon: DollarSign, description: 'Commission tracking', hasWrite: true },
+  { key: 'leads',        label: 'Leads',           icon: Target,     description: 'CRM lead pipeline', hasWrite: true },
+  { key: 'notices',      label: 'Notices',         icon: Megaphone,  description: 'Publish portal notices', hasWrite: true },
+  { key: 'reports',      label: 'Reports',         icon: BarChart2,  description: 'Analytics and reports', hasWrite: false },
+  { key: 'users',        label: 'User Management', icon: Key,        description: 'Manage admin accounts', hasWrite: true },
+  { key: 'settings',     label: 'Settings',        icon: Settings,   description: 'System configuration', hasWrite: true },
+  { key: 'super_logs',   label: 'Super Activity Log', icon: Radar,  description: 'System-wide activity log across all admins, agents, and students', hasWrite: false },
+  { key: 'security',     label: 'Security',        icon: Lock,       description: 'Security event log', hasWrite: false },
 ] as const
 
 type PageKey = typeof PAGE_DEFS[number]['key']
+type PageAccessMap = Record<string, PageAccessLevel>
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -89,12 +93,15 @@ function RoleBadge({ user }: { user: AdminUserSummary }) {
       </span>
     )
   }
-  const count = user.pages?.length ?? 0
+  const pageEntries = Object.entries(user.pages ?? {})
+  const count = pageEntries.length
+  const writeCount = pageEntries.filter(([, level]) => level === 'write').length
   if (count > 0) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-brand-orange-accessible/10 px-2.5 py-0.5 text-[10px] font-bold text-brand-orange-accessible uppercase tracking-wide border border-brand-orange-accessible/20">
         <Shield className="h-2.5 w-2.5" />
         {count} page{count !== 1 ? 's' : ''}
+        {writeCount > 0 && writeCount < count ? ` (${writeCount} write)` : ''}
       </span>
     )
   }
@@ -130,33 +137,41 @@ function StatusDot({ status }: { status: string }) {
   )
 }
 
-// ─── Page Checkboxes ─────────────────────────────────────────────────────────
+// ─── Page Access Grid (per-page: no access / read only / full access) ─────────
 
-function PageCheckboxGrid({
-  selected,
+const ACCESS_LEVELS: { value: 'none' | PageAccessLevel; label: string }[] = [
+  { value: 'none', label: 'No Access' },
+  { value: 'read', label: 'Read Only' },
+  { value: 'write', label: 'Full Access' },
+]
+
+function PageAccessGrid({
+  access,
   onChange,
   disabled,
 }: {
-  selected: string[]
-  onChange: (pages: string[]) => void
+  access: PageAccessMap
+  onChange: (access: PageAccessMap) => void
   disabled?: boolean
 }) {
-  const toggle = (key: string) => {
-    if (selected.includes(key)) {
-      onChange(selected.filter(p => p !== key))
+  const setLevel = (key: string, level: 'none' | PageAccessLevel) => {
+    const next = { ...access }
+    if (level === 'none') {
+      delete next[key]
     } else {
-      onChange([...selected, key])
+      next[key] = level
     }
+    onChange(next)
   }
 
-  const allSelected = PAGE_DEFS.every(p => selected.includes(p.key))
-  const toggleAll = () => {
-    if (allSelected) {
-      onChange([])
-    } else {
-      onChange(PAGE_DEFS.map(p => p.key))
-    }
+  const grantAllWrite = () => {
+    const next: PageAccessMap = {}
+    PAGE_DEFS.forEach(p => { next[p.key] = p.hasWrite ? 'write' : 'read' })
+    onChange(next)
   }
+  const clearAll = () => onChange({})
+
+  const selectedCount = Object.keys(access).length
 
   return (
     <div className="space-y-3">
@@ -164,53 +179,88 @@ function PageCheckboxGrid({
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Page Access
         </p>
-        <button
-          type="button"
-          onClick={toggleAll}
-          disabled={disabled}
-          className="text-xs font-medium text-brand-orange-accessible hover:underline disabled:opacity-50"
-        >
-          {allSelected ? 'Deselect all' : 'Select all'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={grantAllWrite}
+            disabled={disabled}
+            className="text-xs font-medium text-brand-orange-accessible hover:underline disabled:opacity-50"
+          >
+            Grant all (full)
+          </button>
+          <button
+            type="button"
+            onClick={clearAll}
+            disabled={disabled}
+            className="text-xs font-medium text-muted-foreground hover:underline disabled:opacity-50"
+          >
+            Clear all
+          </button>
+        </div>
       </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      <div className="space-y-2">
         {PAGE_DEFS.map(page => {
           const Icon = page.icon
-          const isChecked = selected.includes(page.key)
+          const level: 'none' | PageAccessLevel = access[page.key] ?? 'none'
+          const options = page.hasWrite ? ACCESS_LEVELS : ACCESS_LEVELS.filter(o => o.value !== 'write')
           return (
-            <label
+            <div
               key={page.key}
               className={[
-                'flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition select-none',
-                isChecked
+                'flex flex-col gap-2.5 rounded-xl border p-3 transition sm:flex-row sm:items-center sm:justify-between',
+                level !== 'none'
                   ? 'border-brand-orange-accessible/40 bg-brand-orange-accessible/5'
-                  : 'border-border-warm bg-surface-warm hover:border-brand-navy/20',
-                disabled ? 'pointer-events-none opacity-50' : '',
+                  : 'border-border-warm bg-surface-warm',
               ].join(' ')}
             >
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 shrink-0 rounded accent-brand-orange-accessible"
-                checked={isChecked}
-                onChange={() => toggle(page.key)}
-                disabled={disabled}
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 text-sm font-semibold text-brand-navy">
-                  <Icon className="h-3.5 w-3.5 shrink-0 text-brand-orange-accessible" />
-                  {page.label}
+              <div className="flex min-w-0 items-start gap-3">
+                <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-orange-accessible" />
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-brand-navy">{page.label}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground leading-tight">
+                    {page.description}
+                  </p>
                 </div>
-                <p className="mt-0.5 text-[11px] text-muted-foreground leading-tight">
-                  {page.description}
-                </p>
               </div>
-            </label>
+              <div
+                role="radiogroup"
+                aria-label={`${page.label} access level`}
+                className="inline-flex shrink-0 overflow-hidden rounded-lg border border-border-warm bg-surface-card"
+              >
+                {options.map((opt, i) => {
+                  const isActive = level === opt.value
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={isActive}
+                      onClick={() => setLevel(page.key, opt.value)}
+                      disabled={disabled}
+                      className={[
+                        'px-2.5 py-1.5 text-[11px] font-semibold whitespace-nowrap transition disabled:opacity-50',
+                        i > 0 ? 'border-l border-border-warm' : '',
+                        isActive
+                          ? opt.value === 'write'
+                            ? 'bg-emerald-600 text-white'
+                            : opt.value === 'read'
+                              ? 'bg-brand-navy text-white'
+                              : 'bg-surface-warm text-muted-foreground'
+                          : 'text-muted-foreground hover:bg-surface-warm',
+                      ].join(' ')}
+                    >
+                      {opt.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           )
         })}
       </div>
-      {selected.length > 0 && (
+      {selectedCount > 0 && (
         <p className="text-right text-xs text-muted-foreground">
-          {selected.length} of {PAGE_DEFS.length} pages selected
+          {selectedCount} of {PAGE_DEFS.length} pages granted
         </p>
       )}
     </div>
@@ -227,7 +277,7 @@ const defaultForm = {
   password: '',
   confirmPassword: '',
   isSuperAdmin: false,
-  pages: [] as string[],
+  pages: {} as PageAccessMap,
 }
 
 function CreateAdminPanel({
@@ -253,7 +303,7 @@ function CreateAdminPanel({
         phone: form.phone.trim() || undefined,
         password: form.password,
         is_super_admin: form.isSuperAdmin,
-        pages: form.isSuperAdmin ? [] : form.pages,
+        pages: form.isSuperAdmin ? {} : form.pages,
       }),
     onSuccess: () => {
       toast.success('Admin account created.')
@@ -274,7 +324,7 @@ function CreateAdminPanel({
       toast.error('Passwords do not match.')
       return
     }
-    if (!form.isSuperAdmin && form.pages.length === 0) {
+    if (!form.isSuperAdmin && Object.keys(form.pages).length === 0) {
       toast.error('Select at least one page, or grant super admin access.')
       return
     }
@@ -400,7 +450,7 @@ function CreateAdminPanel({
                   type="checkbox"
                   className="mt-0.5 h-4 w-4 rounded accent-brand-navy"
                   checked={form.isSuperAdmin}
-                  onChange={e => set({ isSuperAdmin: e.target.checked, pages: [] })}
+                  onChange={e => set({ isSuperAdmin: e.target.checked, pages: {} })}
                 />
                 <div>
                   <p className="text-sm font-semibold text-brand-navy flex items-center gap-1.5">
@@ -413,10 +463,10 @@ function CreateAdminPanel({
                 </div>
               </label>
 
-              {/* Page checkboxes (only when not super admin) */}
+              {/* Page access grid (only when not super admin) */}
               {!form.isSuperAdmin && (
-                <PageCheckboxGrid
-                  selected={form.pages}
+                <PageAccessGrid
+                  access={form.pages}
                   onChange={pages => set({ pages })}
                 />
               )}
@@ -455,11 +505,11 @@ function EditAccessPanel({
   onOpenChange: (v: boolean) => void
   onSuccess: () => void
 }) {
-  const [selectedPages, setSelectedPages] = React.useState<string[]>([])
+  const [selectedPages, setSelectedPages] = React.useState<PageAccessMap>({})
 
   React.useEffect(() => {
     if (user) {
-      setSelectedPages(user.pages ?? [])
+      setSelectedPages(user.pages ?? {})
     }
   }, [user])
 
@@ -478,7 +528,7 @@ function EditAccessPanel({
   })
 
   function handleSave() {
-    if (selectedPages.length === 0) {
+    if (Object.keys(selectedPages).length === 0) {
       toast.error('Select at least one page to grant access.')
       return
     }
@@ -516,8 +566,8 @@ function EditAccessPanel({
               </div>
 
               <div className="border-t border-border-warm pt-4">
-                <PageCheckboxGrid
-                  selected={selectedPages}
+                <PageAccessGrid
+                  access={selectedPages}
                   onChange={setSelectedPages}
                   disabled={mutation.isPending}
                 />
