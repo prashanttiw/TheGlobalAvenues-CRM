@@ -117,20 +117,18 @@ class FileController
         if (!empty($fileRecord['checksum_sha256'])) {
             $computedChecksum = hash_file('sha256', $absolutePath);
             if ($computedChecksum !== $fileRecord['checksum_sha256']) {
-                $userId = isset($user) ? $user['id'] : null;
-                $stmt = $this->pdo->prepare("
-                    INSERT INTO security_events (event_type, user_id, identifier, details)
-                    VALUES ('file_integrity_failure', ?, ?, ?)
-                ");
-                $stmt->execute([
+                $userId = isset($user) ? (int) $user['id'] : null;
+                \TGA\CRM\Services\SecurityEventLogger::log(
+                    'file_integrity_failure',
                     $userId,
                     $fileRecord['public_id'],
-                    json_encode([
+                    \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress(),
+                    [
                         'expected' => $fileRecord['checksum_sha256'],
                         'computed' => $computedChecksum,
-                        'storage_path' => $fileRecord['storage_path']
-                    ], JSON_UNESCAPED_SLASHES)
-                ]);
+                        'storage_path' => $fileRecord['storage_path'],
+                    ]
+                );
                 Response::error('File integrity verification failed', 'SERVER_ERROR', 500);
             }
         }

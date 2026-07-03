@@ -59,9 +59,7 @@ final class OTPService
 
             if (!$row) {
                 $this->pdo->rollBack();
-                $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-                $logStmt = $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, details, created_at) VALUES ('otp_not_found', ?, ?, JSON_OBJECT('purpose', ?), NOW())");
-                $logStmt->execute([$identifierHash, $ip, $purpose]);
+                SecurityEventLogger::log('otp_not_found', null, $identifierHash, \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress(), ['purpose' => $purpose]);
                 return OTPResult::NotFound;
             }
 
@@ -72,9 +70,7 @@ final class OTPService
 
             if ((int)$row['attempts'] >= $maxAttempts) {
                 $this->pdo->rollBack();
-                $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-                $logStmt = $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, details, created_at) VALUES ('otp_brute_force', ?, ?, JSON_OBJECT('purpose', ?, 'attempts', ?), NOW())");
-                $logStmt->execute([$identifierHash, $ip, $purpose, (int)$row['attempts']]);
+                SecurityEventLogger::log('otp_brute_force', null, $identifierHash, \TGA\CRM\Middleware\RateLimitMiddleware::getIpAddress(), ['purpose' => $purpose, 'attempts' => (int) $row['attempts']]);
                 return OTPResult::BruteForced;
             }
 

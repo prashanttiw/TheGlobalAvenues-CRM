@@ -61,16 +61,12 @@ final class AuthController
         $passwordValid = password_verify($password, $hashToVerify);
 
         if (!$user || !$passwordValid) {
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
-            )->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('login_failed', null, $emailHash, $ip, ['reason' => !$user ? 'unknown_email' : 'wrong_password']);
             Response::error('Invalid credentials', 'AUTH_FAILED', 401);
         }
 
         if (($user['status'] ?? '') !== 'active') {
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
-            )->execute([(string) $user['id'], $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('login_blocked_suspended', (int) $user['id'], $emailHash, $ip);
             Response::error('Account is inactive or suspended', 'ACCOUNT_INACTIVE', 403);
         }
 
@@ -136,9 +132,7 @@ final class AuthController
             $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
 
             if ($agent && $agent['status'] === 'suspended') {
-                $this->pdo->prepare(
-                    "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
-                )->execute([(string) $user['id'], $ip]);
+                \TGA\CRM\Services\SecurityEventLogger::log('login_blocked_suspended', (int) $user['id'], $emailHash, $ip);
                 Response::error('Account suspended. Contact support.', 'ACCOUNT_SUSPENDED', 403);
             }
         }
@@ -161,9 +155,7 @@ final class AuthController
         $this->pdo->prepare("UPDATE users SET last_login_at = NOW() WHERE id = ?")->execute([(int) $user['id']]);
 
         $profile = $this->buildUserResponse($user, $permissions);
-        $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
-        )->execute([(int) $user['id'], $emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('login_success', (int) $user['id'], $emailHash, $ip);
 
         Response::json([
             'success' => true,
@@ -200,6 +192,7 @@ final class AuthController
         }
 
         $plainEmail = \TGA\CRM\Services\EncryptionService::decrypt($user['email']);
+        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($plainEmail));
         $otpService = new OTPService($this->pdo);
 
         $verifyResult = $otpService->verify($plainEmail, $otpCode, '2fa');
@@ -221,9 +214,7 @@ final class AuthController
             $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
 
             if ($agent && $agent['status'] === 'suspended') {
-                $this->pdo->prepare(
-                    "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
-                )->execute([(string) $user['id'], $ip]);
+                \TGA\CRM\Services\SecurityEventLogger::log('login_blocked_suspended', $userId, $emailHash, $ip);
                 Response::error('Account suspended. Contact support.', 'ACCOUNT_SUSPENDED', 403);
             }
         }
@@ -247,10 +238,7 @@ final class AuthController
 
         $profile = $this->buildUserResponse($user, $permissions);
 
-        $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($plainEmail));
-        $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
-        )->execute([$userId, $emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('login_success', $userId, $emailHash, $ip);
 
         Response::json([
             'success' => true,
@@ -414,9 +402,7 @@ final class AuthController
         $stmt->execute([$emailHash, $role]);
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('password_reset_requested', ?, ?, NOW())"
-        )->execute([$emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('password_reset_requested', $user ? (int) $user['id'] : null, $emailHash, $ip);
 
         if (!$user) {
             $label = $role === 'admin' ? 'admin' : $role;
@@ -585,10 +571,7 @@ final class AuthController
 
             $this->pdo->commit();
 
-            $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('password_reset_completed', ?, ?, NOW())"
-            )->execute([(string) $user['id'], $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('password_reset_completed', (int) $user['id'], $emailHash, RateLimitMiddleware::getIpAddress());
 
             \TGA\CRM\Services\ActivityLogger::log('user.password_reset', 'user', (int) $user['id'], (int) $user['id']);
 
@@ -778,11 +761,10 @@ final class AuthController
         $otpService = new OTPService($this->pdo);
         $verifyResult = $otpService->verify($email, $otpCode, 'login');
 
+        $ip = RateLimitMiddleware::getIpAddress();
+
         if ($verifyResult !== \TGA\CRM\Services\OTPResult::Valid) {
-            $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
-            )->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('login_failed', null, $emailHash, $ip, ['reason' => 'invalid_otp', 'context' => 'admin']);
 
             if ($verifyResult === \TGA\CRM\Services\OTPResult::BruteForced) {
                 Response::error('Too many invalid attempts. Please request a new OTP.', 'OTP_BRUTE_FORCED', 401);
@@ -816,10 +798,7 @@ final class AuthController
         $this->setRefreshCookie($tokens['refresh_token'], $tokens['refresh_expires_at']);
 
         $profile = $this->buildUserResponse($user, $permissions);
-        $ip = RateLimitMiddleware::getIpAddress();
-        $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
-        )->execute([(int) $user['id'], $emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('login_success', (int) $user['id'], $emailHash, $ip, ['context' => 'admin']);
 
         Response::json([
             'success'      => true,
@@ -940,12 +919,11 @@ final class AuthController
         $emailHash = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
         RateLimitMiddleware::assertAllowed("otp_login_verify_{$emailHash}", 'otp_login_verify', 5, 900);
 
+        $ip = RateLimitMiddleware::getIpAddress();
+
         $otpService = new OTPService($this->pdo);
         if ($otpService->verify($email, $otpCode, 'login') !== \TGA\CRM\Services\OTPResult::Valid) {
-            $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
-            )->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('login_failed', null, $emailHash, $ip, ['reason' => 'invalid_otp']);
             Response::error('Invalid or expired OTP', 'OTP_INVALID', 401);
         }
 
@@ -963,10 +941,7 @@ final class AuthController
             $agent = $agentStmt->fetch(PDO::FETCH_ASSOC);
 
             if ($agent && $agent['status'] === 'suspended') {
-                $ip = RateLimitMiddleware::getIpAddress();
-                $this->pdo->prepare(
-                    "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_blocked_suspended', ?, ?, NOW())"
-                )->execute([(string) $user['id'], $ip]);
+                \TGA\CRM\Services\SecurityEventLogger::log('login_blocked_suspended', (int) $user['id'], $emailHash, $ip);
                 Response::error('Account suspended. Contact support.', 'ACCOUNT_SUSPENDED', 403);
             }
         }
@@ -987,11 +962,7 @@ final class AuthController
         $this->setRefreshCookie($tokens['refresh_token'], $tokens['refresh_expires_at']);
 
         $profile = $this->buildUserResponse($user, $permissions);
-        $ip = RateLimitMiddleware::getIpAddress();
-        $emailHash2 = \TGA\CRM\Services\EncryptionService::hash(strtolower($email));
-        $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, user_id, identifier, ip_address, created_at) VALUES ('login_success', ?, ?, ?, NOW())"
-        )->execute([(int) $user['id'], $emailHash2, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('login_success', (int) $user['id'], $emailHash, $ip);
 
         Response::json([
             'success' => true,
@@ -1082,10 +1053,7 @@ final class AuthController
         }
 
         if (!password_verify($currentPassword, $user['password_hash'])) {
-            $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('login_failed', ?, ?, NOW())"
-            )->execute([$userId, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('login_failed', $userId, null, RateLimitMiddleware::getIpAddress(), ['reason' => 'wrong_current_password', 'context' => 'change_password']);
             Response::error('Incorrect current password', 'INCORRECT_CURRENT_PASSWORD', 400);
         }
 
@@ -1150,10 +1118,7 @@ final class AuthController
         }
 
         if (!password_verify($password, $user['password_hash'])) {
-            $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare(
-                "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('2fa_toggle_failed', ?, ?, NOW())"
-            )->execute([$userId, $ip]);
+            SecurityEventLogger::log('2fa_toggle_failed', $userId, null, RateLimitMiddleware::getIpAddress());
             Response::error('Incorrect password', 'INCORRECT_PASSWORD', 400);
         }
 
@@ -1166,10 +1131,7 @@ final class AuthController
         $updateStmt = $this->pdo->prepare('UPDATE users SET two_factor_enabled = ? WHERE id = ?');
         $updateStmt->execute([$newStatus, $userId]);
 
-        $ip = RateLimitMiddleware::getIpAddress();
-        $this->pdo->prepare(
-            "INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES (?, ?, ?, NOW())"
-        )->execute([$enable ? '2fa_enabled' : '2fa_disabled', $userId, $ip]);
+        SecurityEventLogger::log($enable ? '2fa_enabled' : '2fa_disabled', $userId, null, RateLimitMiddleware::getIpAddress());
 
         \TGA\CRM\Services\ActivityLogger::log($enable ? 'user.2fa_enabled' : 'user.2fa_disabled', 'user', $userId, $userId);
 
