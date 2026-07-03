@@ -47,4 +47,21 @@ class UniversityModel extends BaseModel
             throw $e;
         }
     }
+
+    /**
+     * Other campuses of the same real-world institution (rows sharing this university's
+     * campus_group_id). ORDER BY created_at ASC puts the original/primary campus first without
+     * needing a separate is_primary column.
+     */
+    public function findSiblings(int $id): array
+    {
+        $stmt = $this->pdo->prepare("
+            SELECT id, public_id, name, city, country FROM universities
+            WHERE campus_group_id = (SELECT campus_group_id FROM universities WHERE id = ?)
+              AND campus_group_id IS NOT NULL AND id != ? AND deleted_at IS NULL
+            ORDER BY created_at ASC
+        ");
+        $stmt->execute([$id, $id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }

@@ -28,6 +28,89 @@ class IntakeController
         $this->courseModel = new CourseModel($this->pdo);
     }
 
+    /**
+     * Flat, filterable, paginated intake list across every course/university -- see the
+     * matching note on CourseController::adminListAll() for why this exists (the old approach
+     * fanned out one request per university, then one per course on top of that -- for 2,600+
+     * courses that's thousands of requests and is what triggered the rate-limit errors).
+     */
+    public function adminListAll(): void
+    {
+        RBACMiddleware::requirePermission('intakes', 'view');
+
+        $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+        $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
+        $offset = ($page - 1) * $perPage;
+        $q = trim((string) ($_GET['q'] ?? ''));
+        $universityPid = trim((string) ($_GET['university_id'] ?? ''));
+        $coursePid = trim((string) ($_GET['course_id'] ?? ''));
+        $status = trim((string) ($_GET['status'] ?? ''));
+
+        $whereClauses = ['1=1'];
+        $params = [];
+
+        if ($q !== '') {
+            $whereClauses[] = '(i.name LIKE ? OR c.name LIKE ? OR u.name LIKE ?)';
+            $like = '%' . $q . '%';
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+        if ($universityPid !== '') {
+            $whereClauses[] = 'u.public_id = ?';
+            $params[] = $universityPid;
+        }
+        if ($coursePid !== '') {
+            $whereClauses[] = 'c.public_id = ?';
+            $params[] = $coursePid;
+        }
+        if ($status !== '') {
+            $whereClauses[] = 'i.status = ?';
+            $params[] = $status;
+        }
+        $where = implode(' AND ', $whereClauses);
+
+        $countStmt = $this->pdo->prepare("
+            SELECT COUNT(*) FROM intakes i
+            JOIN courses c ON i.course_id = c.id
+            JOIN universities u ON c.university_id = u.id
+            WHERE {$where}
+        ");
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare("
+            SELECT i.*,
+                   c.public_id as course_public_id, c.name as course_name,
+                   u.public_id as university_public_id, u.name as university_name,
+                   u.logo_file_id as university_logo_file_id,
+                   (SELECT COUNT(*) FROM applications a WHERE a.intake_id = i.id AND a.deleted_at IS NULL) as application_count
+            FROM intakes i
+            JOIN courses c ON i.course_id = c.id
+            JOIN universities u ON c.university_id = u.id
+            WHERE {$where}
+            ORDER BY i.course_start_date ASC
+            LIMIT ? OFFSET ?
+        ");
+        foreach ($params as $i => $value) {
+            $stmt->bindValue($i + 1, $value);
+        }
+        $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
+        $stmt->bindValue(count($params) + 2, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        Response::json([
+            'data' => $items,
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => (int) ceil($total / $perPage),
+            ],
+        ]);
+    }
+
     public function adminList(string $coursePid): void
     {
         RBACMiddleware::requirePermission('intakes', 'view');

@@ -27,6 +27,76 @@ class CourseController
         $this->uniModel = new UniversityModel($this->pdo);
     }
 
+    /**
+     * Flat, filterable, paginated course list across every university -- for the Courses
+     * Catalog page. Exists so that page doesn't have to fan out one request per university
+     * (that N+1 pattern is what caused the "Too many requests" rate-limit errors once the
+     * catalog held 200 universities / 2,600+ courses instead of a handful of test rows).
+     */
+    public function adminListAll(): void
+    {
+        RBACMiddleware::requirePermission('courses', 'view');
+
+        $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+        $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
+        $offset = ($page - 1) * $perPage;
+        $q = trim((string) ($_GET['q'] ?? ''));
+        $universityPid = trim((string) ($_GET['university_id'] ?? ''));
+        $degreeLevel = trim((string) ($_GET['degree_level'] ?? ''));
+
+        $whereClauses = ['c.deleted_at IS NULL'];
+        $params = [];
+
+        if ($q !== '') {
+            $whereClauses[] = '(c.name LIKE ? OR u.name LIKE ?)';
+            $like = '%' . $q . '%';
+            $params[] = $like;
+            $params[] = $like;
+        }
+        if ($universityPid !== '') {
+            $whereClauses[] = 'u.public_id = ?';
+            $params[] = $universityPid;
+        }
+        if ($degreeLevel !== '') {
+            $whereClauses[] = 'c.degree_level = ?';
+            $params[] = $degreeLevel;
+        }
+        $where = implode(' AND ', $whereClauses);
+
+        $countStmt = $this->pdo->prepare("
+            SELECT COUNT(*) FROM courses c JOIN universities u ON c.university_id = u.id WHERE {$where}
+        ");
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        $stmt = $this->pdo->prepare("
+            SELECT c.*, u.public_id as university_public_id, u.name as university_name,
+                   u.logo_file_id as university_logo_file_id
+            FROM courses c
+            JOIN universities u ON c.university_id = u.id
+            WHERE {$where}
+            ORDER BY c.name ASC
+            LIMIT ? OFFSET ?
+        ");
+        foreach ($params as $i => $value) {
+            $stmt->bindValue($i + 1, $value);
+        }
+        $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
+        $stmt->bindValue(count($params) + 2, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        Response::json([
+            'data' => $items,
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => (int) ceil($total / $perPage),
+            ],
+        ]);
+    }
+
     public function adminList(string $uniPid): void
     {
         RBACMiddleware::requirePermission('courses', 'view');

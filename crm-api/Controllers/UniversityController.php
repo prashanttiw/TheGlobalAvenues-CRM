@@ -34,9 +34,54 @@ class UniversityController
 
         $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
         $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
+        $offset = ($page - 1) * $perPage;
+        $q = trim((string) ($_GET['q'] ?? ''));
 
-        $result = $this->model->paginate($page, $perPage);
-        
+        $whereClauses = ['deleted_at IS NULL'];
+        $params = [];
+        if ($q !== '') {
+            $whereClauses[] = '(name LIKE ? OR country LIKE ? OR city LIKE ?)';
+            $like = '%' . $q . '%';
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
+        $where = implode(' AND ', $whereClauses);
+
+        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM universities WHERE {$where}");
+        $countStmt->execute($params);
+        $total = (int) $countStmt->fetchColumn();
+
+        // course_count/sibling_count are computed here (not fetched per-row by the frontend) so
+        // listing universities never triggers N follow-up requests just to show a count.
+        $stmt = $this->pdo->prepare("
+            SELECT u.*,
+                   (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.deleted_at IS NULL) as course_count,
+                   (SELECT COUNT(*) FROM universities u2 WHERE u2.campus_group_id = u.campus_group_id
+                      AND u2.campus_group_id IS NOT NULL AND u2.id != u.id AND u2.deleted_at IS NULL) as sibling_count
+            FROM universities u
+            WHERE {$where}
+            ORDER BY u.created_at DESC
+            LIMIT ? OFFSET ?
+        ");
+        foreach ($params as $i => $value) {
+            $stmt->bindValue($i + 1, $value);
+        }
+        $stmt->bindValue(count($params) + 1, $perPage, PDO::PARAM_INT);
+        $stmt->bindValue(count($params) + 2, $offset, PDO::PARAM_INT);
+        $stmt->execute();
+        $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $result = [
+            'data' => $items,
+            'meta' => [
+                'page' => $page,
+                'per_page' => $perPage,
+                'total' => $total,
+                'total_pages' => (int) ceil($total / $perPage),
+            ],
+        ];
+
         $appUrl = Environment::get('APP_URL') ?: 'http://localhost';
         foreach ($result['data'] as &$uni) {
             $this->formatLogo($uni, $appUrl);
@@ -56,6 +101,7 @@ class UniversityController
 
         $appUrl = Environment::get('APP_URL') ?: 'http://localhost';
         $this->formatLogo($uni, $appUrl);
+        $uni['siblings'] = $this->model->findSiblings($uni['id']);
 
         Response::json(['university' => $uni]);
     }
@@ -66,12 +112,30 @@ class UniversityController
         $user = AuthMiddleware::user();
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
-        
+
         $name = trim($input['name'] ?? '');
         $country = trim($input['country'] ?? '');
 
         if (!$name || !$country) {
             Response::error('Name and country are required', 'VALIDATION_ERROR', 400);
+        }
+
+        // Adding another campus of an existing institution: resolve/create the shared group id
+        // server-side (not client-side) so two admins adding a campus to the same university at
+        // the same moment can't end up generating two different group ids for one group.
+        $campusGroupId = null;
+        $parentPid = trim((string) ($input['parent_public_id'] ?? ''));
+        if ($parentPid !== '') {
+            $parent = $this->model->findByPublicId($parentPid);
+            if (!$parent) {
+                Response::error('Parent university not found', 'NOT_FOUND', 404);
+            }
+            if (!empty($parent['campus_group_id'])) {
+                $campusGroupId = $parent['campus_group_id'];
+            } else {
+                $campusGroupId = UlidGenerator::generate();
+                $this->model->update($parent['id'], ['campus_group_id' => $campusGroupId]);
+            }
         }
 
         $pid = UlidGenerator::generate();
@@ -83,9 +147,10 @@ class UniversityController
             'description' => trim($input['description'] ?? ''),
             'ranking_info' => trim($input['ranking_info'] ?? ''),
             'website_url' => trim($input['website_url'] ?? ''),
-            'partnership_type' => in_array($input['partnership_type'] ?? '', ['exclusive', 'non_exclusive']) 
-                ? $input['partnership_type'] 
+            'partnership_type' => in_array($input['partnership_type'] ?? '', ['exclusive', 'non_exclusive'])
+                ? $input['partnership_type']
                 : 'non_exclusive',
+            'campus_group_id' => $campusGroupId,
             'status' => 'active',
             'created_by' => $user['id'] ?? null
         ]);
@@ -265,7 +330,9 @@ class UniversityController
 
         $stmt = $this->pdo->prepare("
             SELECT u.*,
-                   (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL) as course_count
+                   (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL) as course_count,
+                   (SELECT COUNT(*) FROM universities u2 WHERE u2.campus_group_id = u.campus_group_id
+                      AND u2.campus_group_id IS NOT NULL AND u2.id != u.id AND u2.deleted_at IS NULL) as sibling_count
             FROM universities u
             WHERE {$where}
             ORDER BY u.name ASC
@@ -308,6 +375,7 @@ class UniversityController
 
         $appUrl = Environment::get('APP_URL') ?: 'http://localhost';
         $this->formatLogo($uni, $appUrl);
+        $uni['siblings'] = $this->model->findSiblings($uni['id']);
 
         // Fetch active courses with open intakes count
         $stmt = $this->pdo->prepare("
