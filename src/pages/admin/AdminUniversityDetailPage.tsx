@@ -2,9 +2,10 @@ import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ArrowLeft, Calendar, ExternalLink, GraduationCap, Plus, Trash, Upload, User } from 'lucide-react'
+import { ArrowLeft, Building2, Calendar, ExternalLink, GraduationCap, MapPin, Plus, Trash, Upload, User } from 'lucide-react'
 import {
   createAdminUniversityCourse,
+  createAdminUniversityLive,
   deleteAdminCourseLive,
   fetchAdminApplications,
   fetchAdminUniversityCourses,
@@ -22,8 +23,10 @@ import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { EditableField } from '../../shared/components/ui/EditableField'
+import { CountrySelect } from '../../shared/components/ui/CountrySelect'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
 import { ApplicationDetailDrawer, renderApplicationStatus } from '../../shared/components/applications/ApplicationDetailDrawer'
+import { usePermission } from '../../hooks/usePermission'
 
 const DEGREE_OPTIONS = [
   { value: 'certificate', label: 'Certificate' },
@@ -44,9 +47,12 @@ export default function AdminUniversityDetailPage() {
   const { pid } = useParams<{ pid: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const canWrite = usePermission('universities', 'edit')
   const [isAddCourseOpen, setIsAddCourseOpen] = React.useState(false)
   const [courseForm, setCourseForm] = React.useState({ name: '', degree_level: 'bachelors', duration_months: 24, language: 'English' })
   const [selectedApplicationPid, setSelectedApplicationPid] = React.useState<string | null>(null)
+  const [isAddCampusOpen, setIsAddCampusOpen] = React.useState(false)
+  const [campusForm, setCampusForm] = React.useState({ city: '', country: '' })
   const fileInputRef = React.useRef<HTMLInputElement>(null)
 
   const universityQuery = useQuery({
@@ -97,6 +103,18 @@ export default function AdminUniversityDetailPage() {
     onSuccess: invalidateCourses,
   })
 
+  const createCampusMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => createAdminUniversityLive(payload),
+    onSuccess: () => {
+      toast.success('Campus added — set up its own courses and fees on its detail page.')
+      setIsAddCampusOpen(false)
+      setCampusForm({ city: '', country: '' })
+      invalidateUniversity()
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'universities'] })
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to add campus.'),
+  })
+
   const updateFeeMutation = useMutation({
     mutationFn: ({ coursePid, amount, currency }: { coursePid: string; amount: number; currency: string }) => updateAdminCourseFee(coursePid, amount, currency),
     onSuccess: invalidateCourses,
@@ -120,6 +138,7 @@ export default function AdminUniversityDetailPage() {
         <EditableField
           value={row.name}
           onSave={(v) => updateCourseMutation.mutateAsync({ coursePid: row.public_id, payload: { name: v } })}
+          disabled={!canWrite}
         />
       ),
     },
@@ -132,6 +151,7 @@ export default function AdminUniversityDetailPage() {
           value={row.degree_level}
           options={DEGREE_OPTIONS}
           onSave={(v) => updateCourseMutation.mutateAsync({ coursePid: row.public_id, payload: { degree_level: v } })}
+          disabled={!canWrite}
         />
       ),
     },
@@ -142,6 +162,7 @@ export default function AdminUniversityDetailPage() {
         <EditableField
           value={String(row.duration_months ?? '')}
           onSave={(v) => updateCourseMutation.mutateAsync({ coursePid: row.public_id, payload: { duration_months: Number(v) || null } })}
+          disabled={!canWrite}
         />
       ),
     },
@@ -162,6 +183,7 @@ export default function AdminUniversityDetailPage() {
             await updateFeeMutation.mutateAsync({ coursePid: row.public_id, amount, currency: row.tuition_fee_currency || 'EUR' })
           }}
           render={() => <span>{formatFee(row)}</span>}
+          disabled={!canWrite}
         />
       ),
     },
@@ -182,7 +204,9 @@ export default function AdminUniversityDetailPage() {
       header: 'Status',
       cell: (row) => (
         <button
+          disabled={!canWrite}
           onClick={() => updateCourseMutation.mutate({ coursePid: row.public_id, payload: { status: row.status === 'active' ? 'inactive' : 'active' } })}
+          className="disabled:cursor-default"
         >
           <Badge variant={row.status === 'active' ? 'secondary' : 'outline'}>{row.status}</Badge>
         </button>
@@ -192,17 +216,19 @@ export default function AdminUniversityDetailPage() {
       key: 'actions',
       header: '',
       cell: (row) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-red-600"
-          onClick={(e) => {
-            e.stopPropagation()
-            if (window.confirm(`Delete ${row.name}?`)) deleteCourseMutation.mutate(row.public_id)
-          }}
-        >
-          <Trash className="h-4 w-4" />
-        </Button>
+        canWrite ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-red-600"
+            onClick={(e) => {
+              e.stopPropagation()
+              if (window.confirm(`Delete ${row.name}?`)) deleteCourseMutation.mutate(row.public_id)
+            }}
+          >
+            <Trash className="h-4 w-4" />
+          </Button>
+        ) : null
       ),
     },
   ]
@@ -258,13 +284,15 @@ export default function AdminUniversityDetailPage() {
           <div className="flex flex-col sm:flex-row gap-6">
             <div className="relative group shrink-0">
               <UniversityLogo name={university.name} logoThumbUrl={university.logo_thumb_url} logoUrl={university.logo_url} size="xl" />
-              <button
-                className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => fileInputRef.current?.click()}
-                title="Upload logo"
-              >
-                <Upload className="h-5 w-5 text-white" />
-              </button>
+              {canWrite && (
+                <button
+                  className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Upload logo"
+                >
+                  <Upload className="h-5 w-5 text-white" />
+                </button>
+              )}
             </div>
 
             <div className="flex-1 space-y-3">
@@ -274,9 +302,14 @@ export default function AdminUniversityDetailPage() {
                     value={university.name}
                     onSave={(v) => updateUniversityMutation.mutateAsync({ name: v })}
                     className="text-xl font-bold"
+                    disabled={!canWrite}
                   />
                 </h1>
-                <button onClick={() => updateUniversityMutation.mutate({ status: university.status === 'active' ? 'inactive' : 'active' })}>
+                <button
+                  disabled={!canWrite}
+                  className="disabled:cursor-default"
+                  onClick={() => updateUniversityMutation.mutate({ status: university.status === 'active' ? 'inactive' : 'active' })}
+                >
                   <Badge variant={university.status === 'active' ? 'secondary' : 'outline'}>{university.status}</Badge>
                 </button>
               </div>
@@ -284,11 +317,11 @@ export default function AdminUniversityDetailPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Country</p>
-                  <EditableField type="country" value={university.country} onSave={(v) => updateUniversityMutation.mutateAsync({ country: v })} />
+                  <EditableField type="country" value={university.country} onSave={(v) => updateUniversityMutation.mutateAsync({ country: v })} disabled={!canWrite} />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">City</p>
-                  <EditableField value={university.city ?? ''} onSave={(v) => updateUniversityMutation.mutateAsync({ city: v })} emptyLabel="Add city" />
+                  <EditableField value={university.city ?? ''} onSave={(v) => updateUniversityMutation.mutateAsync({ city: v })} emptyLabel="Add city" disabled={!canWrite} />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Website</p>
@@ -297,6 +330,7 @@ export default function AdminUniversityDetailPage() {
                     onSave={(v) => updateUniversityMutation.mutateAsync({ website_url: v })}
                     emptyLabel="Add website"
                     render={(v) => v ? <span className="flex items-center gap-1 text-brand-orange-accessible">{v}<ExternalLink className="h-3 w-3" /></span> : undefined}
+                    disabled={!canWrite}
                   />
                 </div>
                 <div>
@@ -306,6 +340,7 @@ export default function AdminUniversityDetailPage() {
                     value={university.partnership_type}
                     options={[{ value: 'non_exclusive', label: 'Non-exclusive' }, { value: 'exclusive', label: 'Exclusive' }]}
                     onSave={(v) => updateUniversityMutation.mutateAsync({ partnership_type: v })}
+                    disabled={!canWrite}
                   />
                 </div>
               </div>
@@ -318,6 +353,7 @@ export default function AdminUniversityDetailPage() {
                   onSave={(v) => updateUniversityMutation.mutateAsync({ description: v })}
                   emptyLabel="Add a description"
                   placeholder="Describe this university…"
+                  disabled={!canWrite}
                 />
               </div>
 
@@ -329,6 +365,7 @@ export default function AdminUniversityDetailPage() {
                   onSave={(v) => updateUniversityMutation.mutateAsync({ ranking_info: v })}
                   emptyLabel="Add fast facts (shown to students and agents)"
                   placeholder="e.g. Ranked #1 for Business in Austria…"
+                  disabled={!canWrite}
                 />
               </div>
             </div>
@@ -338,11 +375,37 @@ export default function AdminUniversityDetailPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2"><GraduationCap className="h-4 w-4 text-brand-orange-accessible" />Courses</CardTitle>
-          <Button size="sm" onClick={() => setIsAddCourseOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Add Course</Button>
+          <CardTitle className="flex items-center gap-2"><Building2 className="h-4 w-4 text-brand-orange-accessible" />Other Campuses</CardTitle>
+          {canWrite && <Button size="sm" onClick={() => setIsAddCampusOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Add Campus</Button>}
         </CardHeader>
         <CardContent>
-          <p className="text-xs text-muted-foreground mb-3">Double-click a cell to edit it in place.</p>
+          {university.siblings && university.siblings.length > 0 ? (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {university.siblings.map((sibling: any) => (
+                <button
+                  key={sibling.public_id}
+                  onClick={() => navigate(`/portal/admin/universities/${sibling.public_id}`)}
+                  className="flex items-center gap-2 rounded-md border border-border-warm bg-surface-warm px-3 py-2 text-left text-sm hover:border-brand-orange-accessible/50 hover:bg-surface-card transition-colors"
+                >
+                  <MapPin className="h-3.5 w-3.5 text-brand-orange-accessible shrink-0" />
+                  <span className="font-medium text-brand-navy">{sibling.city || 'Unknown city'}</span>
+                  <span className="text-muted-foreground">, {sibling.country}</span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">No other campuses linked yet. Each campus is managed independently — its own courses, fees, intakes, and applications.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="flex items-center gap-2"><GraduationCap className="h-4 w-4 text-brand-orange-accessible" />Courses</CardTitle>
+          {canWrite && <Button size="sm" onClick={() => setIsAddCourseOpen(true)}><Plus className="mr-1.5 h-3.5 w-3.5" />Add Course</Button>}
+        </CardHeader>
+        <CardContent>
+          {canWrite && <p className="text-xs text-muted-foreground mb-3">Double-click a cell to edit it in place.</p>}
           <DataTable
             columns={courseColumns}
             data={courses}
@@ -412,6 +475,46 @@ export default function AdminUniversityDetailPage() {
           <div className="pt-6 border-t border-border-warm flex justify-end gap-2">
             <Button variant="secondary" type="button" onClick={() => setIsAddCourseOpen(false)}>Cancel</Button>
             <Button variant="primary" type="submit" disabled={createCourseMutation.isPending}>Save Course</Button>
+          </div>
+        </form>
+      </SlideOverPanel>
+
+      <SlideOverPanel title="Add Another Campus" open={isAddCampusOpen} onOpenChange={setIsAddCampusOpen}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            createCampusMutation.mutate({
+              name: university.name,
+              partnership_type: university.partnership_type,
+              parent_public_id: pid,
+              city: campusForm.city,
+              country: campusForm.country,
+            })
+          }}
+          className="space-y-6"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Adds another location for <strong>{university.name}</strong> as its own fully independent entry — its own courses, fees, intakes, and students. Just tell us where.
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-brand-navy block mb-1">City</label>
+              <input
+                type="text"
+                required
+                value={campusForm.city}
+                onChange={(e) => setCampusForm({ ...campusForm, city: e.target.value })}
+                className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-brand-navy block mb-1">Country</label>
+              <CountrySelect value={campusForm.country} onChange={(country) => setCampusForm({ ...campusForm, country })} />
+            </div>
+          </div>
+          <div className="pt-6 border-t border-border-warm flex justify-end gap-2">
+            <Button variant="secondary" type="button" onClick={() => setIsAddCampusOpen(false)}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={createCampusMutation.isPending || !campusForm.city || !campusForm.country}>Add Campus</Button>
           </div>
         </form>
       </SlideOverPanel>

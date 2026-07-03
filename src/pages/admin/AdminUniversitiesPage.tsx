@@ -2,7 +2,7 @@ import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Globe, Plus, BookOpen, Edit, Trash, Upload, LayoutGrid, List, MapPin } from 'lucide-react'
-import { createAdminUniversityLive, deleteAdminUniversityLive, fetchAdminUniversitiesLive, fetchAdminUniversityCourses, updateAdminUniversityLive, uploadUniversityLogo } from '../../lib/api'
+import { createAdminUniversityLive, deleteAdminUniversityLive, fetchAdminUniversitiesLive, updateAdminUniversityLive, uploadUniversityLogo } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Card, CardContent, CardHeader, CardTitle } from '../../shared/components/ui/Card'
@@ -14,8 +14,12 @@ import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { CountrySelect } from '../../shared/components/ui/CountrySelect'
+import { Pagination } from '../../shared/components/ui/Pagination'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
+import { usePermission } from '../../hooks/usePermission'
 import { toast } from 'sonner'
+
+const PER_PAGE = 20
 
 const VIEW_MODE_KEY = 'admin_universities_view_mode'
 
@@ -28,8 +32,11 @@ const EMPTY_FORM = { name: '', country: '', city: '', website_url: '', partnersh
 export default function AdminUniversitiesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const canWrite = usePermission('universities', 'edit')
   const [viewMode, setViewMode] = React.useState<'grid' | 'table'>(readStoredViewMode)
   const [search, setSearch] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const [page, setPage] = React.useState(1)
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [editingUniversity, setEditingUniversity] = React.useState<any | null>(null)
   const [form, setForm] = React.useState(EMPTY_FORM)
@@ -41,17 +48,23 @@ export default function AdminUniversitiesPage() {
     try { localStorage.setItem(VIEW_MODE_KEY, mode) } catch {}
   }
 
+  React.useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [search])
+
+  // Search and course counts are both resolved server-side in a single request now --
+  // this used to fan out one extra request per university just to count its courses,
+  // which is what caused rate-limit errors once the catalog held 200+ universities.
   const universitiesQuery = useQuery({
-    queryKey: ['admin', 'universities', 'cards'],
+    queryKey: ['admin', 'universities', 'cards', page, debouncedSearch],
     queryFn: async () => {
-      const result = await fetchAdminUniversitiesLive({ perPage: 100 })
-      const universities = result.universities ?? []
-      const courseCounts = await Promise.all(universities.map(async (university: any) => {
-        const courses = await fetchAdminUniversityCourses(university.public_id)
-        return [university.public_id, Array.isArray(courses) ? courses.length : 0] as const
+      const result = await fetchAdminUniversitiesLive({ page, perPage: PER_PAGE, q: debouncedSearch || undefined })
+      const universities = (result.universities ?? []).map((university: any) => ({
+        ...university,
+        courseCount: university.course_count ?? null,
       }))
-      const countMap = new Map(courseCounts)
-      return universities.map((university: any) => ({ ...university, courseCount: countMap.get(university.public_id) ?? 0 }))
+      return { universities, meta: result.meta }
     },
     staleTime: 30_000,
   })
@@ -105,12 +118,8 @@ export default function AdminUniversitiesPage() {
     e.target.value = '' // Reset input
   }
 
-  const allUniversities = (universitiesQuery.data ?? []) as any[]
-  const universities = React.useMemo(() => {
-    if (!search.trim()) return allUniversities
-    const q = search.trim().toLowerCase()
-    return allUniversities.filter((u) => u.name?.toLowerCase().includes(q) || u.country?.toLowerCase().includes(q))
-  }, [allUniversities, search])
+  const universities = (universitiesQuery.data?.universities ?? []) as any[]
+  const meta = universitiesQuery.data?.meta
 
   function openEdit(univ: any) {
     setEditingUniversity(univ)
@@ -126,10 +135,10 @@ export default function AdminUniversitiesPage() {
 
   function buildActions(univ: any) {
     return [
-      { label: 'Edit University', icon: Edit, onClick: () => openEdit(univ) },
-      { label: 'Upload Logo', icon: Upload, onClick: () => { setUploadingLogoUid(univ.public_id); fileInputRef.current?.click() } },
-      { label: 'Toggle Status', onClick: () => updateMutation.mutate({ publicId: univ.public_id, payload: { status: univ.status === 'active' ? 'inactive' : 'active' } }) },
-      { label: 'Delete University', icon: Trash, onClick: () => { if (window.confirm(`Delete ${univ.name}?`)) deleteMutation.mutate(univ.public_id) }, variant: 'danger' as const },
+      { label: 'Edit University', icon: Edit, onClick: () => openEdit(univ), hidden: !canWrite },
+      { label: 'Upload Logo', icon: Upload, onClick: () => { setUploadingLogoUid(univ.public_id); fileInputRef.current?.click() }, hidden: !canWrite },
+      { label: 'Toggle Status', onClick: () => updateMutation.mutate({ publicId: univ.public_id, payload: { status: univ.status === 'active' ? 'inactive' : 'active' } }), hidden: !canWrite },
+      { label: 'Delete University', icon: Trash, onClick: () => { if (window.confirm(`Delete ${univ.name}?`)) deleteMutation.mutate(univ.public_id) }, variant: 'danger' as const, hidden: !canWrite },
     ]
   }
 
@@ -151,6 +160,7 @@ export default function AdminUniversitiesPage() {
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <MapPin className="h-3.5 w-3.5" />
           {row.city ? `${row.city}, ` : ''}{row.country}
+          {!!row.sibling_count && <Badge variant="outline" className="ml-1">+{row.sibling_count} campuses</Badge>}
         </span>
       ),
     },
@@ -162,7 +172,7 @@ export default function AdminUniversitiesPage() {
     {
       key: 'courses',
       header: 'Courses',
-      cell: (row) => <span className="font-semibold text-brand-navy">{row.courseCount}</span>,
+      cell: (row) => <span className="font-semibold text-brand-navy">{row.courseCount === null ? '—' : row.courseCount}</span>,
     },
     {
       key: 'status',
@@ -182,7 +192,7 @@ export default function AdminUniversitiesPage() {
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader title="Universities" subtitle="Manage live academic institutions and partners." actions={<Button variant="primary" onClick={() => setIsAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add University</Button>} />
+      <PageHeader title="Universities" subtitle="Manage live academic institutions and partners." actions={canWrite ? <Button variant="primary" onClick={() => setIsAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add University</Button> : undefined} />
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-surface-card border border-border-warm rounded-xl p-3">
         <SearchInput value={search} onChange={setSearch} placeholder="Search by university name or country…" className="sm:max-w-sm" />
@@ -245,13 +255,18 @@ export default function AdminUniversitiesPage() {
                 </div>
               </CardHeader>
               <CardContent className="mt-4 border-t border-border-warm pt-4 flex items-center justify-between">
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><Globe className="h-3.5 w-3.5" />{univ.country}</div>
-                <div className="flex items-center gap-1.5 text-xs text-brand-navy font-semibold"><BookOpen className="h-3.5 w-3.5 text-brand-orange-accessible" />{univ.courseCount} Courses</div>
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Globe className="h-3.5 w-3.5" />{univ.country}
+                  {!!univ.sibling_count && <Badge variant="outline">+{univ.sibling_count} campuses</Badge>}
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-brand-navy font-semibold"><BookOpen className="h-3.5 w-3.5 text-brand-orange-accessible" />{univ.courseCount === null ? 'Courses —' : `${univ.courseCount} Courses`}</div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      {!universitiesQuery.isError && <Pagination meta={meta} onPageChange={setPage} />}
 
       <SlideOverPanel title={editingUniversity ? "Edit University Partner" : "Add University Partner"} open={isAddOpen} onOpenChange={(open) => {
         setIsAddOpen(open)

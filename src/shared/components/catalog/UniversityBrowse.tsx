@@ -205,6 +205,29 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
   // University detail (course list) view
   if (selectedUniversity) {
     const courses = detailQuery.data?.courses ?? []
+    const siblings = detailQuery.data?.siblings ?? []
+
+    function openSibling(sibling: { public_id: string; name: string; city: string | null; country: string }) {
+      setSelectedCourse(null)
+      setSelectedUniversity({
+        id: sibling.public_id,
+        public_id: sibling.public_id,
+        name: sibling.name,
+        shortName: null,
+        country: sibling.country,
+        city: sibling.city,
+        partnershipType: 'non_exclusive',
+        isExclusive: false,
+        programCount: 0,
+        siblingCount: 0,
+        startingTuition: null,
+        startingTuitionCurrency: null,
+        startingTuitionLabel: null,
+        logoUrl: null,
+        logoThumbUrl: null,
+      })
+    }
+
     return (
       <div className="space-y-4">
         <Breadcrumb
@@ -225,6 +248,24 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
             <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{selectedUniversity.city ? `${selectedUniversity.city}, ` : ''}{selectedUniversity.country}</p>
           </div>
         </div>
+
+        {siblings.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Other Campuses</p>
+            <div className="flex flex-wrap gap-2">
+              {siblings.map((sibling: any) => (
+                <button
+                  key={sibling.public_id}
+                  onClick={() => openSibling(sibling)}
+                  className="flex items-center gap-1.5 rounded-full border border-border-warm bg-surface-warm px-3 py-1.5 text-xs hover:border-brand-orange-accessible/50 hover:bg-surface-card transition-colors"
+                >
+                  <MapPin className="h-3 w-3 text-brand-orange-accessible" />
+                  {sibling.city || 'Unknown city'}, {sibling.country}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {detailQuery.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -298,7 +339,10 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
                   <CardTitle className="text-base mt-3 leading-tight">{university.name}</CardTitle>
                 </CardHeader>
                 <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{university.country}</span>
+                  <span className="flex items-center gap-1">
+                    <Globe className="h-3.5 w-3.5" />{university.country}
+                    {university.siblingCount > 0 && <Badge variant="outline">+{university.siblingCount} campuses</Badge>}
+                  </span>
                   <span className="font-semibold text-brand-navy">{university.programCount} programs</span>
                 </CardContent>
               </Card>

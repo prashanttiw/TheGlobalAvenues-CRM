@@ -2,18 +2,22 @@ import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ExternalLink, Plus, Search, Trash } from 'lucide-react'
-import { createAdminUniversityCourse, deleteAdminCourseLive, fetchAdminUniversitiesLive, fetchAdminUniversityCourses, updateAdminCourseLive } from '../../lib/api'
+import { createAdminUniversityCourse, deleteAdminCourseLive, fetchAdminCoursesAll, fetchAdminUniversitiesLive, updateAdminCourseLive } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Badge } from '../../shared/components/ui/Badge'
 import { Button } from '../../shared/components/ui/Button'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
+import { Pagination } from '../../shared/components/ui/Pagination'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { EditableField } from '../../shared/components/ui/EditableField'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
 import { Modal, ModalAction, ModalCancel, ModalContent, ModalDescription, ModalFooter, ModalHeader, ModalTitle } from '../../shared/components/ui/Modal'
+import { usePermission } from '../../hooks/usePermission'
 import { toast } from 'sonner'
+
+const PER_PAGE = 20
 
 const DEGREE_OPTIONS = [
   { value: 'certificate', label: 'Certificate' },
@@ -38,22 +42,46 @@ interface CourseRow {
 export default function AdminCoursesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const canWrite = usePermission('courses', 'edit')
   const [universityFilter, setUniversityFilter] = React.useState('')
   const [searchQuery, setSearchQuery] = React.useState('')
+  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const [page, setPage] = React.useState(1)
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [form, setForm] = React.useState({ universityPublicId: '', name: '', degree_level: 'masters', duration_months: 24, language: 'English' })
   const [deleteTarget, setDeleteTarget] = React.useState<CourseRow | null>(null)
 
+  React.useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(searchQuery); setPage(1) }, 350)
+    return () => clearTimeout(t)
+  }, [searchQuery])
+
+  React.useEffect(() => { setPage(1) }, [universityFilter])
+
+  // Lightweight, single request -- just for the "All Universities" filter dropdown and the
+  // Add Course university picker. Never fans out per-university course lookups (that pattern,
+  // used here previously, is what overloaded the backend once the catalog held 2,600+ courses).
+  const universitiesQuery = useQuery({
+    queryKey: ['admin', 'universities', 'picker'],
+    queryFn: async () => (await fetchAdminUniversitiesLive({ perPage: 250 })).universities ?? [],
+    staleTime: 60_000,
+  })
+
   const catalogQuery = useQuery({
-    queryKey: ['admin', 'catalog', 'courses'],
+    queryKey: ['admin', 'catalog', 'courses', page, debouncedSearch, universityFilter],
     queryFn: async () => {
-      const universitiesResult = await fetchAdminUniversitiesLive({ perPage: 100 })
-      const universities = universitiesResult.universities ?? []
-      const courseBatches = await Promise.all(universities.map(async (university: any) => {
-        const result = await fetchAdminUniversityCourses(university.public_id)
-        return (Array.isArray(result) ? result : []).map((course: any) => ({ ...course, university_public_id: university.public_id, university_name: university.name, university_logo_thumb_url: university.logo_thumb_url }))
+      const result = await fetchAdminCoursesAll({
+        page,
+        perPage: PER_PAGE,
+        q: debouncedSearch || undefined,
+        universityId: universityFilter || undefined,
+      })
+      const courses = result.courses.map((course: any) => ({
+        ...course,
+        university_public_id: course.university_public_id,
+        university_name: course.university_name,
       }))
-      return { universities, courses: courseBatches.flat() }
+      return { courses, meta: result.meta }
     },
     staleTime: 30_000,
   })
@@ -82,12 +110,9 @@ export default function AdminCoursesPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to delete course.'),
   })
 
-  const universities = (catalogQuery.data?.universities ?? []) as any[]
-  const courses = ((catalogQuery.data?.courses ?? []) as CourseRow[]).filter((course) => {
-    const matchesUniversity = !universityFilter || course.university_public_id === universityFilter
-    const matchesSearch = !searchQuery || `${course.name} ${course.degree_level}`.toLowerCase().includes(searchQuery.toLowerCase())
-    return matchesUniversity && matchesSearch
-  })
+  const universities = (universitiesQuery.data ?? []) as any[]
+  const courses = (catalogQuery.data?.courses ?? []) as CourseRow[]
+  const meta = catalogQuery.data?.meta
 
   const columns: ColumnDef<CourseRow>[] = [
     {
@@ -101,6 +126,7 @@ export default function AdminCoursesPage() {
               value={row.name}
               className="font-semibold text-brand-navy"
               onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { name: v } })}
+              disabled={!canWrite}
             />
             <button
               className="text-xs text-muted-foreground hover:text-brand-orange-accessible flex items-center gap-1"
@@ -121,6 +147,7 @@ export default function AdminCoursesPage() {
           value={row.degree_level}
           options={DEGREE_OPTIONS}
           onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { degree_level: v } })}
+          disabled={!canWrite}
         />
       ),
     },
@@ -132,6 +159,7 @@ export default function AdminCoursesPage() {
           value={String(row.duration_months ?? '')}
           emptyLabel="Not set"
           onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { duration_months: Number(v) || null } })}
+          disabled={!canWrite}
         />
       ),
     },
@@ -143,6 +171,7 @@ export default function AdminCoursesPage() {
           value={row.language ?? ''}
           emptyLabel="English"
           onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { language: v || 'English' } })}
+          disabled={!canWrite}
         />
       ),
     },
@@ -152,7 +181,8 @@ export default function AdminCoursesPage() {
       cell: (row) => (
         <button
           title="Click to toggle status"
-          className="cursor-pointer"
+          disabled={!canWrite}
+          className="cursor-pointer disabled:cursor-default"
           onClick={(e) => { e.stopPropagation(); updateMutation.mutate({ publicId: row.public_id, payload: { status: row.status === 'active' ? 'inactive' : 'active' } }) }}
         >
           <Badge variant={row.status === 'active' ? 'secondary' : 'outline'}>{row.status}</Badge>
@@ -163,24 +193,26 @@ export default function AdminCoursesPage() {
       key: 'actions',
       header: '',
       cell: (row) => (
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-red-600"
-          onClick={(e) => {
-            e.stopPropagation()
-            setDeleteTarget(row)
-          }}
-        >
-          <Trash className="h-4 w-4" />
-        </Button>
+        canWrite ? (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-red-600"
+            onClick={(e) => {
+              e.stopPropagation()
+              setDeleteTarget(row)
+            }}
+          >
+            <Trash className="h-4 w-4" />
+          </Button>
+        ) : null
       ),
     },
   ]
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader title="Courses Catalog" subtitle="Manage live program offerings across university partners." actions={<Button variant="primary" onClick={() => setIsAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add Course</Button>} />
+      <PageHeader title="Courses Catalog" subtitle="Manage live program offerings across university partners." actions={canWrite ? <Button variant="primary" onClick={() => setIsAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add Course</Button> : undefined} />
 
       <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center justify-between">
         <div className="flex gap-2 flex-wrap w-full sm:w-auto">
@@ -192,9 +224,16 @@ export default function AdminCoursesPage() {
         <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><input type="text" placeholder="Search courses..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" /></div>
       </div>
 
-      <p className="text-xs text-muted-foreground">Double-click a cell to edit it in place — changes save immediately.</p>
+      {canWrite && <p className="text-xs text-muted-foreground">Double-click a cell to edit it in place — changes save immediately.</p>}
 
-      {catalogQuery.isError ? <EmptyState heading="Courses could not be loaded" description={catalogQuery.error instanceof Error ? catalogQuery.error.message : 'The backend request failed.'} action={<Button onClick={() => catalogQuery.refetch()}>Retry</Button>} /> : <DataTable columns={columns} data={courses} isLoading={catalogQuery.isLoading} emptyMessage="No courses match the current criteria." />}
+      {catalogQuery.isError ? (
+        <EmptyState heading="Courses could not be loaded" description={catalogQuery.error instanceof Error ? catalogQuery.error.message : 'The backend request failed.'} action={<Button onClick={() => catalogQuery.refetch()}>Retry</Button>} />
+      ) : (
+        <>
+          <DataTable columns={columns} data={courses} isLoading={catalogQuery.isLoading} emptyMessage="No courses match the current criteria." />
+          <Pagination meta={meta} onPageChange={setPage} />
+        </>
+      )}
 
       <SlideOverPanel title="Add New Course" open={isAddOpen} onOpenChange={setIsAddOpen}>
         <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ universityPublicId: form.universityPublicId, payload: { name: form.name, degree_level: form.degree_level, duration_months: form.duration_months, language: form.language } }) }} className="space-y-6">

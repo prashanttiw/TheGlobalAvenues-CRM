@@ -5,7 +5,7 @@ import {
   cloneAdminIntake,
   createAdminCourseIntake,
   deleteAdminIntakeLive,
-  fetchAdminCourseIntakes,
+  fetchAdminIntakesAll,
   fetchAdminUniversitiesLive,
   fetchAdminUniversityCourses,
   updateAdminIntakeLive,
@@ -19,11 +19,14 @@ import { Button } from '../../shared/components/ui/Button'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
+import { Pagination } from '../../shared/components/ui/Pagination'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { EditableField } from '../../shared/components/ui/EditableField'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
 import { Modal, ModalAction, ModalCancel, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '../../shared/components/ui/Modal'
 import { toast } from 'sonner'
+
+const PER_PAGE = 20
 
 interface UniversityRow {
   public_id: string
@@ -139,41 +142,48 @@ export default function AdminIntakesPage() {
   const canEdit = usePermission('intakes', 'edit')
   const canDelete = usePermission('intakes', 'delete')
 
+  const [page, setPage] = React.useState(1)
+  React.useEffect(() => { setPage(1) }, [universityFilter, courseFilter, statusFilter])
+
+  // Lightweight, single request -- just for the "All Universities" filter and the Create
+  // Intake form's university picker. Never fans out per-university/per-course requests (that
+  // pattern, used here previously -- one request per university, then ANOTHER per course on
+  // top of that -- is what overloaded the backend once the catalog held 2,600+ courses).
+  const universitiesQuery = useQuery({
+    queryKey: ['admin', 'universities', 'picker'],
+    queryFn: async () => (await fetchAdminUniversitiesLive({ perPage: 250 })).universities ?? [],
+    staleTime: 60_000,
+  })
+
+  // Courses for the currently-selected filter university, fetched only when one is chosen --
+  // scoped to a single university this stays a cheap single request either way.
+  const filterCoursesQuery = useQuery({
+    queryKey: ['admin', 'university-courses', universityFilter],
+    queryFn: () => fetchAdminUniversityCourses(universityFilter),
+    enabled: !!universityFilter,
+    staleTime: 30_000,
+  })
+
+  // Same idea, scoped to whichever university is chosen inside the Create Intake form --
+  // independent from the filter above since the two can differ at the same time.
+  const formCoursesQuery = useQuery({
+    queryKey: ['admin', 'university-courses', form.universityPublicId],
+    queryFn: () => fetchAdminUniversityCourses(form.universityPublicId),
+    enabled: !!form.universityPublicId,
+    staleTime: 30_000,
+  })
+
   const catalogQuery = useQuery({
-    queryKey: ['admin', 'catalog', 'intakes'],
+    queryKey: ['admin', 'catalog', 'intakes', page, universityFilter, courseFilter, statusFilter],
     queryFn: async () => {
-      const universitiesResult = await fetchAdminUniversitiesLive({ perPage: 100 })
-      const universities = (universitiesResult.universities ?? []) as UniversityRow[]
-
-      const courseBatches = await Promise.all(
-        universities.map(async (university) => {
-          const result = await fetchAdminUniversityCourses(university.public_id)
-          return (Array.isArray(result) ? result : []).map((course: any) => ({
-            ...course,
-            university_public_id: university.public_id,
-            university_name: university.name,
-            university_logo_thumb_url: university.logo_thumb_url,
-          })) as CourseRow[]
-        }),
-      )
-
-      const courses = courseBatches.flat()
-
-      const intakeBatches = await Promise.all(
-        courses.map(async (course) => {
-          const result = await fetchAdminCourseIntakes(course.public_id, { perPage: 100 })
-          return (result.intakes ?? []).map((intake: any) => ({
-            ...intake,
-            course_public_id: course.public_id,
-            course_name: course.name,
-            university_public_id: course.university_public_id,
-            university_name: course.university_name,
-            university_logo_thumb_url: course.university_logo_thumb_url,
-          })) as IntakeRow[]
-        }),
-      )
-
-      return { universities, courses, intakes: intakeBatches.flat() }
+      const result = await fetchAdminIntakesAll({
+        page,
+        perPage: PER_PAGE,
+        universityId: universityFilter || undefined,
+        courseId: courseFilter || undefined,
+        status: statusFilter || undefined,
+      })
+      return { intakes: result.intakes as IntakeRow[], meta: result.meta }
     },
     staleTime: 30_000,
   })
@@ -227,17 +237,12 @@ export default function AdminIntakesPage() {
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to delete intake.'),
   })
 
-  const universities = (catalogQuery.data?.universities ?? []) as UniversityRow[]
-  const courses = (catalogQuery.data?.courses ?? []) as CourseRow[]
-  const intakes = ((catalogQuery.data?.intakes ?? []) as IntakeRow[]).filter((intake) => {
-    const matchesUniversity = !universityFilter || intake.university_public_id === universityFilter
-    const matchesCourse = !courseFilter || intake.course_public_id === courseFilter
-    const matchesStatus = !statusFilter || intake.status === statusFilter
-    return matchesUniversity && matchesCourse && matchesStatus
-  })
+  const universities = (universitiesQuery.data ?? []) as UniversityRow[]
+  const intakes = (catalogQuery.data?.intakes ?? []) as IntakeRow[]
+  const meta = catalogQuery.data?.meta
 
-  const availableCourses = courses.filter((course) => !universityFilter || course.university_public_id === universityFilter)
-  const formCourses = courses.filter((course) => !form.universityPublicId || course.university_public_id === form.universityPublicId)
+  const availableCourses = (filterCoursesQuery.data ?? []) as CourseRow[]
+  const formCourses = (formCoursesQuery.data ?? []) as CourseRow[]
 
   function openCloneDialog(row: IntakeRow) {
     setCloningIntake(row)
@@ -272,6 +277,7 @@ export default function AdminIntakesPage() {
               value={row.name}
               className="font-semibold text-brand-navy"
               onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { name: v } })}
+              disabled={!canEdit}
             />
             <p className="text-xs text-muted-foreground">{row.course_name} · {row.university_name}</p>
           </div>
@@ -289,6 +295,7 @@ export default function AdminIntakesPage() {
             emptyLabel="Not set"
             render={() => <span>{formatDate(row.application_deadline)}</span>}
             onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { application_deadline: v || null } })}
+            disabled={!canEdit}
           />
         </div>
       ),
@@ -302,6 +309,7 @@ export default function AdminIntakesPage() {
           emptyLabel="Not set"
           render={() => <span>{row.tuition_fee_amount == null ? 'Not set' : `${row.tuition_fee_currency || 'EUR'} ${row.tuition_fee_amount}`}</span>}
           onSave={(v) => updateMutation.mutateAsync({ publicId: row.public_id, payload: { tuition_fee_amount: v ? Number(v) : null } })}
+          disabled={!canEdit}
         />
       ),
     },
@@ -426,12 +434,15 @@ export default function AdminIntakesPage() {
           action={<Button onClick={() => catalogQuery.refetch()}>Retry</Button>}
         />
       ) : (
-        <DataTable
-          columns={columns}
-          data={intakes}
-          isLoading={catalogQuery.isLoading}
-          emptyMessage="No academic intakes match the current criteria."
-        />
+        <>
+          <DataTable
+            columns={columns}
+            data={intakes}
+            isLoading={catalogQuery.isLoading}
+            emptyMessage="No academic intakes match the current criteria."
+          />
+          <Pagination meta={meta} onPageChange={setPage} />
+        </>
       )}
 
       <SlideOverPanel title="Create Academic Intake" open={isAddOpen} onOpenChange={setIsAddOpen}>
