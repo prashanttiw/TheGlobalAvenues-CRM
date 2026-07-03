@@ -48,6 +48,45 @@ class EncryptionService {
         return hash('sha256', strtolower(trim($value)));
     }
 
+    /**
+     * Deterministic hash of a fixed-length prefix, for "starts with" search on an
+     * otherwise-encrypted column without decrypting rows at query time. Returns null
+     * when $value is shorter than $length — that value simply has no such prefix, so
+     * the stored column should be null rather than hashing the whole (shorter) value.
+     */
+    public static function hashPrefix(string $value, int $length): ?string {
+        $normalized = strtolower(trim($value));
+        if (mb_strlen($normalized) < $length) {
+            return null;
+        }
+        return hash('sha256', mb_substr($normalized, 0, $length));
+    }
+
+    /**
+     * Same idea as hashPrefix(), but normalizes to a bare 10-digit local number first.
+     * Phone numbers in this DB are stored inconsistently — some with a leading "+" and
+     * country code, some with a domestic trunk "0", some as plain 10-digit locals — so
+     * without normalization the same person's number could hash differently depending
+     * on how it was captured at registration.
+     *
+     * Strategy: strip everything but digits, then trim characters off the FRONT until
+     * exactly 10 remain. This one rule handles a leading "+91" (2-digit country code),
+     * "+1" (1-digit country code), and a leading domestic "0" uniformly — no need for
+     * an explicit country-code-length lookup table. Assumes the true local mobile
+     * number is always 10 digits, which holds for India (this consultancy's primary
+     * market) but not universally for every country's numbering scheme.
+     */
+    public static function hashPhonePrefix(string $value, int $length): ?string {
+        $digitsOnly = preg_replace('/\D/', '', $value) ?? '';
+        while (mb_strlen($digitsOnly) > 10) {
+            $digitsOnly = mb_substr($digitsOnly, 1);
+        }
+        if (mb_strlen($digitsOnly) < $length) {
+            return null;
+        }
+        return hash('sha256', mb_substr($digitsOnly, 0, $length));
+    }
+
     private static function loadKey(): string {
         $env = getenv('ENCRYPTION_KEY');
         if (empty($env)) {
