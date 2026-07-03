@@ -446,6 +446,7 @@ class ApplicationController
         $offset = ($page - 1) * $perPage;
         $status = trim((string) ($_GET['status'] ?? ''));
         $universityPid = trim((string) ($_GET['university_pid'] ?? ''));
+        $search = trim((string) ($_GET['search'] ?? ''));
 
         $conditions = ['a.deleted_at IS NULL'];
         $params = [];
@@ -458,11 +459,20 @@ class ApplicationController
             $conditions[] = 'u.public_id = ?';
             $params[] = $universityPid;
         }
+        if ($search !== '') {
+            $conditions[] = '(a.reference_number LIKE ? OR s.full_name LIKE ? OR c.name LIKE ? OR u.name LIKE ?)';
+            $like = '%' . $search . '%';
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+            $params[] = $like;
+        }
         $where = implode(' AND ', $conditions);
 
         $countStmt = $this->pdo->prepare("
             SELECT COUNT(*)
             FROM applications a
+            JOIN students s ON a.student_id = s.id
             JOIN intakes i ON a.intake_id = i.id
             JOIN courses c ON i.course_id = c.id
             JOIN universities u ON c.university_id = u.id
