@@ -1,30 +1,39 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Navigate } from 'react-router-dom'
-import { fetchAdminActivityLogs } from '../../lib/api'
-import { useAuth } from '../../shared/hooks/useAuth'
+import { fetchSuperActivityLogs } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { ActivityLogTable } from '../../shared/components/activity/ActivityLogTable'
 
-export default function AdminLogsPage() {
-  const { user } = useAuth()
-  const isSuperAdmin = user?.isSuperAdmin === true || (user?.permissions?.includes('*') ?? false)
-
+export default function AdminSuperLogsPage() {
+  const [actorTypeFilter, setActorTypeFilter] = React.useState('')
   const [dateFrom, setDateFrom] = React.useState('')
   const [dateTo, setDateTo] = React.useState('')
   const [searchQuery, setSearchQuery] = React.useState('')
 
   const logsQuery = useQuery({
-    queryKey: ['admin', 'activity-logs', dateFrom, dateTo],
-    queryFn: () => fetchAdminActivityLogs({ perPage: 100, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
+    queryKey: ['admin', 'super-activity-logs', actorTypeFilter, dateFrom, dateTo],
+    queryFn: () =>
+      fetchSuperActivityLogs({
+        perPage: 100,
+        actorType: actorTypeFilter || undefined,
+        dateFrom: dateFrom || undefined,
+        dateTo: dateTo || undefined,
+      }),
     staleTime: 30_000,
-    enabled: !isSuperAdmin,
   })
 
   const logs = (logsQuery.data?.logs ?? []).filter((log) => {
     if (!searchQuery) return true
-    const haystack = [log.label, log.action, log.target_display, log.target_type, log.target_public_id, log.ip_address]
+    const haystack = [
+      log.label,
+      log.actor_display_name,
+      log.action,
+      log.target_display,
+      log.target_type,
+      log.target_public_id,
+      log.ip_address,
+    ]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
@@ -32,27 +41,34 @@ export default function AdminLogsPage() {
     return haystack.includes(searchQuery.toLowerCase())
   })
 
-  // Super admins only use Super Activity Log — it already covers their own
-  // actions plus everyone else's, so the "own actions" page is redundant for them.
-  if (isSuperAdmin) {
-    return <Navigate to="/portal/admin/super-logs" replace />
-  }
-
   return (
     <PageWrapper className="space-y-6">
       <PageHeader
-        title="Activity Log"
-        subtitle="Your own actions across the CRM."
+        title="Super Activity Log"
+        subtitle="System-wide audit trail — every admin, agent, and student action."
       />
 
       <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
+        <select
+          value={actorTypeFilter}
+          onChange={(e) => setActorTypeFilter(e.target.value)}
+          className="w-full sm:w-48 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+        >
+          <option value="">All Actor Types</option>
+          <option value="admin">Administrator Logs</option>
+          <option value="agent">Agent Partner Logs</option>
+          <option value="student">Student Logs</option>
+          <option value="system">System / Cron</option>
+        </select>
+
         <input
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search your activity..."
+          placeholder="Search logs..."
           className="w-full sm:w-72 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
         />
+
         <input
           type="date"
           value={dateFrom}
@@ -75,7 +91,7 @@ export default function AdminLogsPage() {
         isError={logsQuery.isError}
         errorMessage={logsQuery.error instanceof Error ? logsQuery.error.message : undefined}
         onRetry={() => logsQuery.refetch()}
-        emptyMessage="No activity recorded for you yet."
+        emptyMessage="No audit logs matched the current criteria."
       />
     </PageWrapper>
   )

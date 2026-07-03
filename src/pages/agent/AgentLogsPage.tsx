@@ -1,30 +1,24 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Navigate } from 'react-router-dom'
-import { fetchAdminActivityLogs } from '../../lib/api'
-import { useAuth } from '../../shared/hooks/useAuth'
+import { fetchAgentActivityLogs } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { ActivityLogTable } from '../../shared/components/activity/ActivityLogTable'
 
-export default function AdminLogsPage() {
-  const { user } = useAuth()
-  const isSuperAdmin = user?.isSuperAdmin === true || (user?.permissions?.includes('*') ?? false)
-
+export default function AgentLogsPage() {
   const [dateFrom, setDateFrom] = React.useState('')
   const [dateTo, setDateTo] = React.useState('')
   const [searchQuery, setSearchQuery] = React.useState('')
 
   const logsQuery = useQuery({
-    queryKey: ['admin', 'activity-logs', dateFrom, dateTo],
-    queryFn: () => fetchAdminActivityLogs({ perPage: 100, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
+    queryKey: ['agent', 'activity-logs', dateFrom, dateTo],
+    queryFn: () => fetchAgentActivityLogs({ perPage: 100, dateFrom: dateFrom || undefined, dateTo: dateTo || undefined }),
     staleTime: 30_000,
-    enabled: !isSuperAdmin,
   })
 
   const logs = (logsQuery.data?.logs ?? []).filter((log) => {
     if (!searchQuery) return true
-    const haystack = [log.label, log.action, log.target_display, log.target_type, log.target_public_id, log.ip_address]
+    const haystack = [log.label, log.actor_display_name, log.action, log.target_display, log.target_type, log.target_public_id]
       .filter(Boolean)
       .join(' ')
       .toLowerCase()
@@ -32,17 +26,11 @@ export default function AdminLogsPage() {
     return haystack.includes(searchQuery.toLowerCase())
   })
 
-  // Super admins only use Super Activity Log — it already covers their own
-  // actions plus everyone else's, so the "own actions" page is redundant for them.
-  if (isSuperAdmin) {
-    return <Navigate to="/portal/admin/super-logs" replace />
-  }
-
   return (
     <PageWrapper className="space-y-6">
       <PageHeader
         title="Activity Log"
-        subtitle="Your own actions across the CRM."
+        subtitle="Your activity and your team's activity across the CRM."
       />
 
       <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
@@ -50,7 +38,7 @@ export default function AdminLogsPage() {
           type="text"
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
-          placeholder="Search your activity..."
+          placeholder="Search activity..."
           className="w-full sm:w-72 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
         />
         <input
@@ -75,7 +63,7 @@ export default function AdminLogsPage() {
         isError={logsQuery.isError}
         errorMessage={logsQuery.error instanceof Error ? logsQuery.error.message : undefined}
         onRetry={() => logsQuery.refetch()}
-        emptyMessage="No activity recorded for you yet."
+        emptyMessage="No activity recorded yet for you or your team."
       />
     </PageWrapper>
   )
