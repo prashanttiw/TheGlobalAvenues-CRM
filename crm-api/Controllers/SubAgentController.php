@@ -156,8 +156,7 @@ final class SubAgentController
 
             $this->pdo->commit();
 
-            $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_completed', ?, ?, NOW())")->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('registration_completed', $userId, $emailHash, RateLimitMiddleware::getIpAddress());
 
             \TGA\CRM\Services\ActivityLogger::log('subagent.created', 'agent', $newAgentId, (int) $user['sub']);
 

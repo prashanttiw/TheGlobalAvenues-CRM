@@ -9,6 +9,7 @@ use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Helpers\UlidGenerator;
 use TGA\CRM\Middleware\AuthMiddleware;
+use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Services\AdminPageAccessService;
 use TGA\CRM\Services\EncryptionService;
 
@@ -150,7 +151,11 @@ final class AdminDashboardController
         };
 
         $permissions = [
-            'canManageUsers' => $hasPerm('users', 'view') || $hasPerm('users', 'edit') || $hasPerm('agents', 'view'),
+            // Full admin roster access (emails, phone, page grants) — matches the RBAC guard on getUsers().
+            'canManageUsers' => $hasPerm('user_management', 'view'),
+            // Narrower: lets an admin without user_management access still browse the agents-only
+            // slice of the "Users" directory tab (getUsers() leaves role=agent/student ungated).
+            'canViewAgentDirectory' => $hasPerm('agents', 'view'),
             'canReviewDocuments' => $hasPerm('documents', 'edit') || $hasPerm('document_requests', 'edit') || $hasPerm('document_requests', 'view'),
             'canManageCatalog' => $hasPerm('universities', 'edit') || $hasPerm('courses', 'edit'),
             'canViewAuditLog' => $hasPerm('audit_logs', 'view') || $hasPerm('logs', 'view') || $isSuper,
@@ -233,6 +238,11 @@ final class AdminDashboardController
             $where = "WHERE u.deleted_at IS NULL AND u.user_type = ?";
             $params[] = $role;
         } else {
+            // Everything else (unset/'admin'/'super_admin'/a named role) returns the admin
+            // roster — decrypted emails, phone, page-access grants. Gate it: without this,
+            // any authenticated admin (even one with zero page grants) could list every
+            // other admin's PII directly.
+            RBACMiddleware::requirePermission('user_management', 'view');
             $where = "WHERE u.deleted_at IS NULL AND u.user_type = 'admin'";
             if ($role === 'super_admin') {
                 $where .= " AND adm.is_super_admin = 1";
@@ -310,15 +320,10 @@ final class AdminDashboardController
             $lastName = $nameParts[1] ?? '';
             $isSuperAdmin = (int)($row['is_super_admin'] ?? 0) === 1;
 
-            // Resolve page keys from the aggregated permission string
+            // Resolve pageKey => 'read'|'write' from the aggregated permission string
             $pages = [];
             if (!$isSuperAdmin && !empty($row['perm_keys'])) {
-                $rowPermKeys = explode(',', $row['perm_keys']);
-                foreach (AdminPageAccessService::PAGE_PERMISSION_MAP as $pageKey => $pagePerms) {
-                    if (!empty(array_intersect($pagePerms, $rowPermKeys))) {
-                        $pages[] = $pageKey;
-                    }
-                }
+                $pages = AdminPageAccessService::resolveAccessLevels(explode(',', $row['perm_keys']));
             }
 
             $users[] = [
@@ -460,6 +465,7 @@ final class AdminDashboardController
         if (($payload['utype'] ?? '') !== 'admin' && ($payload['user_type'] ?? '') !== 'admin') {
             Response::error('Access denied.', 'FORBIDDEN', 403);
         }
+        RBACMiddleware::requirePermission('user_management', 'edit');
 
         $input = json_decode(file_get_contents('php://input'), true);
         $publicId = trim($input['public_id'] ?? '');
@@ -502,7 +508,7 @@ final class AdminDashboardController
                 Response::error('Super admin access is permanent and cannot be changed.', 'SUPER_ADMIN_PROTECTED', 403);
             }
 
-            $pages = array_values(array_filter($input['pages'], 'is_string'));
+            $pages = AdminPageAccessService::sanitizePageAccess($input['pages']);
             AdminPageAccessService::apply($this->pdo, $userId, (string)$userRow['public_id'], $pages);
             $after['pages'] = $pages;
         }

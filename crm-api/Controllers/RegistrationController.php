@@ -177,7 +177,7 @@ final class RegistrationController
         $pendingSvc = new PendingRegistrationService($this->pdo);
         $token = $pendingSvc->store('student', $email, $pendingData);
 
-        $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_initiated', ?, ?, NOW())")->execute([$emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('registration_initiated', null, $emailHash, $ip);
 
         Response::json([
             'success' => true,
@@ -285,7 +285,7 @@ final class RegistrationController
             $this->pdo->commit();
 
             $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_completed', ?, ?, NOW())")->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('registration_completed', null, $emailHash, $ip);
 
             // Issue JWT
             ActivityLogger::log('student.registered', 'student', $studentId, $userId);
@@ -425,7 +425,7 @@ final class RegistrationController
         $pendingSvc = new PendingRegistrationService($this->pdo);
         $token = $pendingSvc->store('agent', $email, $pendingData);
 
-        $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_initiated', ?, ?, NOW())")->execute([$emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('registration_initiated', null, $emailHash, $ip);
 
         Response::json([
             'success' => true,
@@ -541,7 +541,7 @@ final class RegistrationController
             $this->pdo->commit();
 
             $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_completed', ?, ?, NOW())")->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('registration_completed', null, $emailHash, $ip);
 
             // Note: Phase 6 notification service will handle `agent.onboarding_submitted` here
 
@@ -628,7 +628,7 @@ final class RegistrationController
             'otp_verified' => false,
         ]);
 
-        $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_initiated', ?, ?, NOW())")->execute([$emailHash, $ip]);
+        \TGA\CRM\Services\SecurityEventLogger::log('registration_initiated', null, $emailHash, $ip);
 
         Response::json(['success' => true, 'session_token' => $token, 'expires_in_minutes' => 15], 202);
     }
@@ -746,7 +746,7 @@ final class RegistrationController
 
             $this->pdo->commit();
 
-            $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_completed', ?, ?, NOW())")->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('registration_completed', null, $emailHash, $ip);
 
             ActivityLogger::log('student.registered', 'student', $studentId, $userId);
             \TGA\CRM\Services\NotificationService::fire('student.registered', ['name' => $fullName, 'student_name' => $fullName], [$userId]);
@@ -879,7 +879,7 @@ final class RegistrationController
 
             $this->pdo->commit();
 
-            $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_completed', ?, ?, NOW())")->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('registration_completed', null, $emailHash, $ip);
 
             ActivityLogger::log('agent.registration_submitted', 'agent', $agentId, $userId);
 
@@ -915,9 +915,7 @@ final class RegistrationController
         $phone = trim($input['phone'] ?? '');
         $password = $input['password'] ?? '';
         $isSuperAdmin = !empty($input['is_super_admin']);
-        $pages = isset($input['pages']) && is_array($input['pages'])
-            ? array_values(array_filter($input['pages'], 'is_string'))
-            : [];
+        $pages = AdminPageAccessService::sanitizePageAccess($input['pages'] ?? []);
 
         if (!$firstName || !$lastName || !$email || !$password) {
             Response::error('Missing required fields', 'VALIDATION_ERROR', 400);
@@ -996,7 +994,7 @@ final class RegistrationController
             $this->pdo->commit();
 
             $ip = RateLimitMiddleware::getIpAddress();
-            $this->pdo->prepare("INSERT INTO security_events (event_type, identifier, ip_address, created_at) VALUES ('registration_completed', ?, ?, NOW())")->execute([$emailHash, $ip]);
+            \TGA\CRM\Services\SecurityEventLogger::log('registration_completed', null, $emailHash, $ip);
 
             // Queue welcome email — non-blocking. DB is already committed so this cannot
             // roll back the admin creation if it fails.
