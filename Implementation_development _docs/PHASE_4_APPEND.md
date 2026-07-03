@@ -2467,3 +2467,350 @@ generic 404 page; `curl` against `?route=admin&action=roles` returns `404 NOT_FO
 is gone server-side; Users page reloaded and still correctly shows all 6 admins' real access levels (SUPER
 ADMIN, 1 PAGE, 13 PAGES (11 WRITE), 3 PAGES, 4 PAGES (1 WRITE), 1 PAGE) — proof `AdminPageAccessService`
 and existing admin permissions are completely unaffected by the removal.
+
+### 2026-07-04 — Cross-Field/Cross-Entity Search: Phase 1 (Intakes + Agents wired to existing backend search)
+
+User asked for a full audit of search-bar coverage across every admin list page (Universities, Courses,
+Intakes, Students, Applications, Agents, Leads, Commissions, Notices, Users), then an implementation +
+verification plan, end to end. Two parallel Explore agents audited frontend (input wiring, debounce, params
+sent) and backend (SQL columns actually matched, joins, FULLTEXT vs LIKE, encrypted-PII limits) before any
+code changed. Full findings + phased plan (Phase 1: wire up dormant backend search; Phase 2: extend existing
+LIKE queries to reach related entities/fields; Phase 3: build search from scratch for Applications/
+Leads/Commissions/Notices; Phase 4: FULLTEXT perf pass) given to the user; user chose Phase 1 first and
+"name + email only, no phone" for the eventual Leads work.
+
+**Findings that don't match the "40 tables" mental model of what already works**: `IntakeController::
+adminListAll()` and `AdminAgentController::listAll()` (note: separate class from `AgentController`, easy to
+miss) already had fully-built server-side search — `q`/`search` params, correct SQL, correct joins — but
+*no frontend UI ever called them with a search term*. Confirmed via `grep -rn` across
+`src/pages/admin/AdminIntakesPage.tsx` and `AdminAgentsPage.tsx`: no search input existed on either page.
+Also found: `migrations/060_phase7_schema_updates.sql` and `061_global_search_ft_indexes.sql` both create an
+`ft_agents_name` FULLTEXT index on `agents` with different column sets (`(full_name, agency_name)` vs
+`(agency_name)` alone) — flagged, not fixed, since it doesn't block this work and touches a different area.
+
+**Built**: `SearchInput` (existing shared component, already used on Universities/Students) added to both
+pages, following the established per-page pattern (component's own 300ms internal debounce + an additional
+page-level 350ms debounce into a `debouncedSearch` state that's the actual TanStack Query key dependency).
+Intakes: wired to the existing `q` param → `IntakeController::adminListAll()`'s `i.name OR c.name OR
+u.name` LIKE match — searching an intake page by university name now correctly surfaces every intake under
+that university's courses. Agents: wired to the existing `q`→`search` param → `AdminAgentController::
+listAll()`'s `full_name OR agency_name OR referral_code` match, scoped to the "All Agents" tab only
+(Registered/Drafts/Pending tabs use different, non-paginated endpoints without backend search support —
+out of scope for this pass).
+
+**CRITICAL bug found and fixed while live-verifying the Agents change** (would have silently affected
+Students search too, which already shipped): `Database::getConnection()` runs with
+`PDO::ATTR_EMULATE_PREPARES => false` (native prepares). Both `AdminAgentController::listAll()` and
+`AdminStudentController::listAll()` built their multi-column search as `(col1 LIKE :search OR col2 LIKE
+:search OR col3 LIKE :search)` — the *same* named placeholder reused three times in one query. MySQL's
+native prepared-statement protocol rejects a repeated named placeholder with `SQLSTATE[HY093]: Invalid
+parameter number`. This was invisible until now because nothing had ever actually sent a `search`/`q` value
+to either endpoint end-to-end — the frontend `catch`/empty-state path made a live 500 look identical to a
+legitimate "no records found." Confirmed via curl against the local backend before and after: the exact
+same request that 500'd now returns the correct row. Fixed both controllers by binding a distinct named
+placeholder per LIKE occurrence (`:search1`/`:search2`/`:search3`, all bound to the same `%term%` value)
+instead of reusing one name. Swept `crm-api/Controllers/` for the same anti-pattern (`grep -n ":search\b|:q
+\b|:term\b"`) — `AgentController.php` and `ReassignmentController.php` each use `:search` but only once per
+query, so they were never at risk; no other instances found.
+
+**Verified live** (local PHP built-in server + Vite dev server, browser automation):
+- Intakes: searched `Fachhochschule` (a university name, absent from every intake/course name in the
+  result set) — all 6+ returned rows correctly resolved to courses under "Fachhochschule des Mittelstands
+  (FHM)", confirming the university-name join path works.
+- Agents → All Agents tab: searched `FHM` (should match nothing) → correctly rendered "No records found"
+  after the fix (previously this exact input triggered the 500 above, indistinguishable in the UI). Searched
+  `Flowtest` → correctly returned exactly one row, "Fixed Flowtest," matching on `full_name`.
+- Re-ran the pre-fix-identical curl against `?route=admin&action=students&search=a` post-fix — 200 OK with
+  results, confirming the same repeated-placeholder fix resolved the Students endpoint too (not separately
+  live-verified through the Students page UI in this session, since it wasn't part of the approved Phase 1
+  scope — the curl check was to confirm the shared root cause was actually fixed, not to re-verify Students
+  search UX end-to-end).
+- No new browser console errors; pre-existing `notifications/unread-count` TanStack Query warning (documented
+  in `[[application_flow_redesign]]` memory) unaffected, unrelated.
+
+**Not yet done** (later phases, pending user go-ahead): Universities search reaching into courses/intakes via
+`EXISTS`; Students search extended to exact-hash email/phone match; ground-up search for Applications,
+Leads, Commissions, Notices; FULLTEXT perf pass.
+
+### 2026-07-04 — Cross-Field/Cross-Entity Search: Phase 2 (Universities → courses/intakes; Students → exact email/phone)
+
+Same session, immediate follow-up — user approved moving straight to Phase 2 of the plan above.
+
+**`UniversityController::adminList()`** (`crm-api/Controllers/UniversityController.php`): the `q` search
+was `name/country/city` only, unaware of `courses`/`intakes` entirely — this was the literal gap the user's
+original screenshot showed (searching "Chocolate Masterclass," a Cyprus College course, surfaced nothing).
+Added two `EXISTS` subqueries — one against `courses` (`c.university_id = u.id AND c.name LIKE ?`), one
+against `courses JOIN intakes` (`c2.university_id = u.id AND i.name LIKE ?`) — deliberately `EXISTS`, not a
+`JOIN`, so a university with N matching courses still contributes exactly one row; a `JOIN` here would have
+duplicated the university per match and corrupted both `COUNT(*)` and pagination. Both the `countStmt` and
+the row-fetching `stmt` needed the same table alias for the correlated subqueries to resolve — `countStmt`
+previously queried unaliased `FROM universities`, changed to `FROM universities u` to match. Uses positional
+`?` placeholders throughout (matching the existing style in this controller), so this was never at risk of
+the Phase 1 named-placeholder bug.
+
+**`AdminStudentController::listAll()`**: added two more OR branches to the existing search condition —
+`u.email_lookup_hash = :searchEmailHash` and `u.phone_lookup_hash = :searchPhoneHash`, both computed via
+`EncryptionService::hash($search)` (already imported in this file) rather than reimplementing the
+`sha256(strtolower(trim($value)))` logic inline, so the exact-match path can never drift from how the hash
+was originally written at registration time (confirmed by reading `RegistrationController.php`'s
+`$phoneHash = EncryptionService::hash($data['phone'])` — no extra normalization of the raw phone string
+happens anywhere before hashing, so the search term must match the stored value exactly, digit for digit,
+country code included if one was stored). `users u` was already joined in both the count and data queries,
+so no new join was needed. This is an equality check, not `LIKE`, since XSalsa20-encrypted columns can't be
+substring-matched at all — partial email/phone search is architecturally impossible here, by design (see
+[[project_gotchas]] encryption rule), not a shortcut taken for this task.
+
+**Frontend**: `AdminUniversitiesPage.tsx` and `AdminStudentsPage.tsx` placeholder copy updated to state the
+new capability plainly ("Search by name, location, course, or intake…" / "Search by name, ID, or exact
+email/phone..."), since the exact-match-only behavior for email/phone is a real UX limitation users need to
+know about rather than discover by trial and error.
+
+**Verified live** (curl against local backend + browser automation, fresh admin login each time since the
+prior session's JWT had expired):
+- Universities: `q=Fachhochschule` still matches the university directly (unchanged path). `q=Chocolate
+  Masterclass` — a Cyprus College course name, not present anywhere in any university's own
+  name/country/city — correctly returned exactly one university, "Cyprus College" (13 courses), both via
+  curl and reproduced in the browser (search box, live DOM shows the single matching card). This is the
+  exact scenario from the user's original screenshot.
+- Students: fetched a real student (`Abhay Sri`, email `hostels@gbu.ac.in`, phone `6388752891`) via the
+  existing name search, then tested against `search=`: full lowercase email → 1 match; full phone → 1
+  match; mixed-case email (`HOSTELS@gbu.ac.in`) → still 1 match, confirming the hash's `strtolower()`
+  normalization works correctly; a partial fragment of the email (`hostels`) → 0 matches, confirming the
+  documented exact-match-only limitation is real and doesn't silently fall back to something misleading.
+  Reproduced the full-email case in the browser — search box renders the one matching row with the email
+  visible in the ID line.
+- No new browser console errors beyond the pre-existing, unrelated `notifications/unread-count` warning.
+
+**Not yet done**: ground-up search for Applications, Leads (name + email only per user's earlier decision —
+no phone, would need a new `leads.phone_lookup_hash` column + backfill), Commissions, Notices; optional
+FULLTEXT perf pass; Courses search was *not* extended to also reach intake names in this pass (kept to the
+two areas the user explicitly approved — Universities and Students).
+
+### 2026-07-04 — Cross-Field/Cross-Entity Search: Phase 3 (Applications, Leads, Commissions, Notices — ground-up)
+
+Same session, user said "next" — approved moving straight through Phase 3, all four remaining pages in one
+pass (none of these four had ANY backend search support before this).
+
+**`ApplicationController::listApplications()`**: added `search` matching `a.reference_number`,
+`s.full_name`, `c.name` (course), `u.name` (university) — all four already reachable via the existing joins.
+The `countStmt` was missing a `JOIN students s` that `search` needed (the `stmt` already had it) — added.
+Frontend (`AdminApplicationsPage.tsx`) previously fetched a flat `perPage: 100` batch once and did all
+filtering (status/university/year) client-side with no pagination at all; added a `SearchInput` wired
+server-side via a new `debouncedSearch` state so search itself always hits the backend (not capped to
+whatever happened to be in the first 100 rows already in memory) — left the pre-existing status/university/
+year dropdowns as client-side filters layered on top, unchanged, to avoid scope creep into fixing that
+pagination gap in the same pass.
+
+**`LeadsController::adminList()`**: this endpoint already unconditionally decrypts every lead's email on
+every request (no pagination, existing design) — so unlike Students/Commissions, a genuine **partial**
+substring match on email was free here (no need to fall back to exact `email_lookup_hash` equality), done
+via PHP-side `stripos()` filtering on the already-decrypted array. Matches `full_name` and `email`. Phone
+intentionally excluded per the user's earlier decision (no `leads.phone_lookup_hash` column exists; adding
+it was deferred). Frontend: `AdminLeadsPage.tsx` Kanban board — search now drives the query key
+(`['admin','leads', debouncedSearch]`) so results refetch server-side per keystroke.
+
+**`CommissionController::adminList()`**: added `search` matching agent `full_name`/`agency_name`, student
+`full_name`, and `app.reference_number`. Uses **named** placeholders (`:agent_pid`, `:status`, etc.) — bound
+each of the 4 search columns to its own distinct name (`:search1`–`:search4`) rather than reusing `:search`,
+learned directly from the Phase 1 `SQLSTATE[HY093]` bug (this project's `Database::getConnection()` runs
+`ATTR_EMULATE_PREPARES => false`, which rejects a repeated named placeholder). `countStmt` was also missing
+the `applications`/`students` joins the new search condition needed — added both. No commission records
+exist in the local dev DB, so this could only be verified structurally (200 OK with correct empty result on
+both a real search term and a SQL-injection payload, no 500) rather than against a true positive match —
+noted as a gap, not silently claimed as fully verified.
+
+**`NoticeController::adminList()`**: added `search` matching `n.title` and `n.content` (positional `?`
+placeholders, same pattern already used in this method — never at risk of the named-placeholder bug).
+`n.content` is raw TipTap HTML, so a match can technically land inside markup rather than visible text —
+accepted as a known first-pass limitation, not fixed further (would need HTML-to-text stripping either at
+write time or query time). Frontend: wired into the creator/full-CRUD table view specifically (the endpoint
+backing `NoticeController::adminList()` / route `admin/notices`) — left `AdminNoticesFeed` (the separate
+read-only view for non-creator admins, backed by the different `admin/notices/feed` → `adminFeed()` route)
+untouched since it's a genuinely different endpoint outside this pass's scope.
+
+**Bug found and fixed while live-verifying Leads** (not caused by this pass, but this pass's change to the
+query key — adding `debouncedSearch` — made a pre-existing fragility surface as an actual "Maximum update
+depth exceeded" React crash on every search keystroke, where before it apparently only risked tripping
+during the one-time initial mount and evidently never had): `AdminLeadsPage.tsx` destructured
+`const { data: rawLeads = [] } = useQuery(...)` — a fresh `[]` literal is created on *every* render whenever
+`data` is `undefined`, and a `useEffect` depending on `rawLeads` then sees a "changed" dependency on every
+one of those renders, calls `setLeads(...)`, triggers another render, sees another fresh `[]`, and repeats
+in a synchronous loop bounded only by React's built-in "Maximum update depth" trip-wire. Fixed by hoisting a
+module-level `const EMPTY_LEADS: Lead[] = []` (stable reference across renders) as the fallback, and adding
+`placeholderData: keepPreviousData` (already the established pattern in `AdminNoticesPage.tsx`) so the board
+doesn't flash empty on every debounced refetch either. This is the same general class of bug
+[[project_gotchas]] already flags for this exact file's `api.ts` response-shape history — the file has now
+hit two separate instances of "an unstable/wrong default masking a real bug that only manifests once the
+component re-renders more than once," worth extra care if touching this file again.
+
+**Verified live** (curl against local backend on two different running PHP processes — see caveat below —
+plus browser automation, fresh admin login):
+- Applications: only 2 real applications exist locally, both under "Malita International College" /
+  "Level 4 Diploma in Business Management" (students Abhay Sri, Vinay). Confirmed positive matches on all
+  four search fields independently: university name (`Malita`), course name fragment (`Diploma in
+  Business`), student name (`Vinay`), reference number (`TGA-2026-000001`) — each correctly returned the
+  right subset. SQLi payload (`' OR '1'='1`) and a nonsense term both correctly returned zero rows, no error.
+  Reproduced the student-name case in the browser: typing "Vinay" filtered the table from 2 rows to 1.
+- Leads: confirmed name match (`Mohit`), **partial** email match (`lead_test_2`, matching mid-string) both
+  return the right lead; nonsense term and a phone number both correctly return zero (phone intentionally
+  out of scope, confirmed it does NOT silently match). Reproduced in the browser for both a Kanban-visible
+  match (`Deepa`) and an archived-status lead (`Rohan`, status `dropped`) — the latter correctly shows 0
+  results in the default (non-archive) view, which is pre-existing column-visibility behavior, not a search
+  bug. While verifying this, found (separately, not part of this pass) that `AdminLeadsPage.tsx` passes
+  `action={...}` (singular) to `PageHeader`, which only accepts `actions` (plural) — the "View Archive"
+  button has therefore never rendered on this page. Not fixed here; flagged as a spawned follow-up task
+  (`task_52e93db8`) since it's unrelated to search and was only noticed in passing.
+- Commissions: no local data to positive-match against (see above) — structural verification only.
+- Notices: confirmed title-fragment matches for two different real notices ("Scholarship" → "Student
+  Scholarship Test Notice 2"; "University Fair" → "University Fair Test Event 1"); nonsense term correctly
+  returns zero. Reproduced "Scholarship" in the browser — table correctly narrowed to 1 row, "1 total."
+- **Environment caveat, not a code bug**: while testing Leads in the browser, one single request to
+  `http://localhost/crm-api/` (port 80 — a separate, already-running XAMPP/Apache PHP process, distinct from
+  the `php -S localhost:8080` instance this session's curl checks used directly) returned a transient 500
+  `"ENCRYPTION_KEY environment variable is missing or empty."` The identical request, including the exact
+  same query string, succeeded immediately on retry via curl and via a browser reload, and the baseline
+  unfiltered `/admin/leads` call (no search param, pre-existing code path) also succeeded — ruling out
+  anything in this session's code changes as the cause. Read as a one-off Apache worker-process env-loading
+  flake local to this machine's XAMPP setup, not reproduced a second time. Noted here in case it recurs.
+- No new persistent browser console errors on any of the four pages beyond the pre-existing, unrelated
+  `notifications/unread-count` warning.
+
+**Not yet done**: optional FULLTEXT perf pass (Phase 4) — add missing FULLTEXT indexes on `courses.name`,
+`intakes.name`, `notices.title`; resolve the still-unfixed duplicate `ft_agents_name` FULLTEXT index
+definition conflict between migrations 060 and 061. All four originally-scoped page groups (Universities/
+Courses/Intakes, Students/Agents, Applications/Leads/Commissions/Notices) now have working search; Users
+page was already covered before this project started.
+
+### 2026-07-04 — Follow-up fix: Leads "View Archive" button (spawned task from Phase 3)
+
+Standalone one-line fix for the bug flagged (not fixed) during Phase 3's live verification above:
+`AdminLeadsPage.tsx` was calling `<PageHeader ... action={<Button>...} />` (singular), but
+`PageHeader.tsx`'s `PageHeaderProps` only declares and renders `actions` (plural) — the mismatched prop
+name meant the "View Archive" button was silently dropped by React and had never rendered. Renamed
+`action` → `actions` at the call site; no other changes. Verified live: the button now appears next to the
+page title, reads "View Archive" by default, and clicking it correctly reveals the "Converted" and
+"Dropped" columns (previously hidden) while flipping its own label to "Hide Archive". No new console errors
+beyond the pre-existing, unrelated `notifications/unread-count` and `admin/activityFeed` warnings.
+
+### 2026-07-04 — Students search extended: prefix-hash "starts with" match on email/phone
+
+Follow-up to Phase 2's Students search (exact email/phone match only). User asked whether partial
+email/phone matching was achievable without decrypting rows at query time (the Leads-style approach) or
+adding meaningful ongoing DB load as the Students table grows. Landed on a **fixed-length prefix-hash**
+design: additional hash columns computed the same way as the existing `email_lookup_hash`/
+`phone_lookup_hash` (SHA-256, deterministic), but over only the first N characters instead of the whole
+value. A search-time lookup against these is still a plain indexed equality comparison — same cost profile
+as the exact-match search already in place, no decryption and no per-row work added, regardless of table
+size.
+
+**Schema** (`crm-api/Database/migrations/080_user_search_prefix_hashes.sql`): added
+`email_prefix4_hash` / `email_prefix6_hash` / `email_prefix8_hash` and `phone_prefix4_hash` /
+`phone_prefix6_hash` to `users`, each with its own index. Lengths were the user's explicit choice — email
+4/6/8, phone 4/6 (shorter list since a full mobile number is much shorter than most emails).
+
+**`EncryptionService`**: added two new static methods (`crm-api/Services/EncryptionService.php`):
+- `hashPrefix($value, $length)` — lowercases + trims (matching the existing `hash()` normalization), takes
+  the first `$length` characters, hashes them; returns `null` if the source value is shorter than `$length`
+  (so a 3-character email correctly gets no `email_prefix4_hash` rather than a hash of the whole thing,
+  which could produce a false-positive match against an unrelated 4-character search term).
+- `hashPhonePrefix($value, $length)` — same idea, but strips everything except digits first
+  (`preg_replace('/\D/', '', $value)`) before taking the prefix. Necessary because phone numbers in this DB
+  are stored inconsistently — some rows have a leading `+91` and no formatting, others are stored as plain
+  local digits — so without normalization, a search for `"9111"` would only match rows that happened to be
+  stored without a leading symbol. **Important nuance, confirmed by testing against real data**: this only
+  strips *formatting* characters (`+`, spaces, dashes) — it does **not** know to skip a country code. A
+  student stored as `+918707606105` is matched by typing `9187` (country code digits included) but **not**
+  by typing `8707` (skipping the country code, i.e. just the "local" number). The underlying
+  with/without-country-code inconsistency at data-entry time still isn't fully solved by this — it's better
+  than raw-character matching, not perfect.
+
+**Write paths updated** to populate the new columns going forward (every place that already computed
+`email_lookup_hash`/`phone_lookup_hash` for a *student* user row, plus the shared dev-seed helper for
+completeness):
+- `RegistrationController.php` — student self-registration (OTP-confirm insert)
+- `StudentController.php` — student self-service profile update, and `agentCreateStudent()` (agent creates
+  a new student, no OTP)
+- `crm-api/Database/setup_database.php` — the shared `$createUser` helper used by fresh dev-environment
+  seeding, for consistency (not required for the live app, but avoids every fresh install needing an
+  immediate backfill run)
+- Deliberately **not** touched: agent/admin registration and creation paths in the same files (`RegistrationController`'s
+  agent/admin branches, `SubAgentController`) — those rows are never queried by Students search, so
+  populating prefix hashes there would be dead weight. If Agents search is ever extended to email/phone,
+  revisit this list.
+
+**Backfill** (`crm-api/Database/backfill_search_prefix_hashes.php`, new one-off script, run once per
+environment after the migration lands): iterates every non-deleted `users` row with an email or phone,
+decrypts, computes the 5 new hashes, updates. Ran locally: **35 users updated, 0 skipped**. This script
+still needs to be run against the production database after migration 080 is deployed there — not done as
+part of this session, since this session only touched the local dev DB (per the project's "server/deployment
+commands: one step at a time, human confirmation" rule, this wasn't attempted).
+
+**`AdminStudentController::listAll()`**: search condition extended with up to 5 additional `OR` branches
+(only the lengths the typed search term is actually long enough for — a 3-character search adds none, a
+9-character search adds all 5). Continues using distinct named placeholders per branch (`:emailPrefix4`,
+`:phonePrefix6`, etc.) — same discipline as the Phase 1 fix, avoiding the `SQLSTATE[HY093]` class of bug
+entirely by construction.
+
+**Frontend**: `AdminStudentsPage.tsx` placeholder updated from "Search by name, ID, or exact email/phone..."
+to "Search by name, ID, email, or phone (from the start)..." to set the right expectation (starts-with, not
+anywhere-in-the-string).
+
+**Verified live** (curl + browser, against real student "Abhay Sri" — `hostels@gbu.ac.in` /
+`6388752891` — and "Vinay" — phone `+918707606105`):
+- Email: `host` (4), `hostel` (6), `hostels@` (8) each correctly matched Abhay Sri alone.
+- Phone: `6388` (4), `638875` (6) each correctly matched Abhay Sri alone.
+- Wrong prefix (`zzzz`) and a SQL-injection payload both correctly returned zero rows, `200 OK`, no error.
+- Too-short input (`63`, 2 chars — below the minimum prefix length) didn't error, just contributed no
+  prefix condition (correctly fell through to the existing LIKE/exact-hash conditions only).
+- Digit-normalization: `9187` matched Vinay (`+918707606105`, digits-only `918707606105`, prefix4 = `9187`)
+  confirming the `+` gets stripped correctly; `8707` (skipping the `91` country code) did **not** match,
+  confirming the documented nuance above is real, not theoretical.
+- Reproduced the 6-character email case (`hostel`) in the browser — table correctly narrowed to the one
+  matching row. No new console errors beyond the pre-existing, unrelated `notifications/unread-count`
+  warning.
+
+**Not yet done**: run the backfill against production after deploying migration 080 (a deployment step, not
+attempted this session); optional Phase 4 FULLTEXT perf pass, still outstanding from earlier.
+
+### 2026-07-04 — Same-day follow-up: proper country-code normalization for phone prefix hashing
+
+User pointed out the country-code nuance flagged just above (`8707` not matching `+918707606105`) was
+worth fixing properly, and proposed the exact rule: strip `+` and its following country code (2 digits for
+most countries, 1 for a few like the US); separately, for numbers with no `+` but more than 10 digits, trim
+leading digits — a solitary leading `0` (domestic trunk prefix) or a bare 2-digit country code — until
+exactly 10 remain.
+
+**Both of the user's cases collapse into one rule** once digit-only normalization already runs first (which
+`hashPhonePrefix()` already did): after stripping everything but digits, `+918707606105` and
+`918707606105` are the *same string* (`918707606105`) — there is no way to tell from the digits alone
+whether a `+` was originally present. So a single loop — "while more than 10 digits remain, drop the
+front one" — handles the `+91` case, the bare `91` case, the leading `0` trunk-prefix case, and even a
+hypothetical 1-digit country code (e.g. `+1`) uniformly, with no explicit country-code-length table needed.
+Rewrote `EncryptionService::hashPhonePrefix()` (`crm-api/Services/EncryptionService.php`) to add this
+trim-to-10 step between the digit-stripping and the prefix-taking.
+
+**This changes previously-computed hash values** for any number that had more than 10 digits (i.e. anyone
+whose phone was stored with a country code or trunk prefix) — the prefix4/6 hash for `+918707606105`
+changes from being derived off `9187...` to `8707...`. Re-ran the backfill script
+(`backfill_search_prefix_hashes.php`) locally to recompute all 35 users under the corrected logic; no code
+changes needed there since it already calls the shared `hashPhonePrefix()` method.
+
+**Verified**:
+- Live against Vinay (`+918707606105`): `8707` (skipping the country code) now correctly matches;
+  `870760` (6 digits) also matches; the old `9187` (country-code-inclusive) search that matched before this
+  fix now correctly returns nothing, confirming the intentional behavior change took effect.
+- Abhay Sri (`6388752891`, no country code / already 10 digits) unaffected — `6388` still matches, proving
+  the new trim step is a no-op for numbers that were already exactly 10 digits.
+- Isolated unit check (`php -r ...` against `EncryptionService::hashPhonePrefix()` directly, not through the
+  API) confirmed all five of the user's described formats — `08707606105` (leading trunk 0),
+  `918707606105` (bare country code), `+918707606105` (with +), `+18707606105` (hypothetical 1-digit
+  country code), and `8707606105` (plain 10-digit) — now produce the **identical** hash, i.e. all five
+  representations of "the same phone number" are now correctly treated as equivalent for prefix search.
+
+**Known limitation, stated plainly**: this assumes the true local mobile number is always 10 digits, which
+is correct for India (this consultancy's primary market) but isn't a universal truth across every country's
+numbering plan — a genuinely shorter or longer local number from another country could be trimmed
+incorrectly. Not fixed further; flagged as an accepted tradeoff given the primary user base.
+
+**Not yet done** (unchanged from above): run migration 080 + the backfill script against production once
+deployed there; optional Phase 4 FULLTEXT perf pass.
