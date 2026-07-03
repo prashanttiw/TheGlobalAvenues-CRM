@@ -52,52 +52,7 @@ final class AdminDashboardController
             $item['total'] = (int)$item['total'];
         }
 
-        // 3. Pending Agents Preview (limit 6)
-        // Columns fixed: a.country (not agency_country), a.business_reg_number (not registration_number)
-        $pendingAgentsStmt = $this->pdo->query("
-            SELECT a.public_id, a.agency_name, a.country, a.business_reg_number, u.email, a.created_at
-            FROM agents a
-            JOIN users u ON a.user_id = u.id
-            WHERE a.status = 'pending' AND a.deleted_at IS NULL AND u.deleted_at IS NULL
-            ORDER BY a.created_at DESC
-            LIMIT 6
-        ");
-        $pendingAgentsPreview = [];
-        foreach ($pendingAgentsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $pendingAgentsPreview[] = [
-                'public_id' => $row['public_id'],
-                'agency_name' => $row['agency_name'],
-                'agency_country' => $row['country'],
-                'registration_number' => $row['business_reg_number'],
-                'email' => EncryptionService::decrypt($row['email']) ?: '',
-                'created_at' => $row['created_at']
-            ];
-        }
-
-        // 4. Pending Documents Preview (limit 6)
-        // Fixed: was referencing non-existent u.first_name/u.last_name; student names live in students.full_name
-        $pendingDocsStmt = $this->pdo->query("
-            SELECT dr.public_id, dr.doc_label, dr.status, dr.created_at, app.reference_number, s.full_name AS student_name
-            FROM document_requests dr
-            JOIN applications app ON dr.application_id = app.id
-            JOIN students s ON app.student_id = s.id
-            WHERE dr.status = 'submitted'
-            ORDER BY dr.created_at DESC
-            LIMIT 6
-        ");
-        $pendingDocumentsPreview = [];
-        foreach ($pendingDocsStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $pendingDocumentsPreview[] = [
-                'public_id' => $row['public_id'],
-                'document_type' => $row['doc_label'],
-                'status' => $row['status'],
-                'created_at' => $row['created_at'],
-                'reference_number' => $row['reference_number'],
-                'student_name' => $row['student_name'] ?: 'Unknown'
-            ];
-        }
-
-        // 5. Recent stage movements (limit 5)
+        // 3. Recent stage movements (limit 5)
         // Fixed: was referencing non-existent u.first_name/u.last_name; student names live in students.full_name
         $recentStageStmt = $this->pdo->query("
             SELECT
@@ -124,7 +79,7 @@ final class AdminDashboardController
             ];
         }
 
-        // 6. Assignees list — decrypt email; public_id used as key (integer id never leaves backend)
+        // 4. Assignees list — decrypt email; public_id used as key (integer id never leaves backend)
         $assigneesStmt = $this->pdo->query("
             SELECT a.public_id, u.email, r.name as role, u.status
             FROM admins a
@@ -142,7 +97,7 @@ final class AdminDashboardController
             ];
         }
 
-        // 7. Dynamic permissions check
+        // 5. Dynamic permissions check
         $perms = (array) ($payload['perms'] ?? []);
         $isSuper = !empty($payload['is_super']) || in_array('*', $perms, true);
 
@@ -163,32 +118,6 @@ final class AdminDashboardController
             'allowedStages' => ['inquiry', 'profile_review', 'applied', 'documents_submitted', 'under_review', 'offer_received', 'conditional_offer', 'unconditional_offer', 'enrolled', 'cas_coe_issued', 'visa_applied', 'visa_approved', 'visa_rejected', 'pre_departure', 'departed', 'deferred', 'withdrawn', 'rejected']
         ];
 
-        // 8. Cron health
-        $cronHealth = $this->pdo->query("
-            SELECT job_name, last_run_status, last_run_at, last_run_duration_ms, last_error
-            FROM cron_health
-            ORDER BY job_name
-        ")->fetchAll(PDO::FETCH_ASSOC);
-
-        // 9. File Sync Health
-        $syncThresholdMinutes = 30;
-        $fileSyncQuery = $this->pdo->query("
-            SELECT
-                SUM(CASE WHEN drive_sync_status = 'failed' THEN 1 ELSE 0 END) AS failed_count,
-                SUM(CASE WHEN drive_sync_status = 'pending'
-                         AND created_at < DATE_SUB(NOW(), INTERVAL $syncThresholdMinutes MINUTE)
-                    THEN 1 ELSE 0 END) AS stuck_pending_count,
-                SUM(CASE WHEN drive_sync_status = 'pending' THEN 1 ELSE 0 END) AS total_pending_count
-            FROM files
-            WHERE deleted_at IS NULL AND drive_sync_status IN ('pending', 'failed')
-        ")->fetch(PDO::FETCH_ASSOC);
-
-        $fileSyncHealth = [
-            'failed_count' => (int)($fileSyncQuery['failed_count'] ?? 0),
-            'stuck_pending_count' => (int)($fileSyncQuery['stuck_pending_count'] ?? 0),
-            'total_pending_count' => (int)($fileSyncQuery['total_pending_count'] ?? 0)
-        ];
-
         $stats = [
             'totalApplications' => $totalApplications,
             'pendingAgentApprovals' => $pendingAgentApprovals,
@@ -198,13 +127,9 @@ final class AdminDashboardController
             'activeUniversities' => $activeUniversities,
             'activePrograms' => $activePrograms,
             'applicationsByStage' => $applicationsByStage,
-            'pendingAgentsPreview' => $pendingAgentsPreview,
-            'pendingDocumentsPreview' => $pendingDocumentsPreview,
             'recentStageMovement' => $recentStageMovement,
             'assignees' => $assignees,
             'permissions' => $permissions,
-            'cron_health' => $cronHealth,
-            'file_sync_health' => $fileSyncHealth
         ];
 
         Response::success('Dashboard statistics loaded successfully', ['stats' => $stats]);
