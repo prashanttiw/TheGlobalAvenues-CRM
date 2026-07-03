@@ -279,12 +279,23 @@ class StudentController
         $encryptedEmail = EncryptionService::encrypt($email);
         $encryptedPhone = $phone !== '' ? EncryptionService::encrypt($phone) : null;
         $encryptedPassport = $passportNumber !== '' ? EncryptionService::encrypt($passportNumber) : null;
+        $emailPrefix4 = EncryptionService::hashPrefix($email, 4);
+        $emailPrefix6 = EncryptionService::hashPrefix($email, 6);
+        $emailPrefix8 = EncryptionService::hashPrefix($email, 8);
+        $phonePrefix4 = $phone !== '' ? EncryptionService::hashPhonePrefix($phone, 4) : null;
+        $phonePrefix6 = $phone !== '' ? EncryptionService::hashPhonePrefix($phone, 6) : null;
 
         try {
             $this->pdo->beginTransaction();
 
-            $userStmt = $this->pdo->prepare('UPDATE users SET email = ?, email_lookup_hash = ?, phone = ?, phone_lookup_hash = ? WHERE id = ? AND deleted_at IS NULL');
-            $userStmt->execute([$encryptedEmail, $emailHash, $encryptedPhone, $phoneHash, $userId]);
+            $userStmt = $this->pdo->prepare('UPDATE users SET email = ?, email_lookup_hash = ?, email_prefix4_hash = ?, email_prefix6_hash = ?, email_prefix8_hash = ?,
+                                                              phone = ?, phone_lookup_hash = ?, phone_prefix4_hash = ?, phone_prefix6_hash = ?
+                                              WHERE id = ? AND deleted_at IS NULL');
+            $userStmt->execute([
+                $encryptedEmail, $emailHash, $emailPrefix4, $emailPrefix6, $emailPrefix8,
+                $encryptedPhone, $phoneHash, $phonePrefix4, $phonePrefix6,
+                $userId,
+            ]);
 
             $studentStmt = $this->pdo->prepare('UPDATE students SET full_name = ?, date_of_birth = ?, nationality = ?, passport_number = ?, passport_expiry = ?, phone_in_profile = ? WHERE id = ? AND deleted_at IS NULL');
             $studentStmt->execute([
@@ -758,15 +769,21 @@ class StudentController
 
             $userPid = UlidGenerator::generate();
             $userStmt = $this->pdo->prepare(
-                "INSERT INTO users (public_id, email, email_lookup_hash, phone, phone_lookup_hash, password_hash, user_type, status)
-                 VALUES (?, ?, ?, ?, ?, ?, 'student', 'active')"
+                "INSERT INTO users (public_id, email, email_lookup_hash, email_prefix4_hash, email_prefix6_hash, email_prefix8_hash,
+                                     phone, phone_lookup_hash, phone_prefix4_hash, phone_prefix6_hash, password_hash, user_type, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'student', 'active')"
             );
             $userStmt->execute([
                 $userPid,
                 EncryptionService::encrypt($email),
                 $emailHash,
+                EncryptionService::hashPrefix($email, 4),
+                EncryptionService::hashPrefix($email, 6),
+                EncryptionService::hashPrefix($email, 8),
                 EncryptionService::encrypt($mobile),
                 $phoneHash,
+                EncryptionService::hashPhonePrefix($mobile, 4),
+                EncryptionService::hashPhonePrefix($mobile, 6),
                 password_hash($password, PASSWORD_ARGON2ID, [
                     'memory_cost' => (int) Environment::get('ARGON2_MEMORY_COST', '19456'),
                     'time_cost' => (int) Environment::get('ARGON2_TIME_COST', '2'),

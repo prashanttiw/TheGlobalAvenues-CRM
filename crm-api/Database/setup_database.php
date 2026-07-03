@@ -392,10 +392,17 @@ try {
         ]);
 
         $stmt = $pdo->prepare("
-            INSERT INTO users (public_id, email, email_lookup_hash, phone, phone_lookup_hash, password_hash, user_type, status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO users (public_id, email, email_lookup_hash, email_prefix4_hash, email_prefix6_hash, email_prefix8_hash,
+                                phone, phone_lookup_hash, phone_prefix4_hash, phone_prefix6_hash, password_hash, user_type, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$publicId, $emailEnc, $emailHash, $phoneEnc, $phoneHash, $pwdHash, $userType, $status]);
+        $stmt->execute([
+            $publicId, $emailEnc, $emailHash,
+            EncryptionService::hashPrefix($email, 4), EncryptionService::hashPrefix($email, 6), EncryptionService::hashPrefix($email, 8),
+            $phoneEnc, $phoneHash,
+            EncryptionService::hashPhonePrefix($phone, 4), EncryptionService::hashPhonePrefix($phone, 6),
+            $pwdHash, $userType, $status,
+        ]);
         $userId = (int)$pdo->lastInsertId();
 
         // Seed Preferences

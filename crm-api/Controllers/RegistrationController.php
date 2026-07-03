@@ -222,21 +222,32 @@ final class RegistrationController
             
             $emailHash = EncryptionService::hash($data['email']);
             $encryptedEmail = EncryptionService::encrypt($data['email']);
-            
+            $emailPrefix4 = EncryptionService::hashPrefix($data['email'], 4);
+            $emailPrefix6 = EncryptionService::hashPrefix($data['email'], 6);
+            $emailPrefix8 = EncryptionService::hashPrefix($data['email'], 8);
+
             $phoneHash = $data['phone'] ? EncryptionService::hash($data['phone']) : null;
             $encryptedPhone = $data['phone'] ? EncryptionService::encrypt($data['phone']) : null;
+            $phonePrefix4 = $data['phone'] ? EncryptionService::hashPhonePrefix($data['phone'], 4) : null;
+            $phonePrefix6 = $data['phone'] ? EncryptionService::hashPhonePrefix($data['phone'], 6) : null;
 
             // Insert User
             $userStmt = $this->pdo->prepare(
-                'INSERT INTO users (public_id, email, email_lookup_hash, phone, phone_lookup_hash, password_hash, user_type, status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO users (public_id, email, email_lookup_hash, email_prefix4_hash, email_prefix6_hash, email_prefix8_hash,
+                                     phone, phone_lookup_hash, phone_prefix4_hash, phone_prefix6_hash, password_hash, user_type, status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $userStmt->execute([
                 $userPublicId,
                 $encryptedEmail,
                 $emailHash,
+                $emailPrefix4,
+                $emailPrefix6,
+                $emailPrefix8,
                 $encryptedPhone,
                 $phoneHash,
+                $phonePrefix4,
+                $phonePrefix6,
                 $data['password_hash'],
                 'student',
                 'active'
