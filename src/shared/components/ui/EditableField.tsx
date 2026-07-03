@@ -19,6 +19,7 @@ interface EditableFieldProps {
   className?: string
   displayClassName?: string
   render?: (value: string) => React.ReactNode
+  disabled?: boolean
 }
 
 const inputClass =
@@ -34,6 +35,7 @@ export function EditableField({
   className,
   displayClassName,
   render,
+  disabled = false,
 }: EditableFieldProps) {
   const [editing, setEditing] = React.useState(false)
   const [draft, setDraft] = React.useState(value)
@@ -78,6 +80,16 @@ export function EditableField({
       <span className={cn('inline-flex items-center gap-1.5 text-sm text-muted-foreground', className)}>
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         Saving…
+      </span>
+    )
+  }
+
+  if (disabled) {
+    return (
+      <span className={cn('inline-flex items-center gap-1.5', className)}>
+        <span className={cn(!value && 'text-muted-foreground italic', displayClassName)}>
+          {value && render ? render(value) : value || emptyLabel}
+        </span>
       </span>
     )
   }

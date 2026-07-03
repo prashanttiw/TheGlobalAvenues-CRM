@@ -16,6 +16,7 @@ import {
 import { Badge, StatusBadge, type StatusType } from '../ui/Badge'
 import { Button } from '../ui/Button'
 import { PreviewDrawer, PreviewDrawerBody, PreviewDrawerContent, PreviewDrawerHeader } from '../ui/PreviewDrawer'
+import { usePermission } from '../../../hooks/usePermission'
 
 // Mirrors crm-api/Services/StateManager.php::GRAPH exactly so admins can only attempt
 // transitions the backend will actually accept.
@@ -76,6 +77,7 @@ interface ApplicationDetailDrawerProps {
 
 export function ApplicationDetailDrawer({ applicationPid, onOpenChange, onMutated }: ApplicationDetailDrawerProps) {
   const queryClient = useQueryClient()
+  const canWrite = usePermission('applications', 'edit')
   const [showDocForm, setShowDocForm] = React.useState(false)
   const [showPaymentForm, setShowPaymentForm] = React.useState(false)
   const [docForm, setDocForm] = React.useState({ doc_label: '', description: '', deadline: '' })
@@ -180,49 +182,53 @@ export function ApplicationDetailDrawer({ applicationPid, onOpenChange, onMutate
                 {detail.agent_name ? <p className="text-xs text-muted-foreground mt-1">Agent: {detail.agent_name}</p> : null}
               </div>
 
-              <div>
-                <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Move Application</h4>
-                <div className="flex flex-wrap gap-2">
-                  {nextStatuses.filter((s) => s !== 'withdrawn').map((status) => (
-                    <Button
-                      key={status}
-                      size="sm"
-                      variant="secondary"
-                      disabled={statusMutation.isPending}
-                      onClick={() => statusMutation.mutate({ publicId: detail.public_id, status })}
-                    >
-                      Move to {formatStatusLabel(status)}
-                    </Button>
-                  ))}
-                  {nextStatuses.includes('withdrawn') && detail.status !== 'withdrawn' && (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      className="text-red-600"
-                      disabled={withdrawMutation.isPending}
-                      onClick={() => {
-                        const reason = window.prompt('Withdrawal reason')
-                        if (reason === null) return
-                        withdrawMutation.mutate({ publicId: detail.public_id, reason })
-                      }}
-                    >
-                      <XCircle className="mr-1 h-3.5 w-3.5" />
-                      Withdraw
-                    </Button>
-                  )}
-                  {nextStatuses.length === 0 && <p className="text-xs text-muted-foreground">No further transitions available.</p>}
+              {canWrite && (
+                <div>
+                  <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Move Application</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {nextStatuses.filter((s) => s !== 'withdrawn').map((status) => (
+                      <Button
+                        key={status}
+                        size="sm"
+                        variant="secondary"
+                        disabled={statusMutation.isPending}
+                        onClick={() => statusMutation.mutate({ publicId: detail.public_id, status })}
+                      >
+                        Move to {formatStatusLabel(status)}
+                      </Button>
+                    ))}
+                    {nextStatuses.includes('withdrawn') && detail.status !== 'withdrawn' && (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="text-red-600"
+                        disabled={withdrawMutation.isPending}
+                        onClick={() => {
+                          const reason = window.prompt('Withdrawal reason')
+                          if (reason === null) return
+                          withdrawMutation.mutate({ publicId: detail.public_id, reason })
+                        }}
+                      >
+                        <XCircle className="mr-1 h-3.5 w-3.5" />
+                        Withdraw
+                      </Button>
+                    )}
+                    {nextStatuses.length === 0 && <p className="text-xs text-muted-foreground">No further transitions available.</p>}
+                  </div>
                 </div>
-              </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Document Requests</h4>
-                  <Button size="sm" variant="ghost" onClick={() => setShowDocForm((v) => !v)}>
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    Request
-                  </Button>
+                  {canWrite && (
+                    <Button size="sm" variant="ghost" onClick={() => setShowDocForm((v) => !v)}>
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Request
+                    </Button>
+                  )}
                 </div>
-                {showDocForm && (
+                {canWrite && showDocForm && (
                   <form
                     className="space-y-2 mb-3 p-3 rounded-md border border-border-warm bg-surface-warm"
                     onSubmit={(e) => {
@@ -254,7 +260,7 @@ export function ApplicationDetailDrawer({ applicationPid, onOpenChange, onMutate
                           <p className="text-sm font-medium text-brand-navy flex items-center gap-1"><FileUp className="h-3 w-3" />{doc.doc_label}</p>
                           <p className="text-[10px] text-muted-foreground">{formatStatusLabel(doc.status)}{doc.deadline ? ` · Due ${formatDate(doc.deadline)}` : ''}</p>
                         </div>
-                        {doc.status === 'submitted' && (
+                        {canWrite && doc.status === 'submitted' && (
                           <div className="flex gap-1">
                             <Button size="sm" variant="secondary" onClick={() => reviewDocMutation.mutate({ pid: doc.public_id, status: 'approved' })}>Approve</Button>
                             <Button size="sm" variant="secondary" className="text-red-600" onClick={() => {
@@ -264,7 +270,7 @@ export function ApplicationDetailDrawer({ applicationPid, onOpenChange, onMutate
                             }}>Reject</Button>
                           </div>
                         )}
-                        {doc.status === 'requested' && (
+                        {canWrite && doc.status === 'requested' && (
                           <Button size="sm" variant="ghost" className="text-red-600" onClick={() => cancelDocMutation.mutate(doc.public_id)}>Cancel</Button>
                         )}
                       </div>
@@ -276,12 +282,14 @@ export function ApplicationDetailDrawer({ applicationPid, onOpenChange, onMutate
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Payments</h4>
-                  <Button size="sm" variant="ghost" onClick={() => setShowPaymentForm((v) => !v)}>
-                    <Plus className="mr-1 h-3.5 w-3.5" />
-                    Add
-                  </Button>
+                  {canWrite && (
+                    <Button size="sm" variant="ghost" onClick={() => setShowPaymentForm((v) => !v)}>
+                      <Plus className="mr-1 h-3.5 w-3.5" />
+                      Add
+                    </Button>
+                  )}
                 </div>
-                {showPaymentForm && (
+                {canWrite && showPaymentForm && (
                   <form
                     className="space-y-2 mb-3 p-3 rounded-md border border-border-warm bg-surface-warm"
                     onSubmit={(e) => {
@@ -322,13 +330,13 @@ export function ApplicationDetailDrawer({ applicationPid, onOpenChange, onMutate
                             {payment.due_date ? ` · Due ${formatDate(payment.due_date)}` : ''}
                           </p>
                         </div>
-                        {payment.status === 'student_marked_paid' && (
+                        {canWrite && payment.status === 'student_marked_paid' && (
                           <div className="flex gap-1">
                             <Button size="sm" variant="secondary" onClick={() => verifyPaymentMutation.mutate({ pid: payment.public_id, status: 'confirmed' })}>Confirm</Button>
                             <Button size="sm" variant="secondary" className="text-red-600" onClick={() => verifyPaymentMutation.mutate({ pid: payment.public_id, status: 'disputed' })}>Dispute</Button>
                           </div>
                         )}
-                        {payment.status === 'disputed' && (
+                        {canWrite && payment.status === 'disputed' && (
                           <div className="flex gap-1">
                             <Button size="sm" variant="secondary" onClick={() => resolvePaymentMutation.mutate({ pid: payment.public_id, status: 'confirmed' })}>Confirm</Button>
                             <Button size="sm" variant="ghost" className="text-red-600" onClick={() => resolvePaymentMutation.mutate({ pid: payment.public_id, status: 'cancelled' })}>Cancel</Button>
