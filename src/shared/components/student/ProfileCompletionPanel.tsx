@@ -1,9 +1,10 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { FileCheck, GraduationCap, Search, Trash2, User, UserCheck } from 'lucide-react'
+import { FileCheck, GraduationCap, Trash2, User } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
 import { Button } from '../ui/Button'
+import { AgentCombobox, type AgentOption } from '../ui/AgentCombobox'
 import { DocumentSlot } from './DocumentSlot'
 import {
   addAgentStudentAcademic,
@@ -14,7 +15,6 @@ import {
   deleteAgentStudentTestScore,
   deleteStudentAcademic,
   deleteStudentTestScore,
-  fetchAgentDirectory,
   fetchAgentStudentAcademicProfile,
   fetchAgentStudentReadiness,
   fetchReadiness,
@@ -64,8 +64,7 @@ export function ProfileCompletionPanel({ onBehalfOfStudentPid, applicationPid, o
   const [alternateMobile, setAlternateMobile] = React.useState('')
   const [howHeard, setHowHeard] = React.useState('')
   const [planningPhd, setPlanningPhd] = React.useState(false)
-  const [agentQuery, setAgentQuery] = React.useState('')
-  const [selectedAgent, setSelectedAgent] = React.useState<{ public_id: string; full_name: string; agency_name?: string } | null>(null)
+  const [selectedAgent, setSelectedAgent] = React.useState<AgentOption | null>(null)
   const [uploadingCategory, setUploadingCategory] = React.useState<string | null>(null)
 
   const readinessKey = isAgentMode ? ['agent', 'student-readiness', onBehalfOfStudentPid] : ['student', 'readiness']
@@ -84,12 +83,6 @@ export function ProfileCompletionPanel({ onBehalfOfStudentPid, applicationPid, o
     setPlanningPhd(!!readinessQuery.data.planning_phd)
     if (readinessQuery.data.agent) setSelectedAgent(readinessQuery.data.agent)
   }, [readinessQuery.data])
-
-  const agentSearchQuery = useQuery({
-    queryKey: ['student', 'agent-directory', agentQuery],
-    queryFn: () => fetchAgentDirectory(agentQuery),
-    enabled: !isAgentMode && agentQuery.length >= 2,
-  })
 
   const draftMutation = useMutation({
     mutationFn: () => {
@@ -252,46 +245,7 @@ export function ProfileCompletionPanel({ onBehalfOfStudentPid, applicationPid, o
             {!isAgentMode && (
               <div>
                 <label className={labelClass}>Assign an Agent (optional)</label>
-                {selectedAgent ? (
-                  <div className="flex items-center justify-between rounded-md border border-border-warm bg-surface-warm px-3.5 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className="h-4 w-4 text-brand-orange-accessible" />
-                      <div>
-                        <p className="text-sm font-semibold text-brand-navy">{selectedAgent.full_name}</p>
-                        {selectedAgent.agency_name && <p className="text-[11px] text-muted-foreground">{selectedAgent.agency_name}</p>}
-                      </div>
-                    </div>
-                    <button type="button" className="text-xs text-red-600 font-semibold" onClick={() => setSelectedAgent(null)}>Remove</button>
-                  </div>
-                ) : (
-                  <div className="relative">
-                    <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-                    <input
-                      className={`${inputClass} pl-9`}
-                      placeholder="Search agent by name or code…"
-                      value={agentQuery}
-                      onChange={(e) => setAgentQuery(e.target.value)}
-                    />
-                    {agentQuery.length >= 2 && (agentSearchQuery.data?.length ?? 0) > 0 && (
-                      <div className="absolute z-10 mt-1 w-full rounded-md border border-border-warm bg-surface-card shadow-card max-h-56 overflow-y-auto">
-                        {agentSearchQuery.data!.map((agent: any) => (
-                          <button
-                            type="button"
-                            key={agent.public_id}
-                            className="w-full text-left px-3.5 py-2 text-sm hover:bg-surface-warm"
-                            onClick={() => {
-                              setSelectedAgent(agent)
-                              setAgentQuery('')
-                            }}
-                          >
-                            <span className="font-medium text-brand-navy">{agent.full_name}</span>
-                            {agent.agency_name && <span className="text-muted-foreground"> · {agent.agency_name}</span>}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                <AgentCombobox value={selectedAgent} onChange={setSelectedAgent} scope="student" />
               </div>
             )}
           </div>
