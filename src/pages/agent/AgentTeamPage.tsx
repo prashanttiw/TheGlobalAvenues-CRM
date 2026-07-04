@@ -10,9 +10,15 @@ import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
 import { Users, ChevronDown, ChevronUp, UserPlus, ExternalLink } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchAgentTeam, fetchSubAgents, inviteSubAgent } from '../../lib/api';
+import { useAuth } from '../../shared/hooks/useAuth';
 
 export default function AgentTeamPage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  // Tier 3 (sub-sub-agent) is a hard cap — the backend rejects invites from tier >= 3
+  // (SubAgentController::invite(), TIER_LIMIT_REACHED), so the button must not even
+  // be offered at that tier.
+  const canCreateSubAgent = user?.tier === 1 || user?.tier === 2;
   const [team, setTeam] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -102,13 +108,15 @@ export default function AgentTeamPage() {
   return (
     <PageWrapper className="space-y-6">
       <PageHeader
-        title="My Team Network" 
-        subtitle="Manage your network of L2 and L3 sub-agents and oversee performance." 
+        title="My Team Network"
+        subtitle="Manage your network of L2 and L3 sub-agents and oversee performance."
         actions={
-          <Button variant="primary" onClick={() => setIsInviteOpen(true)}>
-            <UserPlus className="mr-2 h-4 w-4" />
-            Invite Sub-Agent
-          </Button>
+          canCreateSubAgent ? (
+            <Button variant="primary" onClick={() => setIsInviteOpen(true)}>
+              <UserPlus className="mr-2 h-4 w-4" />
+              Invite Sub-Agent
+            </Button>
+          ) : undefined
         }
       />
 
@@ -121,8 +129,16 @@ export default function AgentTeamPage() {
           {team.length === 0 && (
             <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-gray-200">
               <Users className="mx-auto h-10 w-10 text-gray-300 mb-3" />
-              <p className="text-sm text-gray-500">You haven't added any sub-agents to your network yet.</p>
-              <Button variant="outline" className="mt-4" onClick={() => setIsInviteOpen(true)}>Invite your first Sub-Agent</Button>
+              {canCreateSubAgent ? (
+                <>
+                  <p className="text-sm text-gray-500">You haven't added any sub-agents to your network yet.</p>
+                  <Button variant="outline" className="mt-4" onClick={() => setIsInviteOpen(true)}>Invite your first Sub-Agent</Button>
+                </>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  You're a Tier 3 sub-agent — the maximum depth in the network. Sub-agent creation isn't available at this tier.
+                </p>
+              )}
             </div>
           )}
 
