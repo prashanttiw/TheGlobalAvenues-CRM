@@ -1168,6 +1168,10 @@ final class AuthController
             }
         }
 
+        [$tier, $referralCode] = $userType === 'agent'
+            ? $this->resolveAgentTierAndReferral((int) $user['id'])
+            : [null, null];
+
         return [
             'public_id' => (string) ($user['public_id'] ?? ''),
             'email' => $this->decryptMaybe($user['email'] ?? null),
@@ -1185,7 +1189,25 @@ final class AuthController
             'is_super_admin' => $isSuperAdmin,
             'account_status' => $this->resolveAccountStatus($userType, (int) $user['id'], (string) ($user['status'] ?? 'active')),
             'two_factor_enabled' => (bool) ($user['two_factor_enabled'] ?? false),
+            'tier' => $tier,
+            'referral_code' => $referralCode,
         ];
+    }
+
+    /**
+     * @return array{0: int|null, 1: string|null}
+     */
+    private function resolveAgentTierAndReferral(int $userId): array
+    {
+        $stmt = $this->pdo->prepare('SELECT tier, referral_code FROM agents WHERE user_id = ? LIMIT 1');
+        $stmt->execute([$userId]);
+        $agent = $stmt->fetch(\PDO::FETCH_ASSOC);
+
+        if (!$agent) {
+            return [null, null];
+        }
+
+        return [(int) $agent['tier'], (string) $agent['referral_code']];
     }
 
     private function resolveFullName(string $userType, int $userId): string
