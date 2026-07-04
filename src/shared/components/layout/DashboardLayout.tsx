@@ -71,7 +71,7 @@ export function DashboardLayout({ sidebarItems, logo, user, onLogout }: Dashboar
       </div>
       
       <Toaster />
-      <CommandPalette />
+      <CommandPalette items={sidebarItems} />
     </div>
   )
 }
