@@ -12,7 +12,7 @@ export const COMPANY = {
   email: 'connect@theglobalavenues.com',
   admissionsEmail: 'admissions@theglobalavenues.com',
   partnershipsEmail: 'connect@theglobalavenues.com',
-  phone: '+91 11 4680 1133',
+  phone: '+91 93198 31133',
   phones: ['+91 11 4680 1133', '+91 93198 31133', '+91 97178 01133', '+91 99718 01133'],
   whatsapp: '+919319831133',
   address: 'The Global Avenues, A 6, Block A, South Extension II, New Delhi 110049, India',
@@ -50,5 +50,6 @@ export const COMPANY = {
 };
 
 export const NAV_LINKS = [
+  { label: 'Home', href: '/' },
   { label: 'Contact', href: '/contact' },
 ];

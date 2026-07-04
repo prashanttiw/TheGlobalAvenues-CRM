@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react';
 import { HeroSection } from '@/components/home/HeroSection';
+import { PartnerTicker } from '@/components/home/PartnerTicker';
 import { HowItWorks } from '@/components/home/HowItWorks';
 import { InnovationBar } from '@/app/components/innovation-bar';
 
@@ -40,6 +41,7 @@ export function HomePage() {
     <>
       <HeroSection />
       <InnovationBar />
+      <PartnerTicker />
       <HowItWorks />
 
       <Suspense fallback={<SectionFallback />}>

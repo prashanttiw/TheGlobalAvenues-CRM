@@ -12,7 +12,7 @@ interface StatItem {
 
 const STATS: StatItem[] = [
   { value: COMPANY.stats.yearsExperience, suffix: '+', label: 'Years of Experience', description: 'Trusted since day one', color: '#FD7E14' },
-  { value: COMPANY.stats.partnerUniversities, suffix: '+', label: 'Partner Universities', description: 'Across 40+ countries', color: '#D32F2F' },
+  { value: COMPANY.stats.partnerUniversities, suffix: '+', label: 'Partner Universities', description: `Across ${COMPANY.stats.countries}+ countries`, color: '#D32F2F' },
   { value: COMPANY.stats.channelPartners, suffix: '+', label: 'Channel Partners', description: 'Active in SAMEA region', color: '#FFC107' },
   { value: COMPANY.stats.studentsRecruited, suffix: '+', label: 'Students Recruited', description: 'And counting', color: '#4CAF50' },
 ];

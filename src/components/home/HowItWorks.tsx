@@ -25,13 +25,13 @@ const STEPS_DATA = [
   {
     number: '02',
     icon: Brain,
-    title: 'Get Matched by AI',
+    title: 'Get Matched Instantly',
     badge: 'Data-Driven matching',
-    shortDesc: 'Our proprietary AI Engine analyzes 50+ admission checkpoints to select high-compatibility partner universities.',
+    shortDesc: 'Our matching engine analyzes 50+ admission checkpoints to select high-compatibility partner universities.',
     bullets: [
-      'Scans through 500+ English-taught portfolios',
+      'Scans every partner university\'s program catalog',
       'Filters by budget, tuition range, and PR pathways',
-      'Up to 96% match accuracy with verified university partners'
+      'High-compatibility matches with verified university partners'
     ],
     color: 'from-[#D32F2F] to-[#FF5722]',
     bgLight: 'bg-[#D32F2F]/6',
@@ -199,7 +199,7 @@ function AIMatcherMock() {
       <div className="flex items-center justify-between pb-3 border-b border-white/10 mb-3">
         <div className="flex items-center gap-2">
           <Brain className="w-4 h-4 text-[#D32F2F]" />
-          <span className="text-xs font-bold tracking-wider text-white/50 uppercase">TGA AI Matching Engine</span>
+          <span className="text-xs font-bold tracking-wider text-white/50 uppercase">TGA Matching Engine</span>
         </div>
         <span className="text-[9px] bg-[#D32F2F]/20 border border-[#D32F2F]/30 px-2 py-0.5 rounded-full text-[#FF5722] font-bold">50+ DATAPOINTS SCAN</span>
       </div>
@@ -220,7 +220,7 @@ function AIMatcherMock() {
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="text-[10px] text-green-400 font-bold uppercase tracking-wider mb-1">✓ AI shortlists matched:</div>
+          <div className="text-[10px] text-green-400 font-bold uppercase tracking-wider mb-1">✓ Shortlisted matches:</div>
           
           {/* Matched Uni 1 */}
           <motion.div 

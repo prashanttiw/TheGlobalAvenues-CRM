@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, ChevronDown, Globe2, GraduationCap, Users } from 'lucide-react';
 import { AnimatePresence, motion, useScroll, useTransform } from 'motion/react';
+import { COMPANY } from '@/data/company';
 
 const HERO_SLIDES = [
   {
@@ -12,21 +13,21 @@ const HERO_SLIDES = [
   },
   {
     image: '/hero/library-study-hero.jpg',
-    headline: '100+ Partner Universities.',
-    highlight: 'Across 40+ Countries.',
+    headline: `${COMPANY.stats.partnerUniversities}+ Partner Universities.`,
+    highlight: `Across ${COMPANY.stats.countries}+ Countries.`,
     sub: 'From exclusive MOU partners to a global network - find your perfect institution.',
   },
   {
     image: '/universities/elmhurst-university-hero.jpg',
     headline: '98% Visa Success Rate.',
     highlight: 'Expert Guidance.',
-    sub: 'ICEF certified counsellors with 12+ years of experience in international education.',
+    sub: `ICEF certified counsellors with ${COMPANY.stats.yearsExperience}+ years of experience in international education.`,
   },
 ];
 
 const STATS = [
-  { icon: GraduationCap, value: '100+', label: 'Partner Universities', color: '#FD7E14' },
-  { icon: Globe2, value: '40+', label: 'Countries', color: '#FFC107' },
+  { icon: GraduationCap, value: `${COMPANY.stats.partnerUniversities}+`, label: 'Partner Universities', color: '#FD7E14' },
+  { icon: Globe2, value: `${COMPANY.stats.countries}+`, label: 'Countries', color: '#FFC107' },
   { icon: CheckCircle2, value: '98%', label: 'Visa Success', color: '#4CAF50' },
   { icon: Users, value: '4K+', label: 'Students Recruited', color: '#D32F2F' },
 ];

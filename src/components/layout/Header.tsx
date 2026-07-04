@@ -69,7 +69,8 @@ export function Header() {
 
           <nav className="hidden flex-1 items-center justify-center gap-0.5 xl:flex 2xl:gap-1">
             {NAV_LINKS.map((link) => {
-              const isActive = location.pathname.startsWith(link.href) && link.href !== '/';
+              const isActive =
+                link.href === '/' ? location.pathname === '/' : location.pathname.startsWith(link.href);
               return (
                 <Link
                   key={link.label}
