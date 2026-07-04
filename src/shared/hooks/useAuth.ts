@@ -21,7 +21,7 @@ export interface User {
   email: string
   role: Role
   avatar?: string
-  tier?: string
+  tier?: number
   referralCode?: string
   permissions?: string[]
   isSuperAdmin?: boolean
@@ -74,6 +74,8 @@ function mapAuthUser(apiUser: AuthUser): User {
     isSuperAdmin,
     status: apiUser.status,
     agentStatus: apiUser.account_status,
+    tier: typeof apiUser.tier === 'number' ? apiUser.tier : undefined,
+    referralCode: apiUser.referral_code ?? undefined,
   }
 }
 

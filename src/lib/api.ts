@@ -109,6 +109,8 @@ export type AuthUser = {
   is_super_admin?: boolean;
   account_status?: string;
   two_factor_enabled?: boolean;
+  tier?: number | null;
+  referral_code?: string | null;
 };
 
 export type StudentProfileResponse = {

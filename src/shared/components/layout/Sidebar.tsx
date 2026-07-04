@@ -21,7 +21,7 @@ interface SidebarProps {
     name: string
     role: string
     avatar?: string
-    tier?: string // For agents
+    tier?: number // For agents
     referralCode?: string // For agents
   }
   onLogout: () => void
@@ -119,7 +119,11 @@ export function Sidebar({ items, logo, user, onLogout }: SidebarProps) {
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium text-white truncate">{user.name}</p>
               <p className="text-xs text-white/50 truncate">{user.role}</p>
-              {user.tier && <p className="text-[10px] uppercase text-brand-orange-accessible font-bold mt-0.5">{user.tier}</p>}
+              {user.tier && (
+                <p className="text-[10px] uppercase text-brand-orange-accessible font-bold mt-0.5">
+                  {user.tier === 1 ? 'Tier 1 Agent' : user.tier === 2 ? 'Tier 2 Sub-Agent' : 'Tier 3 Sub-Sub-Agent'}
+                </p>
+              )}
             </div>
             <Button variant="ghost" size="icon" className="text-white/50 hover:bg-white/10 hover:text-white shrink-0" onClick={onLogout} aria-label="Log out">
               <LogOut className="h-4 w-4" />
