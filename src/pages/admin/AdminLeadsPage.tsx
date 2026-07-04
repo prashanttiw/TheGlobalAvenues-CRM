@@ -12,6 +12,8 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import api from '../../lib/api'
 import { usePermission } from '../../hooks/usePermission'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
+import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice'
+import { AgentCombobox, type AgentOption } from '../../shared/components/ui/AgentCombobox'
 
 interface Lead {
   public_id: string
@@ -162,7 +164,8 @@ export default function AdminLeadsPage() {
   }, [search])
 
   // Convert Form State
-  const [convertForm, setConvertForm] = React.useState({ password: '', nationality: '', date_of_birth: '', agent_referral_code: '' })
+  const [convertForm, setConvertForm] = React.useState({ password: '', nationality: '', date_of_birth: '' })
+  const [convertAgent, setConvertAgent] = React.useState<AgentOption | null>(null)
 
   const { data: rawLeads = EMPTY_LEADS, isLoading, isFetching, isError } = useQuery({
     queryKey: ['admin', 'leads', debouncedSearch],
@@ -209,7 +212,8 @@ export default function AdminLeadsPage() {
     onSuccess: () => {
       toast.success('Successfully converted to a CRM Student!')
       setConvertingLead(null)
-      setConvertForm({ password: '', nationality: '', date_of_birth: '', agent_referral_code: '' })
+      setConvertForm({ password: '', nationality: '', date_of_birth: '' })
+      setConvertAgent(null)
       queryClient.invalidateQueries({ queryKey: ['admin', 'leads'] })
     },
     onError: (err: any) => {
@@ -252,14 +256,18 @@ export default function AdminLeadsPage() {
   const handleConvertSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!convertingLead) return
-    convertMutation.mutate({ pid: convertingLead.public_id, data: convertForm })
+    convertMutation.mutate({
+      pid: convertingLead.public_id,
+      data: { ...convertForm, agent_referral_code: convertAgent?.referral_code ?? '' },
+    })
   }
 
   const columnsToRender = showArchive ? ALL_COLUMNS : ACTIVE_COLUMNS
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader 
+      <UnderDevelopmentNotice featureName="Leads Pipeline" />
+      <PageHeader
         title="Student Leads Pipeline" 
         subtitle="Manage prospective leads and convert them to system students." 
         actions={
@@ -363,14 +371,8 @@ export default function AdminLeadsPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-brand-navy block mb-1">Agent Referral Code (Optional)</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g. AGENT123"
-                    className="w-full rounded-md border border-gray-300 p-2 text-sm focus:border-brand-orange-accessible focus:outline-none"
-                    value={convertForm.agent_referral_code}
-                    onChange={e => setConvertForm(f => ({ ...f, agent_referral_code: e.target.value }))}
-                  />
+                  <label className="text-xs font-semibold text-brand-navy block mb-1">Assign an Agent (Optional)</label>
+                  <AgentCombobox value={convertAgent} onChange={setConvertAgent} scope="admin" />
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
