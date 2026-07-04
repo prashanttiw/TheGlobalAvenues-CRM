@@ -598,7 +598,7 @@ function EditAccessPanel({
 function AdminTableSkeleton() {
   return (
     <div className="overflow-hidden rounded-xl border border-border-warm bg-surface-card">
-      <div className="overflow-x-auto">
+      <div className="hidden md:block overflow-x-auto">
         <table className="w-full min-w-[700px] text-sm">
           <thead>
             <tr className="border-b border-border-warm bg-surface-warm/60">
@@ -630,6 +630,18 @@ function AdminTableSkeleton() {
             ))}
           </tbody>
         </table>
+      </div>
+
+      <div className="md:hidden flex flex-col divide-y divide-border-warm">
+        {[...Array(5)].map((_, i) => (
+          <div key={i} className="flex items-center gap-3 p-4">
+            <div className="h-8 w-8 rounded-full bg-surface-warm animate-pulse shrink-0" />
+            <div className="flex-1 space-y-1.5">
+              <div className="h-3 w-32 rounded bg-surface-warm animate-pulse" />
+              <div className="h-2.5 w-44 rounded bg-surface-warm animate-pulse" />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -789,7 +801,8 @@ export default function AdminUsers() {
         />
       ) : (
         <div className="overflow-hidden rounded-xl border border-border-warm bg-surface-card">
-          <div className="overflow-x-auto">
+          {/* Desktop table */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full min-w-[700px] text-sm">
               <thead>
                 <tr className="border-b border-border-warm bg-surface-warm/60">
@@ -822,6 +835,28 @@ export default function AdminUsers() {
               </tbody>
             </table>
           </div>
+
+          {/* Mobile card list */}
+          <div className="md:hidden flex flex-col divide-y divide-border-warm">
+            {users.map(user => (
+              <AdminMobileCard
+                key={user.public_id}
+                user={user}
+                canEdit={canEdit}
+                isSelfSuperAdmin={isSuperAdmin}
+                selfPublicId={me?.publicId ?? ''}
+                onActivate={() => statusMutation.mutate({ public_id: user.public_id, status: 'active' })}
+                onSuspend={() => statusMutation.mutate({ public_id: user.public_id, status: 'suspended' })}
+                onEditAccess={() => setEditUser(user)}
+                onDelete={() => {
+                  if (user.public_id && user.public_id !== (me?.publicId ?? '__NONE__')) {
+                    setDeleteTarget(user)
+                  }
+                }}
+              />
+            ))}
+          </div>
+
           <div className="border-t border-border-warm bg-surface-warm/40 px-4 py-2.5 text-xs text-muted-foreground">
             {users.length} account{users.length !== 1 ? 's' : ''} shown
           </div>
@@ -974,5 +1009,102 @@ function AdminRow({
         />
       </td>
     </tr>
+  )
+}
+
+// ─── Mobile card (same data/actions as AdminRow, stacked layout) ──────────────
+
+function AdminMobileCard({
+  user,
+  canEdit,
+  isSelfSuperAdmin,
+  selfPublicId,
+  onActivate,
+  onSuspend,
+  onEditAccess,
+  onDelete,
+}: {
+  user: AdminUserSummary
+  canEdit: boolean
+  isSelfSuperAdmin: boolean
+  selfPublicId: string
+  onActivate: () => void
+  onSuspend: () => void
+  onEditAccess: () => void
+  onDelete: () => void
+}) {
+  const isSelf = user.public_id === selfPublicId
+  const name = fullName(user)
+
+  return (
+    <div className="flex flex-col gap-3 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <UserAvatar name={name} size="sm" />
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-brand-navy leading-tight">
+              {name}
+              {isSelf && (
+                <span className="ml-2 rounded bg-brand-navy/10 px-1.5 py-0.5 text-[9px] font-bold uppercase text-brand-navy">
+                  You
+                </span>
+              )}
+            </p>
+            <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+          </div>
+        </div>
+        <div onClick={e => e.stopPropagation()} className="shrink-0">
+          <InlineActions
+            actions={[
+              {
+                label: 'Edit Page Access',
+                icon: UserCog,
+                onClick: onEditAccess,
+                hidden: !canEdit || !isSelfSuperAdmin || isSelf || user.is_super_admin,
+              },
+              {
+                label: 'Activate Account',
+                icon: Check,
+                onClick: onActivate,
+                hidden: !canEdit || user.status === 'active' || isSelf,
+              },
+              {
+                label: 'Suspend Access',
+                icon: Ban,
+                onClick: onSuspend,
+                variant: 'danger' as const,
+                hidden: !canEdit || user.status === 'suspended' || isSelf || user.is_super_admin,
+              },
+              {
+                label: 'Delete Account',
+                icon: Trash2,
+                onClick: onDelete,
+                variant: 'danger' as const,
+                hidden: !isSelfSuperAdmin || isSelf || user.is_super_admin,
+              },
+            ]}
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div>
+          <p className="mb-1 font-semibold uppercase text-[10px] text-muted-foreground">Access</p>
+          <RoleBadge user={user} />
+        </div>
+        <div>
+          <p className="mb-1 font-semibold uppercase text-[10px] text-muted-foreground">Status</p>
+          <StatusDot status={user.status} />
+        </div>
+        <div>
+          <p className="mb-1 font-semibold uppercase text-[10px] text-muted-foreground">Last Login</p>
+          <p className="text-muted-foreground">{formatDateTime(user.last_login_at)}</p>
+        </div>
+        <div>
+          <p className="mb-1 font-semibold uppercase text-[10px] text-muted-foreground">Added</p>
+          <p className="text-muted-foreground">{formatDate(user.created_at)}</p>
+        </div>
+      </div>
+    </div>
   )
 }
