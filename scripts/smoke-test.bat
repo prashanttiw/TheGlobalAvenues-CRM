@@ -3,7 +3,7 @@ echo TGA CRM - Production Smoke Test
 echo ===============================
 echo.
 
-set API_URL=https://api.theglobalavenues.com/api/health
+set API_URL=https://apply.theglobalavenues.com/crm-api/health
 set /p "TARGET_URL=Enter API Health URL (default: %API_URL%): " || set TARGET_URL=%API_URL%
 
 echo.

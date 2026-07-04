@@ -26,10 +26,12 @@ echo Cleaning up...
 rmdir /S /Q %BUILD_DIR%
 
 echo.
-echo Build complete! 
+echo Build complete!
 echo Next Steps:
 echo 1. Upload 'build-api.zip' to Bluehost (cPanel File Manager).
-echo 2. Extract into the public_html directory (NOT public_html/crm-api).
-echo 3. Ensure your production .env is correctly configured in public_html/crm-api/.env.
+echo 2. Extract into the apply.theglobalavenues.com subdomain's document root
+echo    (NOT into a crm-api subfolder inside it - the zip already contains crm-api/ and cron/).
+echo 3. Ensure your production .env is correctly configured at ^<docroot^>/crm-api/.env.
+echo 4. storage/ and uploads/ are NOT in this archive - create/upload those separately.
 echo.
 pause

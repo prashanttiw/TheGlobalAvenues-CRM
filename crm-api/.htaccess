@@ -23,7 +23,7 @@ ServerSignature Off
     Header set X-Frame-Options "SAMEORIGIN"
     Header set Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
-    Header set Content-Security-Policy "default-src 'self'; connect-src 'self' https://api.theglobalavenues.com https://portal.theglobalavenues.com https://www.googleapis.com; frame-ancestors 'none'; upgrade-insecure-requests"
+    Header set Content-Security-Policy "default-src 'self'; connect-src 'self' https://apply.theglobalavenues.com https://www.googleapis.com; frame-ancestors 'none'; upgrade-insecure-requests"
     Header set Permissions-Policy "geolocation=(), camera=(), microphone=()"
 </IfModule>
 
