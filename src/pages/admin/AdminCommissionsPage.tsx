@@ -12,7 +12,8 @@ import { Button } from '../../shared/components/ui/Button'
 import { DollarSign, Check, Trash2, Edit, ArrowLeft, ArrowRight, Calendar, Coins } from 'lucide-react'
 import { toast, Toaster } from 'sonner'
 import { usePermission } from '../../hooks/usePermission'
-import { 
+import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice'
+import {
   fetchAdminCommissions, 
   fetchAdminCommissionsSummary, 
   fetchAdminAgents, 
@@ -204,7 +205,7 @@ export default function AdminCommissionsPage() {
         <div>
           <p className="font-semibold text-brand-navy">{row.student_name}</p>
           <p className="text-xs text-muted-foreground">
-            Ref: {row.reference_number} · ID: {row.application_public_id?.substring(0, 8)}
+            Ref: {row.reference_number}
           </p>
         </div>
       ),
@@ -319,7 +320,8 @@ export default function AdminCommissionsPage() {
   return (
     <PageWrapper className="space-y-6">
       <Toaster position="top-center" richColors />
-      <PageHeader 
+      <UnderDevelopmentNotice featureName="Commissions" />
+      <PageHeader
         title="Commissions Ledger" 
         subtitle="Approve and disburse B2B agent referral rewards and overriding hierarchical commissions."
       />

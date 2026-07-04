@@ -153,7 +153,7 @@ export default function AdminLoginPage() {
             </div>
           </div>
 
-          <h1 className="text-2xl font-black text-center text-gray-900 mb-1">Admin Cockpit</h1>
+          <h1 className="text-2xl font-black text-center text-gray-900 mb-1">Admin</h1>
           <p className="text-center text-xs text-gray-400 mb-1">Internal CRM Administration</p>
           <div className="flex justify-center mb-6">
             <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-purple-50 border border-purple-100 text-[10px] font-bold text-purple-700 uppercase tracking-wider">

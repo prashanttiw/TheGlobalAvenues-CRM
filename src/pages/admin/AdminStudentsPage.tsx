@@ -128,7 +128,7 @@ export default function AdminStudentsPage() {
               { label: 'View Full Profile', icon: Eye, onClick: () => navigate(`/portal/admin/students/${row.public_id}`) },
               { label: 'Request Document', icon: FileUp, onClick: () => toast.success(`Use application-level document requests for ${row.name}.`) },
               { label: 'Edit Student Details', icon: Edit, onClick: () => toast.success(`Live edit flow is not wired on this page yet for ${row.name}.`), hidden: !canEdit },
-              { label: 'Reassign Agent', icon: UserCheck, onClick: () => toast.success(`Use the reassignment queue for ${row.name}.`), hidden: !canReassign },
+              { label: 'Reassign Agent', icon: UserCheck, onClick: () => navigate(`/portal/admin/reassignments?student=${encodeURIComponent(row.name)}`), hidden: !canReassign },
             ]}
           />
         </div>

@@ -16,6 +16,7 @@ import {
   useReportTrends
 } from '../../data/reports';
 import { getAccessToken } from '../../lib/api';
+import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice';
 
 type ReportTab = 'overview' | 'funnel' | 'agents' | 'universities' | 'sources' | 'trends';
 
@@ -101,7 +102,8 @@ export default function AdminReportsPage() {
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader 
+      <UnderDevelopmentNotice featureName="Reports" />
+      <PageHeader
         title="Enterprise Analytics" 
         subtitle="Cumulative snapshots, funnel velocity, and partner intelligence."
         actions={
