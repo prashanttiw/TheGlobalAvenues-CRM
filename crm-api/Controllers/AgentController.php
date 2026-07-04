@@ -676,6 +676,9 @@ final class AgentController
                 SUM(CASE WHEN status = 'pending'   THEN amount ELSE 0 END) AS pending_inr,
                 SUM(CASE WHEN status = 'confirmed' THEN amount ELSE 0 END) AS confirmed_inr,
                 SUM(CASE WHEN status = 'paid'      THEN amount ELSE 0 END) AS paid_inr,
+                SUM(CASE WHEN status = 'pending'   THEN 1 ELSE 0 END)      AS pending_count,
+                SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END)      AS confirmed_count,
+                SUM(CASE WHEN status = 'paid'      THEN 1 ELSE 0 END)      AS paid_count,
                 COUNT(*)                                                    AS total_records
              FROM commissions
              WHERE agent_id = ? AND currency = 'INR' AND deleted_at IS NULL"
@@ -722,10 +725,13 @@ final class AgentController
         Response::json([
             'data' => [
                 'own' => [
-                    'pending_inr'   => (float) ($own['pending_inr']   ?? 0),
-                    'confirmed_inr' => (float) ($own['confirmed_inr'] ?? 0),
-                    'paid_inr'      => (float) ($own['paid_inr']      ?? 0),
-                    'total_records' => (int)   ($own['total_records'] ?? 0),
+                    'pending_inr'     => (float) ($own['pending_inr']     ?? 0),
+                    'confirmed_inr'   => (float) ($own['confirmed_inr']   ?? 0),
+                    'paid_inr'        => (float) ($own['paid_inr']        ?? 0),
+                    'pending_count'   => (int)   ($own['pending_count']   ?? 0),
+                    'confirmed_count' => (int)   ($own['confirmed_count'] ?? 0),
+                    'paid_count'      => (int)   ($own['paid_count']      ?? 0),
+                    'total_records'   => (int)   ($own['total_records']   ?? 0),
                 ],
                 'sub_agents' => $subAgents,
             ],
