@@ -38,6 +38,7 @@ const ADMIN_NAV_BASE: (NavItem & { permission?: string; hideForSuperAdmin?: bool
   { label: 'Courses', icon: BookOpen, path: '/portal/admin/courses', permission: 'courses.view' },
   { label: 'Intakes', icon: Calendar, path: '/portal/admin/intakes', permission: 'intakes.view' },
   { label: 'Students', icon: Users, path: '/portal/admin/students', permission: 'students.view' },
+  { label: 'Reassignment Requests', icon: UserCheck, path: '/portal/admin/reassignments', permission: 'students.approve' },
   { label: 'Applications', icon: FileText, path: '/portal/admin/applications', permission: 'applications.view' },
   { label: 'Agents', icon: Handshake, path: '/portal/admin/agents', permission: 'agents.view' },
   { label: 'Commissions', icon: DollarSign, path: '/portal/admin/commissions', permission: 'commissions.view' },
@@ -93,7 +94,13 @@ export function PortalWrapper() {
 
   return (
     <DashboardLayout
-      logo="GLOBAL AVENUES"
+      logo={
+        <img
+          src="/logo-footer-white-transparent.png"
+          alt="The Global Avenues"
+          className="h-10 w-auto object-contain"
+        />
+      }
       user={user}
       sidebarItems={navItems}
       onLogout={handleLogout}

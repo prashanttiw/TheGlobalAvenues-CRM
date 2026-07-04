@@ -71,6 +71,7 @@ const AdminSettingsPage = React.lazy(() => import('../pages/admin/AdminSettingsP
 const AdminLogsPage = React.lazy(() => import('../pages/admin/AdminLogsPage'));
 const AdminSuperLogsPage = React.lazy(() => import('../pages/admin/AdminSuperLogsPage'));
 const AdminLeadsPage = React.lazy(() => import('../pages/admin/AdminLeadsPage'));
+const AdminReassignmentsPage = React.lazy(() => import('../pages/admin/AdminReassignmentsPage'));
 const AdminSecurityPage = React.lazy(() => import('../pages/admin/AdminSecurityPage'));
 
 export function AppRouter() {
@@ -162,6 +163,7 @@ export function AppRouter() {
           <Route path="intakes" element={<PageGuard permission="intakes.view"><AdminIntakesPage /></PageGuard>} />
           <Route path="students" element={<PageGuard permission="students.view"><AdminStudentsPage /></PageGuard>} />
           <Route path="students/:pid" element={<PageGuard permission="students.view"><AdminStudentDetailPage /></PageGuard>} />
+          <Route path="reassignments" element={<PageGuard permission="students.approve"><AdminReassignmentsPage /></PageGuard>} />
           <Route path="agents" element={<PageGuard permission="agents.view"><AdminAgentsPage /></PageGuard>} />
           <Route path="agents/:pid/tree" element={<PageGuard permission="agents.view"><AdminAgentDetailPage /></PageGuard>} />
           <Route path="applications" element={<PageGuard permission="applications.view"><AdminApplicationsPage /></PageGuard>} />
