@@ -253,7 +253,7 @@ export function ForgotPasswordPage() {
                 onSubmit={handleOtpSubmit}
               >
                 <div className="bg-orange-50 rounded-xl px-4 py-3 text-xs text-orange-700 border border-orange-100">
-                  Code sent to <span className="font-bold">{email}</span>. Check your inbox and spam folder.
+                  Code sent to <span className="font-bold">{email}</span>. Check your inbox.
                 </div>
 
                 <div>

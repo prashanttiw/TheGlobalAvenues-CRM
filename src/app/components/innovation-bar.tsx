@@ -2,7 +2,7 @@ import { Award, TrendingUp } from 'lucide-react';
 import { motion } from 'motion/react';
 
 const scholarshipWins = [
-  { name: 'FH Kufstein Tirol', amount: 'AI, Data Science, Sustainability', university: 'Applied sciences pathways', country: 'Austria' },
+  { name: 'FH Kufstein Tirol', amount: 'Data Science, Sustainability', university: 'Applied sciences pathways', country: 'Austria' },
   { name: 'EUAS', amount: 'Business, IT, Design', university: 'Tallinn innovation campus', country: 'Estonia' },
   { name: 'ICN Business School', amount: 'Business and management', university: 'Multi-campus options', country: 'France/Germany' },
   { name: 'MJM Graphic Design', amount: 'Design and creative arts', university: 'Paris and London programs', country: 'France' },

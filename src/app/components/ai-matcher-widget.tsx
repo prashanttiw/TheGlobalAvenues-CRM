@@ -38,7 +38,7 @@ const CAREERS = [
     ],
     matches: [
       { name: 'EUAS Tallinn', score: 96, desc: 'Software engineering inside the Baltic tech hub with startup visa.', location: 'Tallinn, Estonia', logo: 'EUAS' },
-      { name: 'FH Kufstein Tirol', score: 91, desc: 'AI, smart industry, and systems engineering alpine research track.', location: 'Kufstein, Austria', logo: 'Kufstein' },
+      { name: 'FH Kufstein Tirol', score: 91, desc: 'Smart industry and systems engineering alpine research track.', location: 'Kufstein, Austria', logo: 'Kufstein' },
       { name: 'IAU Malta / USA', score: 87, desc: 'Tech MBA and data analytics graduate pathways with USA rotations.', location: 'Malta / USA', logo: 'IAU' }
     ]
   },
@@ -182,13 +182,13 @@ export function AIMatcherWidget() {
         >
           <div className="inline-flex items-center gap-2.5 px-4.5 py-1.5 rounded-full bg-[#FD7E14]/10 border border-[#FD7E14]/20 mb-4.5 shadow-sm">
             <Sparkles className="w-4 h-4 text-[#FD7E14] animate-spin-slow" />
-            <span className="text-xs text-[#FD7E14] font-extrabold uppercase tracking-widest">AI-Powered Matchmaker</span>
+            <span className="text-xs text-[#FD7E14] font-extrabold uppercase tracking-widest">Career Matchmaker</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-black text-[#1C1C1E] tracking-tight mb-4">
             What's Your Dream Career?
           </h2>
           <p className="text-base sm:text-lg text-neutral-500 max-w-2xl mx-auto leading-relaxed font-medium">
-            Our AI scans exclusive partner MOU thresholds to find your highly compatible university match in seconds.
+            We scan exclusive partner MOU thresholds to find your highly compatible university match in seconds.
           </p>
         </motion.div>
 
@@ -253,7 +253,7 @@ export function AIMatcherWidget() {
 
                   <div className="relative z-10">
                     <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-white border border-[#FD7E14]/15 text-[#FD7E14] mb-4.5 shadow-sm">
-                      <Target className="w-3.5 h-3.5" /> AI Scan Core
+                      <Target className="w-3.5 h-3.5" /> Match Criteria
                     </div>
                     
                     <h3 className="text-xl font-extrabold text-[#1C1C1E] tracking-tight mb-4 flex items-center gap-2">
@@ -295,7 +295,7 @@ export function AIMatcherWidget() {
                       onClick={handleInitiateMatch}
                       className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-[#FD7E14] to-[#C94D1B] text-white text-xs font-extrabold py-4 px-6 rounded-2xl shadow-[0_8px_24px_rgba(253,126,20,0.25)] hover:shadow-[0_12px_32px_rgba(253,126,20,0.4)] hover:scale-[1.01] transition-all duration-300"
                     >
-                      <Sparkles className="w-4 h-4" /> Initiate AI Matchmaker
+                      <Sparkles className="w-4 h-4" /> Find My Matches
                     </button>
                   </div>
                 </div>
@@ -321,7 +321,7 @@ export function AIMatcherWidget() {
                 </div>
 
                 <h3 className="text-2xl font-black text-[#1C1C1E] tracking-tight mb-2">
-                  Initiating Neural Matching...
+                  Finding Your Matches...
                 </h3>
                 
                 {/* Dynamic Status Text */}

@@ -116,13 +116,13 @@ export function DocumentButler() {
         <div className="text-center mb-12">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0074D9]/10 mb-4">
             <Sparkles className="w-4 h-4 text-[#0074D9]" />
-            <span className="text-sm text-[#0074D9] font-semibold">AI Document Butler</span>
+            <span className="text-sm text-[#0074D9] font-semibold">Document Butler</span>
           </div>
           <h2 className="text-4xl md:text-5xl font-bold text-[#001F3F] mb-4">
             Smart Document Verification
           </h2>
           <p className="text-lg text-[#001F3F]/70 max-w-2xl mx-auto">
-            Upload your documents and let our AI verify them instantly using OCR technology
+            Upload your documents and we verify them instantly using OCR technology
           </p>
         </div>
 
@@ -258,7 +258,7 @@ export function DocumentButler() {
                               <div className="w-6 h-6 border-2 border-[#0074D9] border-t-transparent rounded-full animate-spin" />
                               <div>
                                 <p className="font-semibold text-[#0074D9]">
-                                  AI is analyzing your document...
+                                  Analyzing your document...
                                 </p>
                                 <p className="text-xs text-[#0074D9]/80">
                                   Checking validity, expiry dates, and information

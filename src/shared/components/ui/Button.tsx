@@ -12,6 +12,7 @@ const buttonVariants = cva(
       variant: {
         primary: "bg-brand-orange-accessible text-white shadow-warm-sm hover:bg-brand-orange-accessible/90 hover:shadow-warm-md",
         secondary: "border border-border-warm bg-surface-card text-brand-navy shadow-sm hover:border-brand-navy/30 hover:bg-surface-warm",
+        outline: "border border-border-warm bg-transparent text-brand-navy hover:border-brand-navy/30 hover:bg-surface-warm",
         ghost: "bg-transparent text-brand-navy hover:bg-brand-orange-accessible/10 hover:text-brand-orange-accessible",
         danger: "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
       },
