@@ -839,10 +839,13 @@ class StudentController
         $this->requireStudentUser();
         $q = trim((string) ($_GET['q'] ?? ''));
 
-        $sql = "SELECT public_id, full_name, agency_name, tier FROM agents WHERE status = 'approved' AND deleted_at IS NULL";
+        $sql = "SELECT public_id, full_name, agency_name, referral_code, tier FROM agents WHERE status = 'approved' AND deleted_at IS NULL";
         $params = [];
         if ($q !== '') {
-            $sql .= " AND (full_name LIKE ? OR agency_name LIKE ? OR public_id LIKE ?)";
+            // Match the agent's actual unique code (referral_code) — the public_id ULID is an
+            // internal identifier the student never sees or types, so matching against it here
+            // silently never matched anything a student would actually search for.
+            $sql .= " AND (full_name LIKE ? OR agency_name LIKE ? OR referral_code LIKE ?)";
             $like = '%' . $q . '%';
             $params = [$like, $like, $like];
         }

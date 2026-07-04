@@ -377,6 +377,38 @@ try {
 
     echo "Initial settings and templates seeded.\n\n";
 
+    // 7b. Apply migrations 070-080 (custom fields, university campuses/campus groups,
+    // application cap, agent onboarding/mobile encryption, HTML email templates, users
+    // email-unique-per-usertype, search prefix hashes). Not covered by all_migrations_combined.sql
+    // (stops at 059) or the inline 060-069 block above — kept as one file for the same reason
+    // schema.sql / all_migrations_combined.sql are: one file, one exec() call, no PHP runtime
+    // dependency needed to apply it standalone via phpMyAdmin/mysql CLI either.
+    // Must run AFTER the template seed just above, not before: 070_html_email_templates.sql
+    // (bundled inside this file) UPDATEs notification_templates rows by event_key — running it
+    // against an empty table (i.e. before seeding) would silently affect zero rows.
+    $migrations070to080File = __DIR__ . '/migrations_070_080.sql';
+    if (!is_file($migrations070to080File)) {
+        throw new \RuntimeException("migrations_070_080.sql not found at {$migrations070to080File}");
+    }
+    echo "Applying migrations 070-080...\n";
+    $pdo->exec(file_get_contents($migrations070to080File));
+    echo "Migrations 070-080 applied.\n\n";
+
+    // 7c. Migration 081: sla.breached / system.disk_warning / system.disk_critical templates.
+    // cron/check-sla-breaches.php and cron/monitor-disk.php always fired these event keys, but no
+    // template existed — the alerts were silently no-op'd. Found and fixed while auditing old
+    // seed scripts (scripts/seed_6i_6j_templates.php had this content, never wired into any
+    // migration or setup_database.php's seed list). Also must run after the template seed above,
+    // same reason — this INSERTs new rows, not UPDATEs, but must land after the truncate-and-reseed
+    // in step 6, otherwise the truncate there would wipe it right back out.
+    $migration081File = __DIR__ . '/migrations/081_missing_system_alert_templates.sql';
+    if (!is_file($migration081File)) {
+        throw new \RuntimeException("081_missing_system_alert_templates.sql not found at {$migration081File}");
+    }
+    echo "Applying migration 081...\n";
+    $pdo->exec(file_get_contents($migration081File));
+    echo "Migration 081 applied.\n\n";
+
     // 8. Helper to create a user record with encryption and lookup hashes
     $createUser = function (string $email, string $phone, string $password, string $userType, string $status = 'active') use ($pdo): array {
         $publicId = UlidGenerator::generate();
@@ -495,100 +527,32 @@ try {
         echo "-> [DEV] Student created: student@theglobalavenues.com / Student@12345 (Referred by Rajesh)\n\n";
     }
 
-    // 9. Seed Partner Universities
-    echo "Seeding Partner Universities...\n";
-    $unisSeed = [
-        [1, 'FH Kufstein Tirol', 'FH Kufstein', 'Austria', 'Kufstein', 'exclusive'],
-        [2, 'Estonian Entrepreneurship University of Applied Sciences', 'EUAS', 'Estonia', 'Tallinn', 'exclusive'],
-        [3, 'St. George\'s University', 'SGU', 'Grenada', 'St. George\'s', 'exclusive'],
-        [4, 'Benedictine University', 'Benedictine', 'USA', 'Lisle, Illinois', 'exclusive'],
-        [5, 'Elmhurst University', 'Elmhurst', 'USA', 'Elmhurst, Illinois', 'exclusive'],
-        [6, 'EIT InnoEnergy', 'InnoEnergy', 'Europe', 'Pan-European', 'exclusive'],
-        [7, 'MJM Graphic Design', 'MJM', 'France', 'Paris / London', 'exclusive'],
-        [8, 'ICN Business School', 'ICN', 'France', 'Nancy / Paris', 'exclusive'],
-        [9, 'Mesoyios College', 'Mesoyios', 'Cyprus', 'Limassol', 'exclusive'],
-        [10, 'CEFAM International School', 'CEFAM', 'France', 'Lyon', 'exclusive'],
-        [11, 'KES College Nicosia', 'KES', 'Cyprus', 'Nicosia', 'exclusive'],
-        [12, 'International American University', 'IAU', 'USA', 'Los Angeles, California', 'exclusive']
-    ];
-    $uniStmt = $pdo->prepare("
-        INSERT INTO universities (id, public_id, name, country, city, partnership_type, status)
-        VALUES (?, ?, ?, ?, ?, ?, 'active')
-    ");
-    foreach ($unisSeed as $uni) {
-        $uniStmt->execute([
-            $uni[0],
-            UlidGenerator::generate(),
-            $uni[1],
-            $uni[3],
-            $uni[4],
-            $uni[5]
-        ]);
+    // 9-11. Seed the real partner catalog (universities, courses, intakes,
+    // university_campuses, the one real university logo file, and the real
+    // student custom-field definitions) from a generated data-only export of
+    // the production catalog. Replaces the old hardcoded 12-university/
+    // 10-course/5-intake placeholder set that predated the real catalog import.
+    echo "Seeding real partner catalog (universities, courses, intakes)...\n";
+    $catalogSeedFile = __DIR__ . '/real_catalog_seed.sql';
+    if (!is_file($catalogSeedFile)) {
+        throw new \RuntimeException("real_catalog_seed.sql not found at {$catalogSeedFile}");
     }
-    echo "-> 12 partner universities imported.\n\n";
-
-    // 10. Seed Courses
-    echo "Seeding Courses & Programs...\n";
-    $coursesSeed = [
-        [1, 1, 'AI & Data Science', 'bachelors', 36, 'English', 'Comprehensive AI curriculum'],
-        [2, 1, 'Business Management', 'bachelors', 36, 'English', 'Global MBA foundation'],
-        [3, 2, 'Business Administration', 'bachelors', 36, 'English', 'Entrepreneurship focus'],
-        [4, 2, 'MBA', 'masters', 24, 'English', 'Master of Business Administration'],
-        [5, 3, 'Doctor of Medicine (MD)', 'phd', 60, 'English', 'MD with hospital rotations'],
-        [6, 3, 'Public Health', 'masters', 24, 'English', 'Epidemiology and health structures'],
-        [7, 4, 'MBA', 'masters', 24, 'English', 'Accelerated MBA'],
-        [8, 4, 'Computer Science', 'bachelors', 48, 'English', 'Software engineering track'],
-        [9, 5, 'Business Administration', 'bachelors', 48, 'English', 'Liberal arts core administration'],
-        [10, 5, 'Nursing', 'bachelors', 48, 'English', 'BSN Clinical Nursing Program']
-    ];
-    $courseStmt = $pdo->prepare("
-        INSERT INTO courses (id, public_id, university_id, name, degree_level, duration_months, language, description, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active')
-    ");
-    foreach ($coursesSeed as $course) {
-        $courseStmt->execute([
-            $course[0],
-            UlidGenerator::generate(),
-            $course[1],
-            $course[2],
-            $course[3],
-            $course[4],
-            $course[5],
-            $course[6]
-        ]);
+    // Executed one statement (one line) at a time rather than as a single exec() of the whole
+    // file: this seed carries thousands of data rows, and shared hosting (Bluehost) commonly
+    // caps max_allowed_packet well below what a single multi-thousand-row blob would need.
+    // real_catalog_seed.sql is generated with mysqldump --skip-extended-insert specifically so
+    // each line is exactly one complete statement, safe to split on newlines.
+    foreach (explode("\n", file_get_contents($catalogSeedFile)) as $catalogLine) {
+        $catalogLine = trim($catalogLine);
+        if ($catalogLine === '' || str_starts_with($catalogLine, '--')) {
+            continue;
+        }
+        $pdo->exec($catalogLine);
     }
-    echo "-> 10 academic courses imported.\n\n";
-
-    // 11. Seed Intakes
-    echo "Seeding Intakes...\n";
-    $intakesSeed = [
-        [1, 1, 'Fall 2026', 9, 2026, '2026-02-01', '2026-06-30', '2026-09-01', 726.00, 'EUR', 'open'],
-        [2, 2, 'Fall 2026', 9, 2026, '2026-02-01', '2026-06-30', '2026-09-01', 726.00, 'EUR', 'open'],
-        [3, 3, 'Fall 2026', 9, 2026, '2026-02-01', '2026-06-15', '2026-09-01', 3500.00, 'EUR', 'open'],
-        [4, 4, 'Fall 2026', 9, 2026, '2026-01-01', '2026-05-30', '2026-09-10', 6000.00, 'EUR', 'open'],
-        [5, 5, 'Winter 2027', 1, 2027, '2026-05-01', '2026-10-15', '2027-01-10', 32000.00, 'USD', 'open']
-    ];
-    $intakeStmt = $pdo->prepare("
-        INSERT INTO intakes (id, public_id, course_id, name, intake_month, intake_year, application_open_date, application_deadline, course_start_date, tuition_fee_amount, tuition_fee_currency, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ");
-    foreach ($intakesSeed as $intake) {
-        $intakeStmt->execute([
-            $intake[0],
-            UlidGenerator::generate(),
-            $intake[1],
-            $intake[2],
-            $intake[3],
-            $intake[4],
-            $intake[5],
-            $intake[6],
-            $intake[7],
-            $intake[8],
-            $intake[9],
-            $intake[10]
-        ]);
-    }
-    echo "-> 5 active intakes open for enrollment.\n\n";
+    $uniCount = (int)$pdo->query("SELECT COUNT(*) FROM universities")->fetchColumn();
+    $courseCount = (int)$pdo->query("SELECT COUNT(*) FROM courses")->fetchColumn();
+    $intakeCount = (int)$pdo->query("SELECT COUNT(*) FROM intakes")->fetchColumn();
+    echo "-> {$uniCount} partner universities, {$courseCount} courses, {$intakeCount} intakes imported.\n\n";
 
     // 12. Seed Atomic Sequence reference counter
     $pdo->exec("INSERT INTO sequences (seq_name, next_val) VALUES ('application_ref', 1) ON DUPLICATE KEY UPDATE next_val = VALUES(next_val);");

@@ -10,7 +10,7 @@ Environment::load(__DIR__ . '/../.env');
 
 try {
     $pdo = Database::getConnection();
-    echo "Running missing migrations (060 to 070)...\n";
+    echo "Running missing migrations (060 to 089)...\n";
 
     $migrationsDir = __DIR__ . '/migrations';
     $files = scandir($migrationsDir);
@@ -18,7 +18,12 @@ try {
     sort($files);
 
     foreach ($files as $file) {
-        if (preg_match('/^(06[0-9]|070)_.*\.sql$/', $file, $matches)) {
+        // Was '^(06[0-9]|070)_.*\.sql$' — silently skipped 071-080 (11 migration files:
+        // custom fields, university_campuses/campus_group_id, application cap, agent
+        // onboarding/mobile encryption, HTML email templates, users email-unique-per-usertype,
+        // search prefix hashes). Widened to cover 060-089 so newly added migrations in that
+        // range keep working without another silent gap.
+        if (preg_match('/^(06[0-9]|07[0-9]|08[0-9])_.*\.sql$/', $file, $matches)) {
             $num = (int)$matches[1];
             echo "Applying migration: $file\n";
             $sql = file_get_contents($migrationsDir . '/' . $file);
