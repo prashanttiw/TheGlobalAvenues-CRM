@@ -2249,4 +2249,245 @@ restriction, not the ownership boundary.
 - `src/pages/agent/AgentStudents.tsx` — removed stale PII-hidden notice in preview drawer
 - `src/pages/agent/AgentProfilePage.tsx` — relabeled pending reassignment requests with explanatory copy
 
+### 2026-07-04 — Agent Commissions page fixed+restyled; sidebar logo swap; ID/data-leakage audit
+
+**Agent Commissions page was crashing** — `AgentCommissionsPage.tsx` used `<Button>` (pagination Previous/Next)
+with no import for it at all. Harmless with ≤1 page of results (the block never rendered), but a hard
+`ReferenceError` the moment an agent had enough commission records to paginate — this is very likely what the
+user meant by "not working." Fixed the import. Backend (`AgentController::listCommissions()` /
+`commissionSummary()`) was already correctly wired and scoped to the logged-in agent's own `agent_id` (verified
+by reading the SQL — no changes needed there beyond the count addition below); the page just had a frontend
+crash bug sitting on top of working data.
+
+**Restyled the summary cards** to match `AdminCommissionsPage.tsx`'s gradient-card look (amber/blue/emerald,
+per-status ₹ total + claim count badge) instead of the plain `StatCard` component, for visual parity between
+the admin and agent versions of this page. This required one small backend addition:
+`AgentController::commissionSummary()`'s "own totals" query only returned `total_records` (count across ALL
+statuses combined) — added `pending_count`/`confirmed_count`/`paid_count` (same `SUM(CASE WHEN status=...)`
+pattern already used for the amounts) so the per-status badges have real data instead of being omitted or
+showing a meaningless combined count.
+
+**Added `<UnderDevelopmentNotice featureName="Commissions" />`** (see `PHASE_4_APPEND.md`, 2026-07-04 entries)
+to this page too, at the user's explicit request — the page works now, but is still flagged as under
+development like its admin counterpart.
+
+**Sidebar logo**: `src/shared/components/layout/PortalWrapper.tsx` (the single shared component instantiating
+`DashboardLayout` for all three portals) was passing the literal string `"GLOBAL AVENUES"` as `logo`, which
+`Sidebar.tsx` renders as a plain text `<span>`. User asked for the actual full-color logo (orange squares +
+navy wordmark, `public/logo-light.png` — the same asset the marketing site's `Header.tsx` uses) in its place,
+on all three dashboards. Note `Sidebar.tsx` already had a dormant code path for an image `logo` prop
+(`src.startsWith('/')` → renders with `brightness-0 invert`, forcing pure white — presumably intended for
+exactly this dark-navy-sidebar contrast problem) but that would have discarded the requested orange coloring
+entirely. Instead passed a small JSX node (`logo` prop accepts `string | ReactNode`) — a white rounded chip
+(`bg-white rounded-lg px-3 py-2`) containing the full-color image at `h-6`/`sm:h-7` — preserving true brand
+color while keeping it legible against `bg-brand-navy`. One shared change fixes all three portals since
+`PortalWrapper` is common to all of them.
+
+**ID/data-leakage audit** (user asked to check all three dashboards for internal-ID leakage or "critical" data
+exposure): ran a full grep-based sweep (self + a research subagent) across `src/pages/{admin,agent,student}/`
+and shared components. **Result: no raw internal integer IDs found anywhere in the frontend, and no PII or
+role-boundary violations** (no `password_hash`, `*_lookup_hash`, encrypted blobs, or other-role data found in
+any component) — the `public_id`-only architecture (see CLAUDE.md) is intact everywhere it was checked. Found
+one genuinely redundant display: `AdminCommissionsPage.tsx`'s student/application column showed `Ref:
+{reference_number} · ID: {application_public_id.substring(0, 8)}` — a truncated ULID sitting right next to the
+application's actual human-facing identifier (`reference_number`, format `TGA-YYYY-NNNNNN`). Removed the
+truncated-ID half, kept `Ref: {reference_number}` only.
+
+Every other `"ID: {public_id}"` label found (`AdminStudentsPage`, `AdminAgentsPage`, `AdminStudentDetailPage`,
+`AgentStudentDetailPage`, `AgentStudents`, `AgentCommissionsPage`, `StudentDocuments`) displays the correct
+external-safe ULID (never the raw int) and is a **consistent, repeated pattern across the whole app** — left
+these as-is rather than making a large, inconsistent, unrequested design change; flagged to the user that
+these exist and offered to remove them too if it's a UX preference issue rather than the security concern that
+prompted the ask (which the audit found no evidence of).
+
+**Verified live** (browser preview, all three portals): agent login (`agent1@theglobalavenues.com`) →
+`/portal/agent/commissions` renders without error — gradient cards at ₹0 (this account currently has no
+commission records), correct empty-state messaging, sub-agent override table populated with 2 real sub-agents;
+admin's `/portal/admin/commissions` re-checked post-edit, still renders correctly; sidebar logo confirmed
+loading (`naturalWidth`/`naturalHeight` match the real file, `img.complete === true`) on admin, agent, and
+student portals.
+
+**Files Changed**:
+- `crm-api/Controllers/AgentController.php` — `commissionSummary()`: added `pending_count`/`confirmed_count`/`paid_count` to the "own totals" query and response
+- `src/pages/agent/AgentCommissionsPage.tsx` — fixed missing `Button` import (crash fix); restyled summary cards to match admin's gradient style; added `UnderDevelopmentNotice`
+- `src/pages/admin/AdminCommissionsPage.tsx` — removed redundant truncated `application_public_id` display next to `reference_number`
+- `src/shared/components/layout/PortalWrapper.tsx` — `logo` prop now renders the real `logo-light.png` asset in a white chip instead of a plain text string (affects all 3 portals via shared `DashboardLayout`)
+
+### 2026-07-04 — Same-day follow-up: logo redo, agent hierarchy cap enforcement, reassignment admin UI built from scratch, responsiveness fixes, agent-picker combobox
+
+User came back same session with six more items. Full detail below; short version — logo redesigned again per
+feedback, a real `user.tier` bug got fixed as a side effect of gating the sub-agent-invite button, a
+**complete admin UI for agent reassignment requests was built from scratch** (the backend was 100% done and
+already had matching `api.ts` helpers, but zero frontend page ever called them — admin had no way to see or
+action a student's reassignment request at all), one real responsiveness bug fixed, and a reusable
+agent-search combobox replaced four separate plain-text "type the agent's code" inputs across all three
+portals (fixing a real backend search bug along the way).
+
+**1. Logo, take two**: the previous session's fix (full-color `logo-light.png` in a white card) didn't look
+good per the user — "remove its background and just keep logo and text... make it large also." Since
+`logo-light.png`'s navy wordmark has poor contrast painted directly on the dark `bg-brand-navy` sidebar (its
+PNG genuinely has an alpha channel, confirmed via `colorType 6` in the file header — no opaque backing to
+rely on), switched to `logo-footer-white-transparent.png` (the same white-on-transparent asset the marketing
+site already uses for its own dark hero header) with no card wrapper at all, sized up to `h-10` (40px, was
+24–28px in a padded chip). `PortalWrapper.tsx`'s `logo` prop is the single shared value for all three
+portals.
+
+**2. Agent hierarchy tier-3 cap — tested end-to-end, one real gap found and fixed**: live-tested the full
+chain (tier 1 `agent1@theglobalavenues.com` invites a tier 2 sub-agent → admin approves → tier 2 invites a
+tier 3 sub-sub-agent → admin approves → logged in as the tier 3 account). Backend already correctly
+hard-caps this (`SubAgentController::invite()`, `if ((int)$creator['tier'] >= 3) → 403 TIER_LIMIT_REACHED`),
+but `AgentTeamPage.tsx` showed the "Invite Sub-Agent" button (header action *and* the empty-state CTA)
+**unconditionally to every tier**, meaning a tier-3 agent would fill out the whole invite form and only find
+out it's rejected after submitting to the backend.
+
+Gating this needed `user.tier` from `useAuth()` — which turned out to be **permanently `undefined`**:
+`AuthController::buildUserResponse()` (the single function backing login, 2FA-verify, and session-refresh)
+never selected `tier`/`referral_code` from the `agents` table at all, and the frontend's `mapAuthUser()`
+never read them even if it had. This silently broke two things nobody had apparently noticed: the tier-cap
+gating I needed to add, *and* the sidebar's own pre-existing `{user.tier && <p>...}` badge and `{user.referralCode
+&& <div>Referral Code:...}</div>` block — both already written in `Sidebar.tsx`, both never rendering,
+because the value feeding them was always `undefined`. Fixed at the root: added
+`AuthController::resolveAgentTierAndReferral()` (mirrors the existing `resolveAccountStatus()` pattern) and
+wired its output into `buildUserResponse()`'s return array; updated `mapAuthUser()` in `useAuth.ts` to read
+`apiUser.tier`/`apiUser.referral_code`; changed `User.tier`'s type from a stale unused `string` to `number`
+(1/2/3) and updated `Sidebar.tsx`'s render to a proper label ("Tier 1 Agent" / "Tier 2 Sub-Agent" / "Tier 3
+Sub-Sub-Agent") instead of the old raw `{user.tier}` interpolation. `AgentTeamPage.tsx` now computes
+`canCreateSubAgent = user?.tier === 1 || user?.tier === 2` and hides the invite button (both places) for
+tier 3, replacing the empty-state message with an explanation instead of a dead-end CTA.
+
+**Verified live**: created a real tier-2 sub-agent from the tier-1 account, approved it as admin, logged in
+as that new sub-agent — sidebar correctly showed "TIER 2 SUB-AGENT" and its own referral code (previously
+always blank) — created a real tier-3 sub-sub-agent from it, approved as admin, logged in as *that* account:
+sidebar correctly read "TIER 3 SUB-SUB-AGENT", and `/portal/agent/team` showed **no invite button anywhere**
+plus the explanatory message. `AgentDashboard.tsx`'s "My Agency Network" widget (a separate, pre-existing,
+correctly-scoped `View Team` link) confirmed to not show a misleading CTA either.
+
+**3. Agent reassignment: admin had zero visibility — built the missing page**: user asked to test student
+→ admin visibility for Additional Info (already fine, verified — a student-edited custom field showed up
+correctly on `AdminStudentDetailPage.tsx` immediately), Documents (verified structurally via route
+cross-check only — `DocumentRequestController`'s student/admin routes and `StudentDocuments.tsx`/admin
+document-queue calls all match up, but this specific test student had no application yet so no live
+document-request round-trip was actually exercised), and Request Agent (reassignment).
+
+Submitted a real reassignment request as a student (`StudentAgentPage.tsx`'s "Request Agent Change" —
+confirmed `POST .../agent/reassignment-request` → `201 Created`) and then went looking for it on the admin
+side. **There was no way to find it.** `ReassignmentController.php` has a complete admin API —
+`adminList`/`adminGet`/`adminApprove`/`adminDeny`/`adminStudentHistory`, all routed in `AdminRoutes.php`,
+all with matching `fetchAdminReassignmentRequests`/`approveReassignment`/`denyReassignment`/etc. already
+written in `api.ts` — but no page anywhere called any of them. The only related UI was a "Reassign Agent"
+row-action on `AdminStudentsPage.tsx` that did `onClick: () => toast.success('Use the reassignment queue for
+${row.name}.')` — a fake toast pointing at a "queue" that didn't exist. Same file had two more
+honesty-inconsistent placeholders next to it: "Edit Student Details" (`toast.success('Live edit flow is not
+wired on this page yet...')` — at least admits it) and "Request Document" (`toast.success('Use
+application-level document requests for ${row.name}.')` — same fake-toast pattern as reassignment; not
+fixed this session, flagged as a follow-up since it wasn't part of what was asked).
+
+Built `src/pages/admin/AdminReassignmentsPage.tsx` from scratch using the existing, unused API layer: status
+filter (Pending/Approved/Denied/All, defaulting to Pending), student-name search, a `DataTable` list
+(student, current agent, requested agent or "Auto-assign", reason, date, status, inline Approve/Deny), and a
+`SlideOverPanel` action form — Approve takes an optional (or required, if the student left theirs blank)
+override agent plus notes, Deny takes notes only, both call the pre-existing mutation endpoints. Registered
+at `/portal/admin/reassignments` (`students.approve` permission, matching the backend's own
+`RBACMiddleware::requirePermission('students', 'approve')` gate — note this doesn't match
+`AdminStudentsPage.tsx`'s own inconsistently-named `students.reassign` permission check on the row action;
+left that mismatch alone since fixing it wasn't part of the ask and the *backend* check is what actually
+matters). Added a real nav entry ("Reassignment Requests") in `PortalWrapper.tsx`'s `ADMIN_NAV_BASE`. Fixed
+`AdminStudentsPage.tsx`'s fake "Reassign Agent" toast to `navigate('/portal/admin/reassignments?student=' +
+encodeURIComponent(row.name))`; the new page reads that query param to pre-fill its search box and defaults
+its status filter to "All" in that case specifically (so an already-decided request for that student isn't
+hidden behind the default Pending filter).
+
+**Verified live end-to-end**: approved the real test request (chose an override agent, "Sonia Sharma /
+Noida Franchise", different from the student's actual current agent) — `PUT
+.../reassignment-requests/:pid/approve → 200 OK` — then re-opened the student's own
+`AdminStudentDetailPage.tsx`: **"AGENT" field had genuinely changed from "Delhi Consultations" to "Noida
+Franchise."** Switching the reassignments page's filter to "Approved" showed the request with its new status.
+Also discovered, while first opening this page, that a *second*, pre-existing test reassignment request
+(for "Sneha Test Student 2") had been sitting in the `pending` queue this whole time with zero admin
+visibility until this page existed.
+
+**4. Responsiveness — one confirmed bug fixed, others checked and ruled out**: dispatched a research
+subagent for a broad static-code sweep; it worked in a **stale worktree checked out at commit `0b69852`**
+(`.claude/worktrees/epic-bardeen-8808d3`, several commits behind current `HEAD` — a leftover from an earlier
+`isolation: worktree` agent run, never cleaned up) rather than the real working tree, so its file paths/line
+numbers were unusable directly. Re-verified every finding against the actual current files myself before
+acting on any of them:
+
+- **Real bug, fixed**: `AdminUsers.tsx`'s admin-accounts table was a raw `<table className="min-w-[700px]">`
+  with `overflow-x-auto` and **no mobile card fallback at all** — unlike every other list page, which uses
+  the shared `DataTable` component's `hidden md:block` table / `md:hidden` card-list split. Below `md`
+  (768px) this table had no responsive treatment whatsoever. Added an `AdminMobileCard` component
+  (same data/actions as the existing `AdminRow`, just laid out as a stacked card) and wrapped both the real
+  table and its loading skeleton (`AdminTableSkeleton`) in the same `hidden md:block` / `md:hidden` pattern
+  used everywhere else. Verified live at 390px: desktop table hidden, 6 real accounts rendered as mobile
+  cards with working `InlineActions` dropdowns.
+- **Investigated, not a bug**: the user's specific example (Intakes page, "scroll down where there is no
+  content") did not reproduce at 390px, 820px (straddling the `md` breakpoint), or 1400px — `scrollHeight`
+  was fully and exactly accounted for by real intake rows/cards at every width tested (confirmed by summing
+  individual row/card heights against the container total). `AdminReportsPage.tsx`'s `h-[400px]`/`h-[300px]`
+  chart containers (flagged by the subagent) are the *required* Recharts `ResponsiveContainer` pattern (it
+  needs an explicit-height parent) with genuinely designed empty/loading states inside, not dead space.
+  `AdminLeadsPage.tsx`'s `h-[calc(100vh-200px)]` Kanban board showed real lead cards at mobile width too
+  (just needing horizontal scroll across its 3 columns, standard Kanban-on-mobile behavior).
+- **Separately discovered while checking this**: `Button`'s `variant="outline"` is used in **14 files**
+  across the app (all three portals) but was never a real option in `Button.tsx`'s CVA config (only
+  `primary`/`secondary`/`ghost`/`danger` exist) — confirmed live via `getComputedStyle`: an "outline" button
+  rendered with `background: transparent`, `border: 0px` (i.e. no visible border despite a border-color),
+  and unstyled near-black text — a fully invisible-looking button on every page that used it. This is very
+  likely part of why several pages "don't look right." Added a real `outline` variant (transparent
+  background, `border-border-warm`, `text-brand-navy`, hover fill) rather than hunting down and renaming 14
+  call sites — fixes all of them at once, zero risk of missing one. Verified live:
+  `AdminLeadsPage.tsx`'s "View Archive" button went from `border: 0px` / plain black text to a real `1px
+  solid` border and correct `rgb(30, 42, 74)` (`brand-navy`) text.
+
+**5. Agent-picker combobox — replaced 4 plain-text "type the agent's code" inputs, fixed a real search bug
+along the way**: user asked for a searchable agent picker (type name or code, click to select) everywhere a
+form currently asks for a raw agent code, "attached to each place from where this happens." Found that
+`ProfileCompletionPanel.tsx` (student profile completion) **already had this exact feature built inline** —
+a debounced `fetchAgentDirectory()` search + dropdown + selected-chip-with-Remove-button — so extracted it
+into a shared `src/shared/components/ui/AgentCombobox.tsx` (`scope: 'student' | 'admin'`, since the two
+sides call different backend endpoints — students hit the student-scoped `agents/directory` route,
+admin-context forms hit the general `fetchAdminAgents({ status: 'approved' })` list with a search param) and
+wired it into `ProfileCompletionPanel.tsx` (replacing its now-duplicated inline copy), `StudentAgentPage.tsx`
+(reassignment request's "Preferred Agent Code" text input), `AdminReassignmentsPage.tsx` (the approve
+dialog's "New Agent Code" override, built in item 3 above), and `AdminLeadsPage.tsx` (the lead-conversion
+form's "Agent Referral Code" text input).
+
+**Real bug found and fixed while wiring the student side**: `StudentController::agentDirectory()`'s search
+condition was `(full_name LIKE ? OR agency_name LIKE ? OR public_id LIKE ?)` — matching the agent's internal
+ULID `public_id`, which a student never sees or types, instead of `referral_code` (e.g. `TGA-DEL001`), which
+is the actual "unique code" students are told to use. The endpoint also never selected `referral_code` in
+the first place, so even a correct match couldn't have displayed it. Fixed both: added `referral_code` to
+the `SELECT`, changed the third `LIKE` condition to match it.
+
+**Verified live**: admin-scope combobox (approve dialog and lead-conversion form) — typing "Sonia"/"Rajesh"
+correctly returned live-matching agents with agency name + referral code, selection renders the
+chip-with-Remove-button UI correctly in both places. Student-scope combobox (reassignment request form) —
+typing the referral-code prefix `"TGA-NOI"` (not a name) correctly matched "Sonia Sharma · Noida Franchise
+(TGA-NOI002)", confirming the backend fix; this exact query would have returned nothing before the fix.
+
+**Files Changed**:
+- `crm-api/Controllers/AuthController.php` — `buildUserResponse()` now includes `tier`/`referral_code` for agents; added `resolveAgentTierAndReferral()`
+- `crm-api/Controllers/StudentController.php` — `agentDirectory()`: search referral_code not public_id; added referral_code to SELECT
+- `src/lib/api.ts` — `AuthUser` type: added `tier`/`referral_code`
+- `src/shared/hooks/useAuth.ts` — `User.tier` now `number`; `mapAuthUser()` reads tier/referral_code
+- `src/shared/components/layout/Sidebar.tsx` — `tier` prop type `number`; renders a real tier label instead of raw interpolation
+- `src/shared/components/layout/PortalWrapper.tsx` — logo swapped to white transparent asset, no card, larger; added "Reassignment Requests" nav item
+- `src/pages/agent/AgentTeamPage.tsx` — hides Invite Sub-Agent (both locations) for tier-3 agents, with an explanatory empty state
+- `src/pages/admin/AdminReassignmentsPage.tsx` — **NEW**: full admin reassignment queue (list/filter/search/approve/deny)
+- `src/router/index.tsx` — registered `admin/reassignments` route
+- `src/pages/admin/AdminStudentsPage.tsx` — "Reassign Agent" row action now navigates to the real queue instead of a fake toast
+- `src/pages/admin/AdminUsers.tsx` — added mobile card view (table previously had none) for both the real list and its loading skeleton
+- `src/shared/components/ui/Button.tsx` — added the missing `outline` variant (used in 14 files, previously rendered unstyled)
+- `src/shared/components/ui/AgentCombobox.tsx` — **NEW**: reusable agent search/select component
+- `src/shared/components/student/ProfileCompletionPanel.tsx` — replaced inline agent-search implementation with `AgentCombobox`
+- `src/pages/student/StudentAgentPage.tsx` — "Preferred Agent Code" text input → `AgentCombobox`
+- `src/pages/admin/AdminLeadsPage.tsx` — "Agent Referral Code" text input → `AgentCombobox`
+
+**Not fixed, flagged as follow-ups** (out of scope for what was asked this session): `AdminStudentsPage.tsx`'s
+"Request Document" and "Edit Student Details" row actions are still fake `toast.success(...)` placeholders;
+the three stale `.claude/worktrees/*` directories (all checked out at `0b69852`, all with uncommitted local
+changes) were found but not touched/deleted — that's a destructive action requiring explicit user
+confirmation.
+
 

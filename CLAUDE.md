@@ -127,12 +127,14 @@ D:\TheGlobalAvenues-CRM\
 │   └── Helpers/Response.php         # Response::success(), Response::error()
 │
 ├── crm-api/Database/
-│   ├── migrations/                  # 001–069 SQL files (★ 048–052 MISSING — use combined SQL)
-│   ├── all_migrations_combined.sql  # ★ USE THIS for fresh environment setup
-│   ├── schema.sql                   # Schema snapshot
-│   ├── seeds/                       # universities_seed.sql, programs_seed.sql (admin_seed.sql removed — use setup_database.php)
-│   ├── run_all_migrations.php       # ★ ONLY runs 060–069 — NOT a full migration runner
-│   └── setup_database.php           # Full setup helper
+│   ├── migrations/                  # 001–081 SQL files (★ 048–052 MISSING — use combined SQL)
+│   ├── all_migrations_combined.sql  # Covers 038–059 only — loaded by setup_database.php, not standalone
+│   ├── migrations_070_080.sql       # 070–080 concatenated (not in combined SQL) — loaded by setup_database.php
+│   ├── real_catalog_seed.sql        # Real universities/courses/intakes/campuses/logo/custom-fields data-only export
+│   ├── schema.sql                   # Schema snapshot (001–037)
+│   ├── seeds/                       # Empty (.gitkeep only) — old quiz/programs/universities seed files were dead (2026-07-04, referenced tables/columns that never shipped)
+│   ├── run_all_migrations.php       # Patches an existing DB with 060–089 — NOT a fresh-install tool
+│   └── setup_database.php           # ★ USE THIS for fresh environment setup — one command: full schema (001–081) + RBAC/config + real super admin + real catalog, zero test/stale data on APP_ENV=production
 │
 ├── cron/                            # 9 cron scripts + master scheduler
 │   └── scheduler.php                # cPanel entry: every minute via flock()
@@ -648,17 +650,33 @@ php cron/process-reminders.php
 
 ## Known Open Items
 
-1. **`application.status_changed` notification template missing.** `StateManager::transition()` fires
-   `NotificationService::fire('application.status_changed', ...)` but no row exists for this
-   `event_key` in any seeded migration. The call silently no-ops. A new migration seeding this
-   template is needed before students/agents receive status-change emails.
+~~1. `application.status_changed` notification template missing.~~ — **Resolved.** The template is
+   seeded by `setup_database.php`'s template list; students/agents do receive status-change emails.
 
 2. **Migrations 048–052 missing as individual files.** Phase 4 ALTERs only exist in
    `all_migrations_combined.sql`. Not a blocker (combined SQL works), but any per-file migration
    tooling will skip them. Extract from combined SQL if per-file consistency is required.
 
-3. **`run_all_migrations.php` is not a full runner.** It only matches `^(06[0-9])_.*\.sql$`. Do not
-   use for fresh environment setup. Use `all_migrations_combined.sql`.
+~~3. `run_all_migrations.php` is not a full runner, only matches 060-069.~~ — **Fixed 2026-07-04.**
+   Regex now covers `060`–`089`. Still a patch-an-existing-DB tool, not a fresh-install tool — use
+   `setup_database.php` for that.
+
+9. **`sla.breached` / `system.disk_warning` / `system.disk_critical` notification templates were
+   missing (fixed 2026-07-04, migration 081).** Same class of bug as the resolved item 1 above —
+   `check-sla-breaches.php` and `monitor-disk.php` always fired these event keys with no matching
+   template, silently no-op'ing. Now seeded.
+
+10. **Payment reminders never actually notify anyone — confirmed, not yet fixed.**
+    `PaymentTrackingController` is the *only* caller of `ReminderService::schedule()` anywhere in the
+    codebase, and it hardcodes reminder types `payment_upcoming` / `payment_urgent`. But
+    `ReminderEngine::$eventKeys` has no entries for those two strings (it has `payment_overdue`,
+    `deadline_3days`, `deadline_1day`, `overdue`, `commission_pending`, `intake_deadline` instead —
+    none of which any caller actually produces). So `ReminderEngine::getEventKey()` always returns
+    `null` for every reminder that's actually ever created, `cron/process-reminders.php` silently
+    skips firing a notification, and the reminder row still gets marked `sent`. Needs a decision on
+    which naming to canonicalize (rename `ReminderEngine`'s keys to match `PaymentTrackingController`,
+    or vice versa) plus new notification_templates rows — not fixed yet, flagged for explicit
+    sign-off rather than guessed at.
 
 4. **`react-dnd`, `axios`, `@mui/material` in `package.json` but unused.** None are imported anywhere
    in `src/`. Consider removing to reduce bundle size and clarify intent. Not urgent.

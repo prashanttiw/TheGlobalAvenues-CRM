@@ -1260,3 +1260,136 @@ system-wide for `email_lookup_hash` and `otp_verifications.identifier_hash`, and
 touching every WHERE-clause lookup in the codebase. Exposure is already bounded to authenticated,
 `security_events.view`-permitted staff (the same trust tier as viewing the account directly), so this is
 an accepted architectural tradeoff, not a page-specific bug — flagged here for visibility, not fixed.
+
+### 2026-07-04 — One-Click Production Install: Closed the 070–080 Migration Gap, Real Catalog Seed
+
+User is preparing the first-ever production deployment and asked for the local dev database (`tga_crm`)
+to stay untouched while `setup_database.php` becomes a genuine one-command production installer: correct
+schema, correct RBAC/config, the real partner catalog, one real super admin, zero test/stale data.
+
+**Critical gap found**: migrations `070`–`080` (11 files — `student_custom_fields`, `university_campuses`,
+`campus_group_id`, application cap/preference-rank, agent onboarding profile, agent mobile encryption,
+HTML email templates, `users` email-unique-per-usertype, user search prefix hashes) were not applied by
+*any* existing tool. `all_migrations_combined.sql` stops at 059. `setup_database.php`'s inline block only
+covered 060–069. `run_all_migrations.php`'s regex, `^(06[0-9]|070)_.*\.sql$`, matched 060–070 but silently
+dropped 071–080 — a fresh production install using only the documented tooling would have ended up on a
+schema ~11 migrations behind current app code, with entire tables (custom fields) missing.
+
+**Also found**: `setup_database.php` seeded a stale placeholder catalog (12 universities / 10 courses / 5
+intakes, hardcoded IDs 1–12/1–10/1–5) left over from before the real 310-university catalog was imported
+2026-07-03. Production installs were about to get the wrong catalog.
+
+**Fixed**:
+- Added `crm-api/Database/migrations_070_080.sql` — the 11 orphaned migrations concatenated in
+  dependency-safe order, loaded by `setup_database.php` right after the existing inline 060–069 block
+  (same `file_get_contents` + `exec()` pattern already used for `schema.sql` /
+  `all_migrations_combined.sql`).
+- Added `crm-api/Database/real_catalog_seed.sql` — a data-only export (`mysqldump --no-create-info
+  --complete-insert --skip-extended-insert`) of the real catalog: 310 universities, 2,606 courses, 4,419
+  intakes, 412 `university_campuses` rows, the one real university logo (`files.id=65`), and the 4
+  real-looking `student_custom_field_definitions` rows (excluded 2 obviously-test rows: "Throwaway
+  Field", "Test Field"). Ends with `ALTER TABLE ... AUTO_INCREMENT = ...` on every touched table.
+- `setup_database.php`: replaced steps 9–11 (the stale hardcoded university/course/intake arrays) with
+  loading `real_catalog_seed.sql`. The dev-only test-data block (`if ($appEnv === 'development')`) is
+  untouched — production installs skip it automatically; local dev installs still get the full test
+  dataset, just layered on the real catalog instead of the stale placeholder one.
+- `run_all_migrations.php`: fixed the regex to `^(06[0-9]|07[0-9]|080)_.*\.sql$` so this tool (used to
+  patch an *already-existing* DB, not fresh installs) no longer silently skips 071–080.
+
+**Real bug caught during verification, not just code review**: the first test run of the edited
+`setup_database.php` failed with `SQLSTATE[08S01]: ... Got a packet bigger than 'max_allowed_packet'
+bytes` — local MySQL's `max_allowed_packet` is 1MB, and mysqldump's default extended-insert produced
+single INSERT statements up to ~877KB (intakes) / ~833KB (courses) for the full-table dumps; sent as one
+`$pdo->exec()` call, the *combined* multi-statement blob exceeded the packet limit regardless of any
+individual statement's size (MySQL's packet-size limit applies to the whole string sent in one
+`COM_QUERY`, not per logical statement). Bluehost shared hosting is expected to have an equally or more
+conservative limit, so this would have failed on the very first real production install. Fixed by
+regenerating `real_catalog_seed.sql` with `--skip-extended-insert` (one row per statement, largest line
+~2.7KB) and changing `setup_database.php` to execute that file one statement (one line) at a time instead
+of as a single `exec()` of the whole blob.
+
+**Verified by actually running it, not just reading it**: temporarily pointed `crm-api/.env`'s `DB_NAME`
+at a throwaway `tga_crm_test_install` database (restored the exact original `.env` content immediately
+after — the real `tga_crm` local dev database was never touched, confirmed by re-checking its row counts
+unchanged before/after). Ran the edited `setup_database.php` end-to-end: no errors; exact row counts
+(310/2,606/4,419/412/1/4) for universities/courses/intakes/campuses/files/custom-field-definitions;
+exactly one `is_super_admin=1` admin row matching the real `SUPER_ADMIN_EMAIL`; spot-checked schema
+columns from migrations 070–080 (`campus_group_id`, `preference_rank`, prefix-hash columns, mobile
+encryption columns) all present; confirmed `AUTO_INCREMENT` correctly bumped on every seeded table by
+inserting a live throwaway university row and confirming it landed at id 349 (no collision with imported
+IDs 1–348). Test database dropped after verification.
+
+**Net result**: `php crm-api/Database/setup_database.php` against a production-configured `.env`
+(`APP_ENV=production`, real DB credentials, real `SUPER_ADMIN_*` values) is now a complete one-command
+production installer — full schema through migration 080, clean RBAC/config, one real super admin, the
+real partner catalog, correct `AUTO_INCREMENT` state, zero test or stale rows.
+
+**Operational note**: `real_catalog_seed.sql` is a point-in-time export. If the local catalog changes
+(new universities/courses/intakes added) before the next production (re)install, regenerate it first —
+see the generation command recorded in the file's own header comment.
+
+### 2026-07-04 — Dead Seed File Audit; Found Two More Silent Notification Gaps
+
+User asked to delete old/unwanted seed files (naming `quiz_seed.sql` as an example) while keeping
+anything important. Audited every file under `crm-api/Database/seeds/` and every `scripts/seed_*.php`
+one-off before deleting anything.
+
+**Confirmed dead, removed (Windows Recycle Bin via `scripts/cleanup-dead-seed-scripts.ps1`)**:
+- `crm-api/Database/seeds/quiz_seed.sql` — INSERTs into `quiz_questions`, a table that was never
+  created by any of the 81 migrations and is queried by no controller. A designed-but-never-built
+  "course finder quiz" feature.
+- `crm-api/Database/seeds/programs_seed.sql` — INSERTs into `programs` (with an `intake_months_json`
+  column) — predates the real `courses`/`intakes` table split (migrations 015/016). Table doesn't
+  exist in the shipped schema.
+- `crm-api/Database/seeds/universities_seed.sql` — INSERTs into `universities` using columns
+  (`short_name`, `is_active`) that don't exist on the current table (pre-`public_id`/`status` era).
+  Same 12-university placeholder list already found and removed from `setup_database.php` on
+  2026-07-04 earlier the same day — this was a second copy of the identical stale list.
+- `scripts/seed_cron_health_table.php` — `CREATE TABLE IF NOT EXISTS cron_health` with a column
+  layout (`cron_name` primary key, no `job_name`) that doesn't match the real table shipped via
+  migrations 034/043 (`job_name` UNIQUE key, `run_count`/`fail_count` columns, etc.).
+- `scripts/seed_trigger_activity_logs.php` — defines a `prevent_activity_logs_update` MySQL trigger.
+  No such trigger exists in the database today (`SHOW TRIGGERS` confirmed empty) — superseded by the
+  DB-grant-level enforcement CLAUDE.md documents (app DB user has INSERT-only grant on the table).
+
+**Not blindly deleted — investigated first, content preserved via migration 081**:
+`scripts/seed_6i_6j_templates.php` contained 3 `notification_templates` rows (`sla.breached`,
+`system.disk_warning`, `system.disk_critical`) that turned out to be a **real, currently-live gap**:
+`cron/check-sla-breaches.php` and `cron/monitor-disk.php` have always called
+`NotificationService::fire()` with these exact event keys, but no template row existed for any of
+them — same silent-no-op pattern as the already-documented (and already-resolved)
+`application.status_changed` gap. Added `crm-api/Database/migrations/081_missing_system_alert_templates.sql`
+with proper HTML-styled versions (matching migration 070's visual pattern), applied it to the local
+dev DB directly, and wired it into `setup_database.php` — script content is now superseded, safe to
+delete.
+
+**Real bug caught while wiring migration 081 in — not a data problem, an ordering problem**: the first
+attempt loaded `migrations_070_080.sql` and `081_missing_system_alert_templates.sql` right after the
+060-069 inline block (before step 6's table-truncate and step 7's template re-seed). Re-running the
+full install against the throwaway test DB showed **0** of the 3 new templates present — the truncate
+in step 6 was wiping them right back out, since step 7's re-seed only inserts the original 27
+hardcoded templates. Worse: this exposed that **migration 070's HTML email template upgrade
+(`070_html_email_templates.sql`) was *also* silently not taking effect** — its `UPDATE
+notification_templates ... WHERE event_key = '...'` statements were running against an empty table
+(zero rows matched), so the one-click install was quietly shipping the old plain-text template bodies
+that step 7 hardcodes, not the HTML versions. Fixed by moving both the 070-080 and 081 loading blocks
+to run *after* step 7's template seeding instead of before it — verified by re-running against the
+throwaway DB: all 30 templates present (27 + 3 new), and `student.registration_otp`'s body now starts
+with `<p style="...">` (HTML) instead of `"Hi,\n\n..."` (plain text). Catalog counts and
+`AUTO_INCREMENT` state re-verified unaffected by the reorder.
+
+**Found but explicitly not fixed — flagged for the user's decision, recorded in CLAUDE.md Known Open
+Items #10**: `scripts/seed_reminder_templates.php`'s 4 event keys don't match what
+`PaymentTrackingController` (the only real caller of `ReminderService::schedule()` anywhere in the
+codebase) actually produces (`payment_upcoming`/`payment_urgent`, not `payment_overdue`). Every
+reminder the app currently schedules gets silently dropped by `cron/process-reminders.php` —
+`ReminderEngine::getEventKey()` returns `null` for both real reminder types, since neither is in its
+`$eventKeys` map. This needs a naming decision (which side to rename) before it can be fixed correctly
+— deliberately left alone rather than guessed at, and the now-content-mismatched
+`seed_reminder_templates.php` was deleted rather than kept around describing a fix that wouldn't
+actually work.
+
+**`CLAUDE.md` updated**: repo layout section (`seeds/` now empty except `.gitkeep`, added
+`migrations_070_080.sql` / `real_catalog_seed.sql` / migration 081 to the map,
+`setup_database.php` re-described as the one-click install tool); Known Open Items #1 marked resolved,
+#3 marked fixed with the corrected regex range, added #9 (this fix) and #10 (the payment reminder gap).

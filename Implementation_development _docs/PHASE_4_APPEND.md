@@ -2814,3 +2814,71 @@ incorrectly. Not fixed further; flagged as an accepted tradeoff given the primar
 
 **Not yet done** (unchanged from above): run migration 080 + the backfill script against production once
 deployed there; optional Phase 4 FULLTEXT perf pass.
+
+### 2026-07-04 — "Feature Under Development" notice for Leads, Commissions, Reports
+
+User asked for a temporary heads-up on three admin pages that aren't yet working as intended: Leads,
+Commissions, Reports. First iteration (superseded same session, see follow-up below): a dismissible
+`sonner` toast card, 3s after page open.
+
+**Redesigned same session per user feedback** into a hard-blocking modal instead of a dismissible toast:
+after ~3s, a centered card appears with the page's main content area blurred/darkened behind it and
+un-clickable, with **no close button** — the only way out is the sidebar nav (explicit user requirement:
+"no one can click in the page anywhere ... has to move to next page ... with help of side navbar").
+
+**Final implementation**: `UnderDevelopmentNotice` (`src/shared/components/ui/UnderDevelopmentNotice.tsx`)
+is a plain component (not a hook — it needs to render DOM), taking `featureName`. Internally: `setTimeout`
+flips a `visible` state after `delayMs` (default 3000, cleared on unmount so navigating away early cancels
+it cleanly); once visible it renders a `fixed inset-0 z-40 bg-black/45 backdrop-blur-sm` veil containing a
+centered card (`Construction` icon, title, feature-specific description, "use the sidebar" hint — no
+dismiss control). Positioned with `top-16 lg:left-[260px]` to exclude the `64px` `TopBar` and the `260px`
+desktop `Sidebar` (both hardcoded pixel values already used elsewhere in the layout — `TopBar.tsx`'s
+`h-16`, `Sidebar.tsx`'s `w-[260px]`), so those stay visible and clickable while only the main content
+column is blocked. Wired into the three pages by rendering `<UnderDevelopmentNotice featureName="..." />`
+directly in each page's JSX (`AdminLeadsPage.tsx` → `"Leads Pipeline"`, `AdminCommissionsPage.tsx` →
+`"Commissions"`, `AdminReportsPage.tsx` → `"Reports"`) rather than a hook call.
+
+**Non-obvious bug found and fixed while building this**: every portal page is wrapped in `PageWrapper`
+(`src/shared/components/layout/PageWrapper.tsx`), which renders a `motion.div` animating `y`. Framer/Motion
+leaves a resting `transform: translateY(0px)` inline style on that div even after the entrance animation
+finishes, and **any element with a `transform` (even a no-op one) becomes a new CSS containing block for
+its `position: fixed` descendants** — so the first version of this overlay, rendered as a plain nested
+`<div className="fixed inset-0 ...">` inside `PageWrapper`, was NOT actually fixed to the viewport; it was
+scoped to `PageWrapper`'s own box (already offset in from the sidebar/topbar), roughly doubling the
+intended `left`/`top` offsets and putting the overlay in the wrong place. Confirmed by comparing
+`getComputedStyle(el).left` (said `260px`, as coded) against the element's actual
+`getBoundingClientRect()` (`x: 552`, i.e. offset again from `PageWrapper`'s already-inset box, not the
+viewport). **Fix**: render via `ReactDOM.createPortal(..., document.body)`, matching the existing
+`ModalPortal = AlertDialogPrimitive.Portal` pattern already used by `Modal.tsx` for exactly this reason.
+After the fix, `getBoundingClientRect()` on the overlay correctly reports `{x: 260, y: 64, width: 1140,
+height: 836}` at a 1400×900 viewport — flush against the real sidebar/topbar edges. **Any future
+full-viewport `fixed` overlay rendered from within page content in this codebase must use a portal to
+`document.body`** — nesting it directly in page JSX will silently mis-position it due to this
+`PageWrapper` transform, with no console error to flag it.
+
+**Verified live** (logged in as admin, browser preview, multiple viewport sizes): overlay appears on all
+three target pages with the correct feature name and correct pixel-perfect bounds; does **not** appear on
+an unrelated page (`/portal/admin/universities`); `document.elementFromPoint()` inside the blocked zone
+resolves to the overlay `div` itself (click blocked) while the same check over the sidebar resolves to the
+actual `<a>` nav link (click passes through); a real `.click()` on a sidebar link while the overlay was
+showing successfully navigated away. At a mobile viewport (390×844), the `TopBar` hamburger button (which
+opens the off-canvas sidebar drawer) sits above the overlay's `top-16` cutout and remained clickable and
+functional, giving mobile users an escape path too.
+
+### 2026-07-04 — Global search (`SearchController::search()`) was completely broken; fixed end-to-end
+
+User reported the Ctrl+K global search "doesn't work" on all three portals and asked for the fake/dead
+parts of the command palette to be removed and wired to what each dashboard actually has. Found and fixed
+**three separate, independent bugs**, any one of which alone was enough to break search entirely:
+
+1. **Frontend double-unwrap bug** (`CommandPalette.tsx`): `queryFn` did `const res = await api.get(...); return res.data.data`. The backend returns `{ data: [...] }` (a literal top-level `data` key holding the results array directly — same `api.ts` unwrap contract documented elsewhere in this file), so `res.data` **is already the array**; `res.data.data` was always `undefined`. Combined with `useQuery({ data: searchResults = [] })`, this silently produced the same "Query data cannot be undefined" class of error seen elsewhere in this codebase's console noise — search results never rendered, for any query, on any portal, ever. Fixed to `return res.data`.
+
+2. **Backend SQL syntax error** (`SearchController::search()`): the five per-entity `SELECT ... LIMIT 5` blocks were joined with plain `UNION ALL` — MariaDB requires each branch with its own `LIMIT` to be parenthesized (`(SELECT ... LIMIT 5) UNION ALL (SELECT ... LIMIT 5)`); a bare `LIMIT` before `UNION ALL` is a hard `SQLSTATE[42000]` syntax error, on literally every search query regardless of term. Fixed by wrapping each branch in parens before joining.
+
+3. **Backend column/index errors, agents branch only**: after fixing #2, the *next* layer of failure surfaced — `SearchController`'s agents branch joined `users u` and selected `u.email`/`u.first_name`, but `users` has no `first_name`/`last_name` column at all (only `agents`/`students`/`admins` have their own `full_name` — the same fact already noted elsewhere in this file re: `LeadsController`'s lead-conversion bug) → `SQLSTATE[42S22]: Unknown column 'u.first_name'`. Removed the unnecessary `users` join entirely (agents already carry `full_name`), and separately, `MATCH(a.agency_name)` alone doesn't match the table's actual FULLTEXT index — `SHOW INDEX FROM agents` confirmed it's a single **composite** index over `(full_name, agency_name)` together, so a single-column `MATCH()` throws `SQLSTATE[HY000]: Can't find FULLTEXT index matching the column list`. Fixed to `MATCH(a.full_name, a.agency_name)`, matching the real index, and picked up "search by agent's personal name" as a side benefit (previously only agency name matched). Also fixed a shape inconsistency in the same controller: the short-query (`<3` chars) early-return sent `{data: {results: [], query: q}}`, a different shape than the normal `{data: [...]}` path — normalized to the same flat-array shape (defensive; the frontend already guards against calling the API below 3 chars, so this path wasn't the live bug, but was still wrong).
+
+**Removed the fake "Suggestions"/"Tools" content**: `CommandPalette.tsx` had a single hardcoded `COMMAND_ITEMS` array of student-only routes (`/portal/student/applications` etc.) shown identically to admins and agents regardless of role — an admin opening the palette would see a "Go to Applications" entry that pointed at a route their portal doesn't even have. The "Tools" group (`Schedule Consultation`, `Cost Estimator`, `Preferences`) had `action: () => {}` — pure no-ops, exactly the kind of dead feature flagged by the user. Deleted both; `CommandPalette` now takes an `items: NavItem[]` prop and `DashboardLayout.tsx` passes it the *exact same* `sidebarItems` array already computed for the sidebar (`PortalWrapper.tsx`'s role- and permission-filtered nav list) — one source of truth, so "Suggestions" can never drift out of sync with what a role can actually reach, and per-role permission filtering (e.g. a non-super-admin missing `reports.view`) is inherited for free instead of needing to be re-implemented in the palette.
+
+**Verified live** (all three portals, real data): admin search for "Kum" returned real students *and* agents in one query (including agents matched by personal name via the composite-index fix, not just agency name); "University" returned 5 real universities; "Test" returned real students/agents/leads (15 results); "TGA-2026" returned real applications by reference number. Agent-scoped search for "Test" correctly returned *only* students within that agent's subtree — no agents/leads (admin-only types, backend-enforced) leaked through. Clicking any result correctly navigated to the real detail page (`getPathForType`). "Go to" suggestions on all three portals now exactly match each portal's real sidebar nav, confirmed via DOM snapshot.
+
+**Files changed**: `crm-api/Controllers/SearchController.php` (parenthesized UNION branches, fixed agents branch's broken join/column/index, normalized short-query response shape); `src/shared/components/utilities/CommandPalette.tsx` (fixed `res.data.data` bug, removed fake `COMMAND_ITEMS`/Tools, now takes `items` prop); `src/shared/components/layout/DashboardLayout.tsx` (passes `sidebarItems` through to `CommandPalette`).
