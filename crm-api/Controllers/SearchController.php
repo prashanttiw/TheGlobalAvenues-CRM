@@ -27,7 +27,7 @@ class SearchController
         $q = trim($_GET['q'] ?? '');
         
         if (mb_strlen($q) < 3) {
-            Response::json(['data' => ['results' => [], 'query' => $q]]);
+            Response::json(['data' => []]);
             return;
         }
 
@@ -115,15 +115,19 @@ class SearchController
 
         // 4. Agents (Admin only)
         if (in_array('agents', $requestedTypes, true) && $user['utype'] === 'admin') {
+            // No join to `users` needed (and users has no first_name/last_name column —
+            // only agents/students/admins have their own full_name) — agents.full_name
+            // already holds the agent's personal name. The FULLTEXT index on this table
+            // (`ft_agents_name`) is a single composite index over (full_name, agency_name)
+            // together — MATCH() must reference both columns in that exact combination or
+            // MariaDB throws "Can't find FULLTEXT index matching the column list".
             $queries[] = "
-                SELECT 'agent' AS type, a.public_id, a.agency_name AS title, u.email AS subtitle, u.first_name AS meta, 4 as sort_order
+                SELECT 'agent' AS type, a.public_id, a.agency_name AS title, a.status AS subtitle, a.full_name AS meta, 4 as sort_order
                 FROM agents a
-                JOIN users u ON a.user_id = u.id
-                WHERE (MATCH(a.agency_name) AGAINST(? IN BOOLEAN MODE) OR u.first_name LIKE ?) AND a.deleted_at IS NULL AND u.deleted_at IS NULL
+                WHERE MATCH(a.full_name, a.agency_name) AGAINST(? IN BOOLEAN MODE) AND a.deleted_at IS NULL
                 LIMIT 5
             ";
             $params[] = $q . '*';
-            $params[] = $q . '%';
         }
 
         // 5. Leads (Admin only)
@@ -139,7 +143,11 @@ class SearchController
 
         $results = [];
         if (!empty($queries)) {
-            $unionQuery = implode(' UNION ALL ', $queries) . ' ORDER BY sort_order ASC';
+            // Each branch has its own LIMIT, so it must be parenthesized — a bare
+            // LIMIT is only valid on the final SELECT of a UNION (MariaDB
+            // SQLSTATE[42000] syntax error otherwise).
+            $wrappedQueries = array_map(static fn(string $qStr): string => "({$qStr})", $queries);
+            $unionQuery = implode(' UNION ALL ', $wrappedQueries) . ' ORDER BY sort_order ASC';
             $stmt = $this->pdo->prepare($unionQuery);
             $stmt->execute($params);
             $rawResults = $stmt->fetchAll(PDO::FETCH_ASSOC);
