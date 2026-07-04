@@ -7,13 +7,14 @@ import { Button } from '../../shared/components/ui/Button';
 import { UserCheck, MapPin, AlertCircle, RefreshCw, Clock, XCircle, CheckCircle2, Mail, Phone } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { fetchStudentAgentInfo, submitReassignmentRequest } from '../../lib/api';
+import { AgentCombobox, type AgentOption } from '../../shared/components/ui/AgentCombobox';
 
 export default function StudentAgentPage() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [requestReason, setRequestReason] = useState('');
-  const [requestedAgentCode, setRequestedAgentCode] = useState('');
+  const [requestedAgent, setRequestedAgent] = useState<AgentOption | null>(null);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -47,12 +48,12 @@ export default function StudentAgentPage() {
     try {
       await submitReassignmentRequest({
         reason: requestReason,
-        requested_agent_code: requestedAgentCode.trim() || undefined
+        requested_agent_code: requestedAgent?.referral_code ?? undefined
       });
       toast.success('Agent reassignment request submitted successfully.');
       setIsFormOpen(false);
       setRequestReason('');
-      setRequestedAgentCode('');
+      setRequestedAgent(null);
       void loadAgentInfo();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to submit request.');
@@ -211,15 +212,11 @@ export default function StudentAgentPage() {
             <form onSubmit={handleRequestChange} className="space-y-4">
               <div>
                 <label className="mb-1.5 block text-xs font-semibold text-brand-navy">
-                  Preferred Agent Code (Optional)
+                  Preferred Agent (Optional)
                 </label>
-                <input 
-                  type="text"
-                  placeholder="e.g. TGA-XXX999"
-                  value={requestedAgentCode}
-                  onChange={(e) => setRequestedAgentCode(e.target.value)}
-                  className="w-full rounded-button border border-border-warm bg-surface-warm px-3.5 py-2 text-sm text-brand-navy shadow-sm transition-colors focus:border-brand-orange-accessible focus:outline-none focus:ring-2 focus:ring-brand-orange-accessible/20 sm:max-w-xs"
-                />
+                <div className="sm:max-w-xs">
+                  <AgentCombobox value={requestedAgent} onChange={setRequestedAgent} scope="student" />
+                </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">Leave empty if you want TGA head office to auto-assign a consultant.</p>
               </div>
 
