@@ -4,9 +4,10 @@ import { PageHeader } from '../../shared/components/layout/PageHeader';
 import { PageWrapper } from '../../shared/components/layout/PageWrapper';
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable';
 import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
-import { StatCard } from '../../shared/components/ui/StatCard';
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card';
-import { DollarSign, User, Globe, Calendar, Clock, CheckCircle, ArrowRightLeft, AlertTriangle } from 'lucide-react';
+import { Button } from '../../shared/components/ui/Button';
+import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice';
+import { User, Calendar, ArrowRightLeft, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchAgentCommissions, fetchAgentCommissionsSummary } from '../../lib/api';
 
@@ -166,32 +167,59 @@ export default function AgentCommissionsPage() {
 
   return (
     <PageWrapper className="space-y-8">
+      <UnderDevelopmentNotice featureName="Commissions" />
       <PageHeader
-        title="Agency Commissions Ledger" 
-        subtitle="Manage and view your direct commissions alongside B2B override summaries in your subtree network." 
+        title="Agency Commissions Ledger"
+        subtitle="Manage and view your direct commissions alongside B2B override summaries in your subtree network."
       />
 
       {/* Metrics Summary Row */}
       {summary && (
         <div className="grid gap-6 md:grid-cols-3">
-          <StatCard 
-            label="Pending Total" 
-            value={`₹${summary.own.pending_inr.toLocaleString()}`} 
-            icon={Clock} 
-            color="amber"
-          />
-          <StatCard 
-            label="Confirmed Earnings" 
-            value={`₹${summary.own.confirmed_inr.toLocaleString()}`} 
-            icon={CheckCircle} 
-            color="blue"
-          />
-          <StatCard 
-            label="Total Paid" 
-            value={`₹${summary.own.paid_inr.toLocaleString()}`} 
-            icon={DollarSign} 
-            color="green"
-          />
+          <Card className="bg-gradient-to-br from-amber-50 to-amber-100/50 border-amber-200">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-semibold text-amber-900">Pending Claims</CardTitle>
+              <span className="text-xs bg-amber-200 text-amber-900 px-2.5 py-0.5 rounded-full font-bold">
+                {summary.own.pending_count || 0} claims
+              </span>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-amber-900">
+                ₹{summary.own.pending_inr.toLocaleString()}
+              </div>
+              <p className="text-xs text-amber-700/80 mt-1">Awaiting admin verification</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-semibold text-blue-900">Confirmed (Approved)</CardTitle>
+              <span className="text-xs bg-blue-200 text-blue-900 px-2.5 py-0.5 rounded-full font-bold">
+                {summary.own.confirmed_count || 0} claims
+              </span>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-blue-900">
+                ₹{summary.own.confirmed_inr.toLocaleString()}
+              </div>
+              <p className="text-xs text-blue-700/80 mt-1">Validated, ready for payout</p>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/50 border-emerald-200">
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-semibold text-emerald-900">Disbursed (Paid)</CardTitle>
+              <span className="text-xs bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full font-bold">
+                {summary.own.paid_count || 0} claims
+              </span>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-black text-emerald-900">
+                ₹{summary.own.paid_inr.toLocaleString()}
+              </div>
+              <p className="text-xs text-emerald-700/80 mt-1">Settled to your account</p>
+            </CardContent>
+          </Card>
         </div>
       )}
 
