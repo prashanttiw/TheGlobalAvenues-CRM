@@ -1723,8 +1723,8 @@ function EmptyState({ label, compact = false }: { label: string; compact?: boole
   );
 }
 
-function formatStage(value: string) {
-  return value.replace(/_/g, ' ');
+function formatStage(value: string | null | undefined) {
+  return value ? value.replace(/_/g, ' ') : '—';
 }
 
 function formatDate(value: string) {

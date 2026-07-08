@@ -56,8 +56,14 @@ final class AdminDashboardController
         // Fixed: was referencing non-existent u.first_name/u.last_name; student names live in students.full_name
         $recentStageStmt = $this->pdo->query("
             SELECT
-                JSON_UNQUOTE(JSON_EXTRACT(al.before_value, '$.status')) AS from_status,
-                JSON_UNQUOTE(JSON_EXTRACT(al.after_value, '$.status')) AS to_status,
+                COALESCE(
+                    JSON_UNQUOTE(JSON_EXTRACT(al.before_value, '$.status')),
+                    JSON_UNQUOTE(JSON_EXTRACT(al.before_value, '$.old_status'))
+                ) AS from_status,
+                COALESCE(
+                    JSON_UNQUOTE(JSON_EXTRACT(al.after_value, '$.status')),
+                    JSON_UNQUOTE(JSON_EXTRACT(al.after_value, '$.new_status'))
+                ) AS to_status,
                 al.created_at,
                 app.reference_number,
                 s.full_name AS student_name
