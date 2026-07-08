@@ -36,6 +36,7 @@ Thumbs.db
 
 # Kiro AI workspace files (local tooling, not project source)
 .kiro/
+.claude/
 
 # Local verification artifacts
 .browser-check*.png
