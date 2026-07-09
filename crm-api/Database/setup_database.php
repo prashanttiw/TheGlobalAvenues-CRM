@@ -1,5 +1,18 @@
 <?php
 
+// ============================================================================
+// DESTRUCTIVE — LOCAL / DEV ONLY. NEVER RUN AGAINST A DATABASE WITH REAL DATA.
+//
+// This script DROPs every existing table, TRUNCATEs core tables again for good
+// measure, then rebuilds and reseeds from scratch (including fake dev/test
+// accounts when APP_ENV=development). It is a fresh-install tool, not an
+// upgrade tool.
+//
+// To bring an existing database (including production) up to date without
+// touching its data, use reconcile.php instead — it introspects what's
+// already there and applies only what's missing.
+// ============================================================================
+
 declare(strict_types=1);
 
 namespace TGA\CRM\Database;
@@ -74,84 +87,15 @@ try {
     $pdo->exec($migrationsSql);
     echo "Migrations 038-059 applied.\n\n";
 
-    // 5b. Apply migrations 060-069 directly (these are not in the combined file)
+    // 5b. Apply migrations 060-069 (extracted into their own file so setup_database.php and
+    // reconcile.php both read one shared source instead of this SQL living only as PHP string
+    // literals here — see migrations_060_069.sql for why only 060/062/063/064/067 have content)
+    $migrations060to069File = __DIR__ . '/migrations_060_069.sql';
+    if (!is_file($migrations060to069File)) {
+        throw new \RuntimeException("migrations_060_069.sql not found at {$migrations060to069File}");
+    }
     echo "Applying Phase 7-9 migrations (060-069)...\n";
-
-    // 060: notices.expires_at + internal_notes.is_pinned
-    $pdo->exec("ALTER TABLE notices ADD COLUMN expires_at DATETIME NULL COMMENT 'Auto-expires notice from feed'");
-    $pdo->exec("ALTER TABLE internal_notes ADD COLUMN is_pinned TINYINT(1) NOT NULL DEFAULT 0 COMMENT 'Pinned notes stay at top of timeline'");
-
-    // 060+061 merged: FULLTEXT indexes for global search (060 column set is superset — 061 skipped to avoid duplicate key names)
-    $pdo->exec("ALTER TABLE students ADD FULLTEXT INDEX ft_students_name (full_name)");
-    $pdo->exec("ALTER TABLE agents ADD FULLTEXT INDEX ft_agents_name (full_name, agency_name)");
-    $pdo->exec("ALTER TABLE universities ADD FULLTEXT INDEX ft_universities (name, city, country)");
-    $pdo->exec("ALTER TABLE applications ADD FULLTEXT INDEX ft_applications_ref (reference_number)");
-    $pdo->exec("ALTER TABLE leads ADD FULLTEXT INDEX ft_leads_name (full_name)");
-
-    // 062: Phase 8 performance indexes
-    $pdo->exec("ALTER TABLE report_snapshots ADD INDEX idx_reports_lookup (dimension_type, dimension_id, metric_key, snapshot_date)");
-    $pdo->exec("ALTER TABLE applications ADD INDEX idx_applications_deleted_submitted (deleted_at, submitted_at)");
-    $pdo->exec("ALTER TABLE students ADD INDEX idx_students_deleted_created (deleted_at, created_at)");
-
-    // 063: Phase 9 academic profile tables
-    $pdo->exec("CREATE TABLE student_academics (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        public_id CHAR(26) NOT NULL UNIQUE,
-        student_id INT UNSIGNED NOT NULL,
-        institution_name VARCHAR(255) NOT NULL,
-        degree_level VARCHAR(100) NOT NULL COMMENT 'High School, Diploma, Bachelors, Masters',
-        field_of_study VARCHAR(255) NULL,
-        start_date DATE NULL,
-        end_date DATE NULL,
-        score_type VARCHAR(50) NULL COMMENT 'CGPA, Percentage, Grade',
-        score_value VARCHAR(50) NULL,
-        is_highest_qualification BOOLEAN DEFAULT FALSE,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        deleted_at DATETIME NULL,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-        INDEX idx_student_academics_student (student_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    $pdo->exec("CREATE TABLE student_test_scores (
-        id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-        public_id CHAR(26) NOT NULL UNIQUE,
-        student_id INT UNSIGNED NOT NULL,
-        test_name VARCHAR(100) NOT NULL COMMENT 'IELTS, TOEFL, PTE, Duolingo, GRE, GMAT',
-        overall_score VARCHAR(50) NOT NULL,
-        reading_score VARCHAR(50) NULL,
-        writing_score VARCHAR(50) NULL,
-        listening_score VARCHAR(50) NULL,
-        speaking_score VARCHAR(50) NULL,
-        test_date DATE NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        deleted_at DATETIME NULL,
-        FOREIGN KEY (student_id) REFERENCES students(id) ON DELETE CASCADE,
-        INDEX idx_student_tests_student (student_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-
-    // 064: applications.withdrawal_reason
-    $pdo->exec("ALTER TABLE applications ADD COLUMN withdrawal_reason TEXT NULL COMMENT 'Reason provided when application is withdrawn'");
-
-    // 065: files.sync_attempts + jwt_min_iat setting
-    $pdo->exec("ALTER TABLE files ADD COLUMN sync_attempts TINYINT UNSIGNED NOT NULL DEFAULT 0 AFTER drive_sync_status");
-
-    // 067: files erasure tracking columns
-    $pdo->exec("ALTER TABLE files
-        ADD COLUMN erasure_status ENUM('not_erased','erase_pending_remote_delete','erased') NOT NULL DEFAULT 'not_erased'
-            COMMENT 'not_erased=normal. erase_pending_remote_delete=Drive delete pending. erased=both copies confirmed deleted.',
-        ADD COLUMN erasure_local_deleted_at DATETIME NULL,
-        ADD COLUMN erasure_drive_deleted_at DATETIME NULL,
-        ADD COLUMN erasure_drive_last_error TEXT NULL,
-        ADD COLUMN erasure_retry_count INT UNSIGNED NOT NULL DEFAULT 0");
-
-    // 069: Reminders deduplication — virtual column + unique constraint
-    $pdo->exec("ALTER TABLE reminders
-        ADD COLUMN pending_status VARCHAR(10) GENERATED ALWAYS AS (IF(status = 'pending', 'pending', NULL)) VIRTUAL");
-    $pdo->exec("ALTER TABLE reminders
-        ADD CONSTRAINT uq_reminders_pending_only UNIQUE (entity_type, entity_id, reminder_type, pending_status)");
-
+    $pdo->exec(file_get_contents($migrations060to069File));
     echo "Phase 7-9 migrations applied.\n\n";
 
     // 6. Clean target tables before seeding
@@ -200,9 +144,6 @@ try {
         ['disk_warn_threshold_pct','80','integer','Disk Warning Threshold (%)','Warning threshold','security'],
         ['disk_critical_threshold_pct','95','integer','Disk Critical Threshold (%)','Critical threshold','security'],
         ['session_max_per_user','5','integer','Max Active Sessions Per User','Max sessions per user','security'],
-        ['backup_retain_daily','7','integer','Daily Backup Retention','Retention count','backup'],
-        ['backup_retain_weekly','4','integer','Weekly Backup Retention','Retention count','backup'],
-        ['backup_retain_monthly','6','integer','Monthly Backup Retention','Retention count','backup'],
         // Migration 065 — global JWT revocation baseline
         ['jwt_min_iat','0','integer','JWT Minimum Issued-At','Invalidates all tokens issued before this Unix timestamp (0 = none)','security'],
     ];
@@ -223,7 +164,7 @@ try {
     }
 
     // Seed Cron Health Status
-    $cronSeed = ['send_notifications', 'sync_drive', 'backup_db', 'generate_snapshots', 'process_reminders', 'monitor_disk', 'check_sla_breaches', 'verify_backups', 'archive_old_logs'];
+    $cronSeed = ['send_notifications', 'generate_snapshots', 'monitor_disk', 'check_sla_breaches', 'archive_old_logs'];
     $cronStmt = $pdo->prepare("INSERT IGNORE INTO cron_health (job_name) VALUES (?)");
     foreach ($cronSeed as $job) {
         $cronStmt->execute([$job]);
@@ -363,12 +304,6 @@ try {
          'Application Update: {{reference_number}}',
          "Hi {{recipient_name}},\n\nYour application {{reference_number}} has been updated.\nNew status: {{new_status}}\n\nLog in to view details: {{portal_url}}\n\nThe TGA Team",
          'email,in_app', 'system'],
-
-        // ── System Alerts (migration 068) ────────────────────────────────────────
-        ['system.erase_remote_delete_failed',
-         'CRITICAL: Permanent File Erase Remote Delete Failed',
-         'The permanent erasure for file {{file_name}} (ID: {{public_id}}) could not delete its Google Drive copy after {{attempts}} attempts. Error: {{error}}. Manual intervention in the Drive console is required.',
-         'email,db', 'system'],
     ];
     $tempStmt = $pdo->prepare("INSERT IGNORE INTO notification_templates (event_key, subject_template, body_template, channels, category) VALUES (?, ?, ?, ?, ?)");
     foreach ($templatesSeed as $template) {
@@ -408,6 +343,39 @@ try {
     echo "Applying migration 081...\n";
     $pdo->exec(file_get_contents($migration081File));
     echo "Migration 081 applied.\n\n";
+
+    // 7d. Migration 082: agent.registered / auth.login_success / document.* templates.
+    // Found in the same 2026-07-08 audit as 081 — agent registration/sub-agent-creation sent
+    // no welcome mail, no notification existed for a successful login, and all 4 document-request
+    // lifecycle event keys had been firing since the feature was built with zero matching templates.
+    $migration082File = __DIR__ . '/migrations/082_notification_gaps_fix.sql';
+    if (!is_file($migration082File)) {
+        throw new \RuntimeException("082_notification_gaps_fix.sql not found at {$migration082File}");
+    }
+    echo "Applying migration 082...\n";
+    $pdo->exec(file_get_contents($migration082File));
+    echo "Migration 082 applied.\n\n";
+
+    // 7e. Migration 083: users.avatar_type / avatar_value for the profile avatar feature.
+    $migration083File = __DIR__ . '/migrations/083_users_avatar.sql';
+    if (!is_file($migration083File)) {
+        throw new \RuntimeException("083_users_avatar.sql not found at {$migration083File}");
+    }
+    echo "Applying migration 083...\n";
+    $pdo->exec(file_get_contents($migration083File));
+    echo "Migration 083 applied.\n\n";
+
+    // 7f. Migration 084: removes the payment-reminder engine and Google Drive sync/backup
+    // features entirely (2026-07-10) — neither was ever a real requirement. Must run after the
+    // seeding above, same reason as 081/082: it DELETEs rows (backup_retain_* settings, the
+    // system.erase_remote_delete_failed template, dead cron_health rows) that step 6 just seeded.
+    $migration084File = __DIR__ . '/migrations/084_remove_reminder_drive_backup_features.sql';
+    if (!is_file($migration084File)) {
+        throw new \RuntimeException("084_remove_reminder_drive_backup_features.sql not found at {$migration084File}");
+    }
+    echo "Applying migration 084...\n";
+    $pdo->exec(file_get_contents($migration084File));
+    echo "Migration 084 applied.\n\n";
 
     // 8. Helper to create a user record with encryption and lookup hashes
     $createUser = function (string $email, string $phone, string $password, string $userType, string $status = 'active') use ($pdo): array {

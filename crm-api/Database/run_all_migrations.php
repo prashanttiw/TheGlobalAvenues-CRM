@@ -1,4 +1,11 @@
 <?php
+
+// SUPERSEDED by reconcile.php (2026-07-10) — this script blindly re-runs every 060-089 file with
+// no idempotency check, so it errors out on any migration already applied. reconcile.php replays
+// the full history (001 onward), classifies "already applied" MySQL errors safely, detects
+// duplicate-data conflicts before adding UNIQUE constraints, and is dry-run by default. Kept here
+// unmodified for reference; prefer reconcile.php for bringing an existing database up to date.
+
 declare(strict_types=1);
 
 require_once __DIR__ . '/../autoload.php';
