@@ -19,6 +19,22 @@ $startTime = microtime(true);
 
 try {
     $pdo = Database::getConnection();
+
+    // Recover rows abandoned mid-send by a previous run that fatally timed out (e.g. a hung SMTP
+    // connection blowing set_time_limit(110) as an uncatchable fatal error) — those rows were marked
+    // 'processing' but the process died before the send loop could mark them 'sent'/'queued'/'failed',
+    // so the main SELECT below (which only looks for 'queued') would otherwise never see them again.
+    // Same attempts-cap logic as the catch block further down.
+    $pdo->prepare("
+        UPDATE notifications
+        SET status = IF(attempts + 1 >= 3, 'failed', 'queued'),
+            attempts = attempts + 1,
+            error_message = 'Recovered from stuck processing state (previous run likely timed out)'
+        WHERE channel = 'email'
+          AND status = 'processing'
+          AND last_attempt_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+    ")->execute();
+
     // Atomically lock and mark as processing to prevent duplicate dispatch by concurrent crons
     $pdo->beginTransaction();
     $sql = "
@@ -43,7 +59,7 @@ try {
     } else {
         $ids = array_column($notifications, 'id');
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
-        $pdo->prepare("UPDATE notifications SET status='processing' WHERE id IN ($placeholders)")->execute($ids);
+        $pdo->prepare("UPDATE notifications SET status='processing', last_attempt_at=NOW() WHERE id IN ($placeholders)")->execute($ids);
         $pdo->commit();
     }
 

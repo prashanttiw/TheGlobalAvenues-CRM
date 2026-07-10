@@ -10,7 +10,14 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../crm-api/autoload.php';
 
+use TGA\CRM\Config\Environment;
 use TGA\CRM\Services\CronHealth;
+
+// scheduler.php runs checkStuckJobs() in-process (not via exec()), so unlike the
+// individual job scripts it must load its own .env — without this, every call below
+// silently fails inside CronHealth's try/catch (env vars never populated in this
+// process), so stuck-job recovery has never actually run. Found 2026-07-08 testing locally.
+Environment::load(__DIR__ . '/../crm-api/.env');
 
 // 1. Recover stuck jobs
 // Any job stuck in 'running' for more than 15 minutes is abruptly marked as 'failed'
@@ -19,15 +26,12 @@ CronHealth::checkStuckJobs(15);
 // 2. Define the jobs and their frequency in minutes
 $jobs = [
     'send-notifications.php' => 1,
-    'process-reminders.php' => 5,
     'check-sla-breaches.php' => 15,
-    'sync-drive.php' => 60,
-    'retry-pending-erasures.php' => 60,
-    'backup-db.php' => 1440, // 24 hours
-    'verify-backups.php' => 1440,
     'generate-snapshots.php' => 1440,
     'monitor-disk.php' => 720,
-    'archive-old-logs.php' => 10080 // 7 days
+    // archive-old-logs.php intentionally NOT scheduled — activity_logs must never be
+    // deleted (product decision 2026-07-08), and this script's only other job
+    // (pruning security_events) isn't worth running alone. Left in cron/ unused.
 ];
 
 $lockFile = __DIR__ . '/scheduler.lock';
