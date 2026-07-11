@@ -88,7 +88,13 @@ class EncryptionService {
     }
 
     private static function loadKey(): string {
-        $env = getenv('ENCRYPTION_KEY');
+        // Environment::get() reads the request-scoped $_ENV/$_SERVER superglobals — NOT raw
+        // getenv(), which reads the process-wide C environment table that Environment::load()
+        // populates via putenv(). Under Apache's Windows threaded MPM, that process-wide table is
+        // shared across concurrent worker threads and not safe for concurrent read/write, causing
+        // intermittent empty reads here under load. Every other config read in this codebase
+        // already goes through Environment::get() — this was the one remaining raw getenv() call.
+        $env = \TGA\CRM\Config\Environment::get('ENCRYPTION_KEY');
         if (empty($env)) {
             throw new \RuntimeException('ENCRYPTION_KEY environment variable is missing or empty.');
         }

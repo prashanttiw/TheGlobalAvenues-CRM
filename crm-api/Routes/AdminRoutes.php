@@ -47,13 +47,20 @@ final class AdminRoutes
         RouteRegistry::put('admin', 'update_user', [$dashCtrl, 'updateUser']);
         RouteRegistry::delete('admin', 'admins/:publicId', [$dashCtrl, 'deleteAdmin']);
         RouteRegistry::get('admin', 'available-pages', [$dashCtrl, 'availablePages']);
-        
+
+        // ── Profile ──────────────────────────────────────────────────────────
+        $adminProfileCtrl = new \TGA\CRM\Controllers\AdminController();
+        RouteRegistry::get('admin', 'profile', [$adminProfileCtrl, 'getProfile']);
+        RouteRegistry::put('admin', 'profile', [$adminProfileCtrl, 'updateProfile']);
+
         $docControllerForAdmin = new \TGA\CRM\Controllers\DocumentRequestController();
         RouteRegistry::get('admin', 'get_document_queue', [$docControllerForAdmin, 'getDocumentQueue']);
         RouteRegistry::post('admin', 'review_document', [$docControllerForAdmin, 'adminReview']);
 
         $paymentControllerForAdmin = new \TGA\CRM\Controllers\PaymentTrackingController();
         RouteRegistry::get('admin', 'get_payment_queue', [$paymentControllerForAdmin, 'adminQueue']);
+
+        RouteRegistry::get('admin', 'get_agent_queue', [$agentController, 'pendingQueue']);
 
         RouteRegistry::get('admin', 'dashboard/activity-feed', [$feedCtrl, 'getFeed']);
 

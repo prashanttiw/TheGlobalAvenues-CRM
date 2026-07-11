@@ -18,6 +18,7 @@ use TGA\CRM\Routes\AdminRoutes;
 use TGA\CRM\Routes\RouteRegistry;
 use TGA\CRM\Routes\NotificationRoutes;
 use TGA\CRM\Routes\PublicRoutes;
+use TGA\CRM\Routes\AvatarRoutes;
 use TGA\CRM\Controllers\HealthController;
 
 require_once __DIR__ . '/autoload.php';
@@ -130,6 +131,7 @@ UniversityRoutes::register();
 FileRoutes::register();
 NotificationRoutes::register();
 PublicRoutes::register();
+AvatarRoutes::register();
 // AdminRoutes::register();
 
 $uri = parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? '/';

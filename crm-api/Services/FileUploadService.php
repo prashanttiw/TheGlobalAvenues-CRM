@@ -124,23 +124,19 @@ final class FileUploadService
         $checksum = hash_file('sha256', $absoluteTarget);
         $publicId = UlidGenerator::generate();
 
-        $driveFolderPath = self::buildDriveFolderPath($ownerType, $ownerPublicId);
-
         try {
             $stmt = $pdo->prepare(
                 'INSERT INTO files
                  (public_id, owner_type, owner_id, document_type, display_filename, stored_filename,
                   storage_path, is_public, mime_type, file_size_bytes, checksum_sha256,
-                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id,
-                  drive_sync_status, drive_folder_path, created_at)
-                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
+                  version_number, previous_version_id, uploaded_by_type, uploaded_by_id, created_at)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())'
             );
             $stmt->execute([
                 $publicId, $ownerType, $ownerId, $documentType,
                 $displayFilename, $storedFileName, $relativePath,
                 $isPublic ? 1 : 0, $mimeType, $fileSize, $checksum,
                 $versionNumber, $previousVersionId, $uploadedByType, $uploadedById,
-                'pending', $driveFolderPath
             ]);
         } catch (\Exception $e) {
             // Rollback filesystem change
@@ -286,17 +282,6 @@ final class FileUploadService
         $stmt = $pdo->prepare("SELECT public_id FROM {$table} WHERE id = ?");
         $stmt->execute([$ownerId]);
         return (string) $stmt->fetchColumn() ?: 'UNKNOWN';
-    }
-
-    private static function buildDriveFolderPath(string $ownerType, string $ownerPublicId): string
-    {
-        $map = [
-            'student'     => "TGA-CRM/Students/{$ownerPublicId}/Documents",
-            'application' => "TGA-CRM/Applications/{$ownerPublicId}",
-            'university'  => "TGA-CRM/Universities/{$ownerPublicId}",
-            'notice'      => "TGA-CRM/Notices",
-        ];
-        return $map[$ownerType] ?? 'TGA-CRM/Misc';
     }
 
     private static function slugify(string $text): string

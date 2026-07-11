@@ -9,6 +9,7 @@ use TGA\CRM\Controllers\ReassignmentController;
 use TGA\CRM\Controllers\ActivityLogController;
 use TGA\CRM\Controllers\NoticeController;
 use TGA\CRM\Controllers\InternalNotesController;
+use TGA\CRM\Controllers\SearchController;
 
 final class StudentRoutes
 {
@@ -18,6 +19,7 @@ final class StudentRoutes
         $reassignController = new ReassignmentController();
         $logs = new ActivityLogController();
         $notices = new NoticeController();
+        $search = new SearchController();
 
         $requireStudent = function (callable $handler) {
             return function (...$args) use ($handler) {
@@ -31,7 +33,10 @@ final class StudentRoutes
         RouteRegistry::get('student', 'profile', $requireStudent([$controller, 'getProfile']));
         RouteRegistry::put('student', 'profile', $requireStudent([$controller, 'updateProfile']));
         RouteRegistry::get('student', 'dashboard', $requireStudent([$controller, 'getDashboard']));
-        
+
+        // ── Global Search ────────────────────────────────────────────────────
+        RouteRegistry::get('student', 'search', $requireStudent([$search, 'search']));
+
         $appController = new \TGA\CRM\Controllers\ApplicationController();
         RouteRegistry::put('student', 'applications/:pid/withdraw', $requireStudent([$appController, 'withdraw']));
         RouteRegistry::put('student', 'applications/:pid/submit', $requireStudent([$appController, 'studentSubmit']));
