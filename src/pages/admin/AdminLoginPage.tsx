@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ShieldCheck, ArrowRight, Lock, Mail, MessageSquare, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -19,8 +19,17 @@ import { useAuth } from '../../shared/hooks/useAuth';
 export default function AdminLoginPage() {
   const establishSession = useAuth((state) => state.establishSession);
   const clearSession = useAuth((state) => state.clearSession);
+  const sessionExpired = useAuth((state) => state.sessionExpired);
+  const acknowledgeSessionExpired = useAuth((state) => state.acknowledgeSessionExpired);
   const navigate = useNavigate();
   const location = useLocation();
+
+  useEffect(() => {
+    if (sessionExpired) {
+      toast.error('Your session has expired. Please sign in again.');
+      acknowledgeSessionExpired();
+    }
+  }, [sessionExpired, acknowledgeSessionExpired]);
 
   const [method, setMethod] = useState<'password' | 'otp'>('password');
   const [email, setEmail] = useState('');

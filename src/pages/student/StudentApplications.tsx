@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, closestCenter, type DragEndEvent } from '@dnd-kit/core'
 import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable, arrayMove } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -90,7 +91,20 @@ function formatDate(value?: string | null) {
 
 export default function StudentApplications() {
   const queryClient = useQueryClient()
-  const [selectedPid, setSelectedPid] = React.useState<string | null>(null)
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [selectedPid, setSelectedPid] = React.useState<string | null>(() => searchParams.get('open'))
+
+  // Deep-link support: global search opens a specific application via ?open=<pid>.
+  const handleDrawerOpenChange = React.useCallback((open: boolean) => {
+    if (!open) {
+      setSelectedPid(null)
+      if (searchParams.has('open')) {
+        const next = new URLSearchParams(searchParams)
+        next.delete('open')
+        setSearchParams(next, { replace: true })
+      }
+    }
+  }, [searchParams, setSearchParams])
 
   const applicationsQuery = useQuery({
     queryKey: ['student', 'applications'],
@@ -247,10 +261,10 @@ export default function StudentApplications() {
         />
       )}
 
-      <PreviewDrawer open={!!selectedPid} onOpenChange={(open) => !open && setSelectedPid(null)}>
+      <PreviewDrawer open={!!selectedPid} onOpenChange={handleDrawerOpenChange}>
         <PreviewDrawerContent>
           {detailQuery.isLoading ? (
-            <div className="p-6 text-sm text-muted-foreground">Loading application…</div>
+            <div className="p-6 text-sm text-muted-foreground">Loading applicationï¿½</div>
           ) : detail ? (
             <>
               <PreviewDrawerHeader title={detail.university_name} badge={renderStatus(detail.status)}>

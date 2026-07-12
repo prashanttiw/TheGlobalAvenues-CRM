@@ -41,6 +41,8 @@ interface AuthState {
   clearSession: (sessionExpired?: boolean) => void
   logout: () => Promise<void>
   updateAgentStatus: (status: string) => void
+  updateAvatar: (thumbUrl: string | null) => void
+  acknowledgeSessionExpired: () => void
 }
 
 let restorePromise: Promise<void> | null = null
@@ -70,6 +72,7 @@ function mapAuthUser(apiUser: AuthUser): User {
     name: apiUser.name || fallbackName,
     email: apiUser.email,
     role: normalizeRole(rawRole),
+    avatar: apiUser.avatar_thumb_url ?? undefined,
     permissions: isSuperAdmin ? ['*'] : normalizePermissions(apiUser.permissions),
     isSuperAdmin,
     status: apiUser.status,
@@ -251,6 +254,18 @@ export const useAuth = create<AuthState>((set, get) => ({
     if (!current) return
     set({ user: { ...current, agentStatus: status } })
   },
+
+  // Lets the profile page push a fresh avatar into the topbar/sidebar the instant it
+  // changes, without waiting for the next full session restore / auth/me refetch.
+  updateAvatar: (thumbUrl) => {
+    const current = get().user
+    if (!current) return
+    set({ user: { ...current, avatar: thumbUrl ?? undefined } })
+  },
+
+  // Lets the login page show a one-time "session expired" toast after a forced
+  // logout, then clear the flag so it doesn't reappear on a normal future logout.
+  acknowledgeSessionExpired: () => set({ sessionExpired: false }),
 }))
 
 setUnauthorizedHandler(() => {

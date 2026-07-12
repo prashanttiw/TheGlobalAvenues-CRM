@@ -20,22 +20,6 @@ export type NotificationUnreadSummary = {
   by_category: Record<string, number>
 }
 
-type NotificationListEnvelope = {
-  data: NotificationRecord[]
-  meta?: {
-    total: number
-    page: number
-    per_page: number
-    total_pages: number
-    has_next: boolean
-    has_prev: boolean
-  }
-}
-
-type NotificationUnreadEnvelope = {
-  data: NotificationUnreadSummary
-}
-
 const unreadCountQueryKey = ['notifications', 'unread-count'] as const
 const notificationsListQueryKey = (category?: string, status: NotificationStatus = 'all') =>
   ['notifications', 'list', { category: category ?? '', status }] as const
@@ -100,9 +84,14 @@ export function useUnreadCount() {
   return useQuery({
     queryKey: unreadCountQueryKey,
     queryFn: () =>
+      // Backend replies with Response::json(['data' => {...}]) — a single wrapper level, already
+      // matching request()'s ApiSuccess<T>.data. Unwrapping .data a second time (the old code did
+      // response.data.data) reached past the payload into a property that doesn't exist, resolving
+      // to undefined — which TanStack Query v5 rejects ("Query data cannot be undefined"), silently
+      // breaking the unread badge every 60s poll.
       api
-        .get<NotificationUnreadEnvelope>('/notifications/unread-count')
-        .then((response) => response.data.data),
+        .get<NotificationUnreadSummary>('/notifications/unread-count')
+        .then((response) => response.data),
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
@@ -112,11 +101,12 @@ export function useNotifications(category?: string, status: NotificationStatus =
   return useQuery({
     queryKey: notificationsListQueryKey(category, status),
     queryFn: () =>
+      // Same single-wrapper shape as useUnreadCount above — see that comment.
       api
-        .get<NotificationListEnvelope>('/notifications/ping', {
+        .get<NotificationRecord[]>('/notifications/ping', {
           params: { category, status, per_page: 50 },
         })
-        .then((response) => response.data.data),
+        .then((response) => response.data),
     staleTime: 30_000,
     enabled,
   })

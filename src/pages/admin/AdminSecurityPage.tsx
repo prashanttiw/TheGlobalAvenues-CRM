@@ -40,7 +40,8 @@ const EVENT_CATALOG: Record<string, EventMeta> = {
   otp_brute_force: { label: 'OTP brute force', description: 'Too many wrong one-time codes in a row — further attempts are now blocked.', severity: 'critical' },
   otp_rate_limit_repeated: { label: 'Repeated OTP requests', description: 'The same account/IP kept requesting new OTP codes well past the normal rate — likely automated abuse.', severity: 'critical' },
   rate_limit_exceeded: { label: 'Rate limit exceeded', description: 'A client sent more requests than an endpoint allows in the time window.', severity: 'warning' },
-  registration_initiated: { label: 'Signup started', description: 'A new account signup began (not yet completed).', severity: 'info' },
+  registration_initiated: { label: 'Signup started', description: 'A new account signup began — name and OTP sent, but not yet verified.', severity: 'info' },
+  registration_otp_verified: { label: 'Signup email verified', description: 'The signup OTP was verified. The account isn’t created until the password step completes — check for signup completed to confirm.', severity: 'info' },
   registration_completed: { label: 'Signup completed', description: 'A new account finished registration.', severity: 'info' },
   password_reset_requested: { label: 'Password reset requested', description: 'Someone started the “forgot password” flow for this account.', severity: 'info' },
   password_reset_completed: { label: 'Password reset completed', description: 'A password was changed via the “forgot password” flow — worth a second look if the account owner didn’t request it.', severity: 'warning' },
@@ -81,6 +82,10 @@ function describeDetails(eventType: string, details: unknown): string | null {
   if (!d) return null
 
   switch (eventType) {
+    case 'registration_initiated':
+      return [d.full_name ? `Name entered: ${d.full_name}` : null, d.role ? `Signing up as: ${d.role}` : null, d.phone_last4 ? `Phone ending ${d.phone_last4}` : null].filter(Boolean).join(' · ') || null
+    case 'registration_otp_verified':
+      return d.role ? `Signing up as: ${d.role}` : null
     case 'login_failed':
       if (d.reason === 'unknown_email') return 'No account exists for that email.'
       if (d.reason === 'wrong_password') return 'Password did not match.'

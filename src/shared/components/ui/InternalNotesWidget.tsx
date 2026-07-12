@@ -16,8 +16,7 @@ interface Note {
   visible_to_admin: boolean
   created_at: string
   author: {
-    first_name: string
-    last_name: string
+    full_name: string
     user_type: string
   }
 }
@@ -39,7 +38,9 @@ export function InternalNotesWidget({ moduleName, recordId }: InternalNotesWidge
 
   const { data: notes, isLoading } = useQuery({
     queryKey: ['admin', moduleName, recordId, 'notes'],
-    queryFn: () => api.get(`/admin/${moduleName}/${recordId}/notes`).then(r => r.data.data as Note[]),
+    // InternalNotesController::list() replies via Response::json(['data' => $sanitizedNotes]) — a
+    // single wrapper already matching request()'s ApiSuccess<T>.data, so a single unwrap is correct.
+    queryFn: () => api.get(`/admin/${moduleName}/${recordId}/notes`).then(r => r.data as Note[]),
   })
 
   const createMutation = useMutation({
@@ -107,7 +108,7 @@ export function InternalNotesWidget({ moduleName, recordId }: InternalNotesWidge
               <div className="flex justify-between items-start mb-2">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-sm text-brand-navy">
-                    {note.author.first_name} {note.author.last_name}
+                    {note.author.full_name}
                   </span>
                   <span className="text-[10px] uppercase font-bold text-muted-foreground bg-white px-1.5 py-0.5 rounded border border-border-warm">
                     {note.author.user_type}

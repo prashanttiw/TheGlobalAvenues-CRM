@@ -44,6 +44,7 @@ import {
   deleteAdminProgram,
   deleteAdminUniversity,
   eraseAdminFile,
+  fetchAdminAgentQueue,
   fetchAdminAgents,
   fetchAdminApplicationDetail,
   fetchAdminAuditLog,
@@ -61,8 +62,6 @@ import {
   updateAdminUniversity,
   updateAdminUser,
 } from '../../lib/api';
-import { useQuery } from '@tanstack/react-query';
-import api from '../../lib/api';
 import { InternalNotesWidget } from '../../shared/components/ui/InternalNotesWidget';
 import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidget';
 
@@ -132,12 +131,6 @@ export function AdminDashboardPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: activityFeed = [] } = useQuery({
-    queryKey: ['admin', 'activityFeed'],
-    queryFn: () => api.get('/admin/dashboard/activity-feed').then(res => res.data.data),
-    enabled: section === 'overview' && !!user
-  });
-
   const [pipelineQuery, setPipelineQuery] = useState('');
   const [pipelineStatus, setPipelineStatus] = useState('');
   const [documentStatus, setDocumentStatus] = useState('pending');
@@ -204,12 +197,16 @@ export function AdminDashboardPage() {
       setDashboard(stats);
 
       if (section === 'overview') {
-        const [agentResult, documentResult, paymentQueue] = await Promise.all([
-          fetchAdminAgents({ status: 'pending', perPage: 6 }),
+        // Dedicated dashboard-only queue endpoints — every admin sees these three regardless of
+        // their individual page grants (only the action buttons are permission-gated), so this
+        // never 403s for a restricted admin the way the shared, page-gated fetchAdminAgents()
+        // (used by the full Agents management page) would.
+        const [agentQueue, documentResult, paymentQueue] = await Promise.all([
+          fetchAdminAgentQueue(),
           fetchAdminDocumentQueue({ status: 'pending', perPage: 6 }),
           fetchAdminPaymentQueue(),
         ]);
-        setAgents(agentResult.agents);
+        setAgents(agentQueue);
         setDocuments(documentResult.documents);
         setPendingPayments(paymentQueue);
       }
@@ -247,7 +244,11 @@ export function AdminDashboardPage() {
         setAuditEntries(result.entries);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load admin data.');
+      // Show a generic message in the persistent banner — raw backend error text (stack traces,
+      // DB error strings, etc.) isn't meaningful to an admin and reads as an unexplained scary
+      // banner. Full detail still goes to the console for debugging.
+      console.error('Failed to load admin dashboard data:', err);
+      setError('Something went wrong while loading this section. Please refresh or try again in a moment.');
     } finally {
       if (!silent) {
         setLoading(false);
@@ -275,7 +276,7 @@ export function AdminDashboardPage() {
 
   async function handleEraseFile(filePublicId: string, docLabel: string) {
     const reason = window.prompt(
-      `CRITICAL: You are about to permanently erase the document "${docLabel}" from both the local server and all Google Drive backups.\n\nThis action CANNOT be undone.\n\nPlease enter the required deletion reason to proceed:`
+      `CRITICAL: You are about to permanently erase the document "${docLabel}" from the server.\n\nThis action CANNOT be undone.\n\nPlease enter the required deletion reason to proceed:`
     );
     if (!reason || !reason.trim()) {
       toast.error('Permanent erase aborted: A valid deletion reason is required.');
@@ -290,13 +291,7 @@ export function AdminDashboardPage() {
         await openApplication(selectedApplication.id);
       }
     } catch (err: any) {
-      // If it returned Drive delete failed (which is a warning/pending status), we show a warning toast
-      const msg = err.message || '';
-      if (msg.includes('Google Drive deletion failed') || msg.includes('marked pending')) {
-        toast.warning(msg);
-      } else {
-        toast.error(msg || 'An error occurred during file erasure.');
-      }
+      toast.error((err instanceof Error ? err.message : '') || 'An error occurred during file erasure.');
       if (selectedApplication) {
         await openApplication(selectedApplication.id);
       }
@@ -644,7 +639,7 @@ export function AdminDashboardPage() {
                   <div className="space-y-3">
                     {dashboard.recentStageMovement.length === 0 && <EmptyState label="No stage movement yet." />}
                     {dashboard.recentStageMovement.map((item) => (
-                      <div key={item.reference_number} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
+                      <div key={item.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
                         <div className="flex items-center justify-between gap-4">
                           <div>
                             <div className="text-sm font-black text-gray-900">{item.student_name}</div>
@@ -966,11 +961,6 @@ export function AdminDashboardPage() {
                             <div>
                               <div className="text-sm font-bold text-gray-800">{formatStage(document.document_type)}</div>
                               <div className="text-xs text-gray-500">{document.file_name}</div>
-                              {document.erasure_status === 'erase_pending_remote_delete' && (
-                                <div className="mt-1 text-[11px] font-semibold text-[#C94D1B]">
-                                  Erase pending (Drive delete in queue)
-                                </div>
-                              )}
                               {document.erasure_status === 'erased' && (
                                 <div className="mt-1 text-[11px] font-semibold text-gray-400 italic">
                                   Permanently Erased
@@ -981,21 +971,6 @@ export function AdminDashboardPage() {
                               <span className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
                                 {formatStage(document.status)}
                               </span>
-                              {document.drive_sync_status === 'synced' && (
-                                <span className="rounded-full bg-green-50 border border-green-200 px-2 py-0.5 text-[10px] font-bold text-green-700">
-                                  Drive Synced
-                                </span>
-                              )}
-                              {document.drive_sync_status === 'pending' && (
-                                <span className="rounded-full bg-yellow-50 border border-yellow-200 px-2 py-0.5 text-[10px] font-bold text-yellow-700">
-                                  Drive Syncing
-                                </span>
-                              )}
-                              {document.drive_sync_status === 'failed' && (
-                                <span className="rounded-full bg-red-50 border border-red-200 px-2 py-0.5 text-[10px] font-bold text-red-700 animate-pulse">
-                                  Drive Sync Failed
-                                </span>
-                              )}
                               {isSuperAdmin && document.erasure_status !== 'erased' && (
                                 <button
                                   disabled={busy}
@@ -1352,21 +1327,6 @@ export function AdminDashboardPage() {
                         <span className="rounded-full bg-[#EEE9FF] px-3 py-1 text-[11px] font-black text-[#2D1B69]">
                           {formatStage(document.status)}
                         </span>
-                        {document.drive_sync_status === 'synced' && (
-                          <span className="rounded-full bg-green-50 border border-green-200 px-3 py-1 text-[11px] font-bold text-green-700">
-                            Drive Synced
-                          </span>
-                        )}
-                        {document.drive_sync_status === 'pending' && (
-                          <span className="rounded-full bg-yellow-50 border border-yellow-200 px-3 py-1 text-[11px] font-bold text-yellow-700">
-                            Drive Syncing
-                          </span>
-                        )}
-                        {document.drive_sync_status === 'failed' && (
-                          <span className="rounded-full bg-red-50 border border-red-200 px-3 py-1 text-[11px] font-bold text-red-700 animate-pulse">
-                            Drive Sync Failed
-                          </span>
-                        )}
                         <button
                           disabled={busy || document.status === 'verified'}
                           onClick={() => void decideDocument(document.public_id, 'verified')}

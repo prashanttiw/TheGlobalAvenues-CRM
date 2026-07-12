@@ -4,6 +4,7 @@ import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card'
 import { Button } from '../../shared/components/ui/Button'
+import { AvatarPicker } from '../../shared/components/ui/AvatarPicker'
 import { useAuth } from '../../shared/hooks/useAuth'
 import { toast } from 'sonner'
 import { User, Shield, Key, Eye, EyeOff, FileCheck } from 'lucide-react'
@@ -12,6 +13,7 @@ import {
   fetchReadiness,
   fetchStudentProfile,
   updateStudentProfile,
+  type AvatarUpdateResponse,
   type StudentProfileResponse,
 } from '../../lib/api'
 import { isProfileReady } from '../../shared/constants/readiness'
@@ -236,6 +238,11 @@ export default function StudentProfile() {
     }
   }
 
+  const handleAvatarChange = (result: AvatarUpdateResponse) => {
+    setProfile((prev) => (prev ? { ...prev, avatar_url: result.avatar_url, avatar_thumb_url: result.avatar_thumb_url } : prev))
+    useAuth.getState().updateAvatar(result.avatar_thumb_url)
+  }
+
   const titleName = buildDisplayName(formData.first_name, formData.last_name)
 
   if (loading) {
@@ -262,6 +269,21 @@ export default function StudentProfile() {
           )
         }
       />
+
+      <Card>
+        <CardContent className="flex items-center gap-4 py-5">
+          <AvatarPicker
+            name={titleName || 'Student'}
+            avatarUrl={profile?.avatar_url}
+            avatarThumbUrl={profile?.avatar_thumb_url}
+            onChange={handleAvatarChange}
+          />
+          <div>
+            <p className="text-sm font-semibold text-brand-navy">Profile photo</p>
+            <p className="text-xs text-muted-foreground">Choose a preset avatar or upload your own photo.</p>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card>

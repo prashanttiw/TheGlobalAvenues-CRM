@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import { ArrowLeft, Calendar, ChevronRight, Globe, GraduationCap, MapPin, Search, ShieldCheck } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/Card'
@@ -37,6 +37,13 @@ function formatMonth(month: number) {
   return new Date(2000, month - 1, 1).toLocaleString('en-US', { month: 'long' })
 }
 
+// intakes.status is one of 'upcoming' | 'open' | 'closed' (migration 016). The Apply button used to
+// label every non-open intake "Closed", even ones still 'upcoming' — cosmetic but misleading next to
+// the badge above it, which already shows the real status correctly.
+function intakeClosedLabel(status: string) {
+  return status === 'upcoming' ? 'Upcoming' : 'Closed'
+}
+
 function Breadcrumb({ items }: { items: { label: string; onClick?: () => void }[] }) {
   return (
     <div className="flex items-center flex-wrap gap-1 text-sm">
@@ -58,6 +65,7 @@ function Breadcrumb({ items }: { items: { label: string; onClick?: () => void }[
 
 export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowseProps) {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState('')
   const [country, setCountry] = React.useState('')
   const [page, setPage] = React.useState(1)
@@ -68,6 +76,22 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
   React.useEffect(() => {
     setPage(1)
   }, [search, country])
+
+  // Deep-link support: global search opens a specific university via ?open=<pid>
+  // without needing it to be on the currently loaded/filtered page. Uses a minimal
+  // stub — the real name/city/country/logo backfill in once detailQuery resolves.
+  React.useEffect(() => {
+    const openId = searchParams.get('open')
+    if (openId && !selectedUniversity) {
+      setSelectedUniversity({
+        id: openId, public_id: openId, name: '', shortName: null, country: '', city: null,
+        partnershipType: 'non_exclusive', isExclusive: false, programCount: 0, siblingCount: 0,
+        startingTuition: null, startingTuitionCurrency: null, startingTuitionLabel: null,
+        logoUrl: null, logoThumbUrl: null,
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const countryListQuery = useQuery({
     queryKey: ['catalog', 'universities', 'countries'],
@@ -94,6 +118,21 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
     enabled: !!selectedUniversity,
   })
 
+  // Backfill the deep-link stub's display fields once the real record loads.
+  React.useEffect(() => {
+    if (detailQuery.data && selectedUniversity && !selectedUniversity.name) {
+      setSelectedUniversity((prev) => prev ? {
+        ...prev,
+        name: detailQuery.data.name ?? prev.name,
+        city: detailQuery.data.city ?? prev.city,
+        country: detailQuery.data.country ?? prev.country,
+        logoUrl: detailQuery.data.logo_url ?? prev.logoUrl,
+        logoThumbUrl: detailQuery.data.logo_thumb_url ?? prev.logoThumbUrl,
+        isExclusive: detailQuery.data.partnership_type === 'exclusive',
+      } : prev)
+    }
+  }, [detailQuery.data, selectedUniversity])
+
   const intakesQuery = useQuery({
     queryKey: ['catalog', 'course-intakes', selectedCourse?.public_id],
     queryFn: () => fetchProgramIntakes(selectedCourse!.public_id),
@@ -107,8 +146,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
       setApplyingIntakeId(intake.public_id)
       const { application, autoSubmitted } = await createApplication({
         programId: selectedCourse.public_id,
-        intakeMonth: intake.intake_month,
-        intakeYear: intake.intake_year,
+        intakeId: intake.public_id,
       })
       if (autoSubmitted) {
         toast.success(`Application submitted for ${selectedCourse.name} — ${intake.name}.`)
@@ -128,6 +166,16 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
     onApplyForStudent?.(intake, selectedCourse, selectedUniversity)
   }
 
+  function backToList() {
+    setSelectedUniversity(null)
+    setSelectedCourse(null)
+    if (searchParams.has('open')) {
+      const next = new URLSearchParams(searchParams)
+      next.delete('open')
+      setSearchParams(next, { replace: true })
+    }
+  }
+
   // Course intake view
   if (selectedCourse && selectedUniversity) {
     const intakes = intakesQuery.data ?? []
@@ -135,7 +183,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
       <div className="space-y-4">
         <Breadcrumb
           items={[
-            { label: 'Universities', onClick: () => { setSelectedUniversity(null); setSelectedCourse(null) } },
+            { label: 'Universities', onClick: backToList },
             { label: selectedUniversity.name, onClick: () => setSelectedCourse(null) },
             { label: selectedCourse.name },
           ]}
@@ -181,7 +229,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
                       disabled={intake.status !== 'open' || applyingIntakeId === intake.public_id}
                       onClick={() => handleApply(intake)}
                     >
-                      {applyingIntakeId === intake.public_id ? 'Applying…' : intake.status !== 'open' ? 'Closed' : 'Apply'}
+                      {applyingIntakeId === intake.public_id ? 'Applying…' : intake.status !== 'open' ? intakeClosedLabel(intake.status) : 'Apply'}
                     </Button>
                   )}
                   {mode === 'agent-apply' && (
@@ -190,7 +238,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
                       disabled={intake.status !== 'open'}
                       onClick={() => handleAgentApply(intake)}
                     >
-                      {intake.status !== 'open' ? 'Closed' : 'Apply for Student'}
+                      {intake.status !== 'open' ? intakeClosedLabel(intake.status) : 'Apply for Student'}
                     </Button>
                   )}
                 </CardContent>
@@ -232,7 +280,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
       <div className="space-y-4">
         <Breadcrumb
           items={[
-            { label: 'Universities', onClick: () => setSelectedUniversity(null) },
+            { label: 'Universities', onClick: backToList },
             { label: selectedUniversity.name },
           ]}
         />

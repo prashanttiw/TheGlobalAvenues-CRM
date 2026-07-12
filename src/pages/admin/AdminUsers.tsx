@@ -553,7 +553,7 @@ function EditAccessPanel({
             <div className="space-y-5">
               {/* Identity card */}
               <div className="flex items-center gap-3 rounded-xl border border-border-warm bg-surface-warm p-4">
-                <UserAvatar name={fullName(user)} size="md" />
+                <UserAvatar name={fullName(user)} image={user.avatar_thumb_url ?? undefined} size="md" />
                 <div>
                   <p className="text-sm font-semibold text-brand-navy">{fullName(user)}</p>
                   <p className="text-xs text-muted-foreground">{user.email}</p>
@@ -938,7 +938,7 @@ function AdminRow({
       {/* Staff member */}
       <td className="px-4 py-3.5">
         <div className="flex items-center gap-3">
-          <UserAvatar name={name} size="sm" />
+          <UserAvatar name={name} image={user.avatar_thumb_url ?? undefined} size="sm" />
           <div className="min-w-0">
             <p className="truncate font-semibold text-brand-navy leading-tight">
               {name}
@@ -1040,7 +1040,7 @@ function AdminMobileCard({
     <div className="flex flex-col gap-3 p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <UserAvatar name={name} size="sm" />
+          <UserAvatar name={name} image={user.avatar_thumb_url ?? undefined} size="sm" />
           <div className="min-w-0">
             <p className="truncate font-semibold text-brand-navy leading-tight">
               {name}

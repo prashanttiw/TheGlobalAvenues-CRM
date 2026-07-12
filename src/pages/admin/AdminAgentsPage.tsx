@@ -32,6 +32,7 @@ import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { Dialog, DialogContent, DialogTitle } from '../../shared/components/ui/Dialog'
+import { UserAvatar } from '../../shared/components/ui/Avatar'
 import { AgentTreeNode, type AgentNode } from '../../components/agent/AgentTreeNode'
 
 const SECTIONS = [
@@ -243,9 +244,12 @@ export default function AdminAgentsPage() {
       key: 'agency',
       header: 'Agency',
       cell: (row) => (
-        <div>
-          <p className="font-semibold text-brand-navy">{row.agency_name || row.full_name}</p>
-          <p className="text-xs text-muted-foreground">ID: {row.public_id} | {row.email || 'Email unavailable'}</p>
+        <div className="flex items-center gap-2.5">
+          <UserAvatar name={row.full_name || row.agency_name || '?'} image={row.avatar_thumb_url ?? undefined} size="sm" />
+          <div>
+            <p className="font-semibold text-brand-navy">{row.agency_name || row.full_name}</p>
+            <p className="text-xs text-muted-foreground">ID: {row.public_id} | {row.email || 'Email unavailable'}</p>
+          </div>
         </div>
       ),
     },

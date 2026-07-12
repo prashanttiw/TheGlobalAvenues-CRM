@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { Calendar, Globe, User } from 'lucide-react'
 import { fetchAdminApplications } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
@@ -29,12 +30,27 @@ function formatDate(value?: string | null) {
 }
 
 export default function AdminApplicationsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [statusFilter, setStatusFilter] = React.useState('')
   const [univFilter, setUnivFilter] = React.useState('')
   const [yearFilter, setYearFilter] = React.useState('')
-  const [selectedPid, setSelectedPid] = React.useState<string | null>(null)
+  const [selectedPid, setSelectedPid] = React.useState<string | null>(() => searchParams.get('open'))
   const [search, setSearch] = React.useState('')
   const [debouncedSearch, setDebouncedSearch] = React.useState('')
+
+  // Deep-link support: global search opens a specific application via ?open=<pid>
+  // without needing it to be on the currently loaded/filtered page — the drawer
+  // fetches its own detail data independently of the list.
+  const handleDrawerOpenChange = React.useCallback((open: boolean) => {
+    if (!open) {
+      setSelectedPid(null)
+      if (searchParams.has('open')) {
+        const next = new URLSearchParams(searchParams)
+        next.delete('open')
+        setSearchParams(next, { replace: true })
+      }
+    }
+  }, [searchParams, setSearchParams])
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
@@ -163,7 +179,7 @@ export default function AdminApplicationsPage() {
         />
       )}
 
-      <ApplicationDetailDrawer applicationPid={selectedPid} onOpenChange={(open) => !open && setSelectedPid(null)} />
+      <ApplicationDetailDrawer applicationPid={selectedPid} onOpenChange={handleDrawerOpenChange} />
     </PageWrapper>
   )
 }

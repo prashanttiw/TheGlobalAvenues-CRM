@@ -24,12 +24,103 @@ export type PaginationMeta = {
 };
 
 let accessToken: string | null = null;
+let unauthorizedHandler: (() => void) | null = null;
+let refreshPromise: Promise<boolean> | null = null;
+let proactiveRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+// Codes raised by AuthMiddleware for a dead/expired/revoked token or session.
+// Only these should trigger the silent refresh-and-retry (or forced logout if
+// that refresh fails) — business-logic 401s (bad password, bad OTP) use other
+// codes and must be left alone so they just surface as a normal form error.
+const SESSION_ERROR_CODES = new Set([
+  'AUTH_TOKEN_MISSING',
+  'AUTH_TOKEN_EXPIRED',
+  'AUTH_TOKEN_INVALID',
+  'SESSION_REVOKED',
+  'ACCOUNT_INACTIVE',
+]);
 
 export function getAccessToken(): string | null {
   return accessToken;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSuccess<T>> {
+/** Registered by useAuth — called once a refresh-on-401 attempt has also failed,
+ * meaning the session is truly over (not just the access token being stale). */
+export function setUnauthorizedHandler(handler: () => void): void {
+  unauthorizedHandler = handler;
+}
+
+function decodeJwtExpiry(token: string): number | null {
+  try {
+    const payloadSegment = token.split('.')[1];
+    if (!payloadSegment) return null;
+    const base64 = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'))
+        .join('')
+    );
+    const decoded = JSON.parse(json) as { exp?: number };
+    return typeof decoded.exp === 'number' ? decoded.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearProactiveRefresh(): void {
+  if (proactiveRefreshTimer !== null) {
+    clearTimeout(proactiveRefreshTimer);
+    proactiveRefreshTimer = null;
+  }
+}
+
+// Silently renews the access token well before it expires so an open tab
+// never actually hits a 401 mid-task. If the tab was asleep/throttled and
+// this timer is missed, the reactive refresh-on-401 path below still covers it.
+function scheduleProactiveRefresh(token: string): void {
+  clearProactiveRefresh();
+  const exp = decodeJwtExpiry(token);
+  if (exp === null) return;
+
+  const msRemaining = exp * 1000 - Date.now();
+  if (msRemaining <= 0) return;
+
+  const delay = Math.max(msRemaining * 0.75, 5_000);
+  proactiveRefreshTimer = setTimeout(() => {
+    void refreshAccessTokenOnce();
+  }, delay);
+}
+
+function setAccessToken(token: string | null): void {
+  accessToken = token;
+  if (token) {
+    scheduleProactiveRefresh(token);
+  } else {
+    clearProactiveRefresh();
+  }
+}
+
+function refreshAccessTokenOnce(): Promise<boolean> {
+  if (refreshPromise === null) {
+    refreshPromise = refreshAuthSession()
+      .then(() => true)
+      .catch(() => {
+        // The refresh token itself is dead (expired/revoked/missing) — the session is
+        // unrecoverable. Terminate it immediately rather than waiting for the next
+        // user-triggered request to discover the same thing via a stale access token.
+        setAccessToken(null);
+        unauthorizedHandler?.();
+        return false;
+      })
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+async function request<T>(path: string, init: RequestInit = {}, isRetry = false): Promise<ApiSuccess<T>> {
   const headers = new Headers(init.headers ?? {});
   const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
 
@@ -62,8 +153,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<ApiSucc
 
   if (!response.ok || payload.success === false) {
     const error = payload as ApiError;
+    const isSessionError = response.status === 401 && SESSION_ERROR_CODES.has(error.code);
+    const isRefreshEndpoint = path.includes('action=refresh');
+
+    if (isSessionError && !isRetry && !isRefreshEndpoint && accessToken !== null) {
+      const refreshed = await refreshAccessTokenOnce();
+      if (refreshed) {
+        return request<T>(path, init, true);
+      }
+    }
+
+    if (isSessionError) {
+      setAccessToken(null);
+      unauthorizedHandler?.();
+    }
+
     const message = error.message || 'Request failed';
-    throw new Error(message);
+    throw new ApiRequestError(message, error.code ?? 'UNKNOWN_ERROR', response.status, payload);
   }
 
   return payload as ApiSuccess<T>;
@@ -111,6 +217,8 @@ export type AuthUser = {
   two_factor_enabled?: boolean;
   tier?: number | null;
   referral_code?: string | null;
+  avatar_url?: string | null;
+  avatar_thumb_url?: string | null;
 };
 
 export type StudentProfileResponse = {
@@ -130,6 +238,8 @@ export type StudentProfileResponse = {
   career_goal?: string | null;
   gamification_points: number;
   profile_completion: number;
+  avatar_url?: string | null;
+  avatar_thumb_url?: string | null;
 };
 
 export type AgentProfileResponse = {
@@ -142,6 +252,27 @@ export type AgentProfileResponse = {
   country: string | null;
   created_at: string;
   pending_student_requests?: number;
+  avatar_url?: string | null;
+  avatar_thumb_url?: string | null;
+};
+
+export type AdminProfileResponse = {
+  public_id: string;
+  full_name: string;
+  email: string | null;
+  phone: string | null;
+  role_name: string;
+  is_super_admin: boolean;
+  two_factor_enabled: boolean;
+  created_at: string;
+  avatar_url?: string | null;
+  avatar_thumb_url?: string | null;
+};
+
+export type AvatarUpdateResponse = {
+  avatar_type: 'preset' | 'upload' | null;
+  avatar_url: string | null;
+  avatar_thumb_url: string | null;
 };
 
 export type CatalogUniversity = {
@@ -353,6 +484,8 @@ export type AdminUserSummary = {
   firstName: string | null;
   lastName: string | null;
   pages: Record<string, PageAccessLevel>;
+  avatar_url?: string | null;
+  avatar_thumb_url?: string | null;
 };
 
 export type AdminUserDetail = {
@@ -492,7 +625,7 @@ export async function registerStudent(payload: {
     }
   );
 
-  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
 }
 
 export async function registerAgent(payload: {
@@ -521,7 +654,7 @@ export async function registerAgent(payload: {
     }
   );
 
-  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
 
   await updateAgentProfile({
     registration_number: payload.registration_number,
@@ -533,7 +666,6 @@ export async function registerAgent(payload: {
 export type RegistrationOtpResult = {
   session_token: string;
   expires_in_minutes?: number;
-  otp_code_preview?: string;
 };
 
 export type AuthSessionResult = {
@@ -587,7 +719,7 @@ export async function completeStudentRegistration(
     },
   );
 
-  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   return {
     ...response.data,
     accessToken: extractAccessToken(response.data as Record<string, unknown>),
@@ -637,7 +769,7 @@ export async function loginWithPassword(
   );
 
   if (response.data.accessToken || response.data.access_token) {
-    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+    setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   }
 
   return {
@@ -680,7 +812,7 @@ export async function verifyOtpLogin(
   );
 
   if (response.data.accessToken || response.data.access_token) {
-    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+    setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   }
 
   return {
@@ -725,6 +857,40 @@ export async function updateAgentProfile(payload: Record<string, unknown>): Prom
     method: 'PUT',
     body: JSON.stringify(payload),
   });
+}
+
+export async function fetchAdminProfile(): Promise<AdminProfileResponse> {
+  const response = await request<AdminProfileResponse>('/?route=admin&action=profile');
+  return response.data;
+}
+
+export async function updateAdminProfile(payload: { full_name: string }): Promise<void> {
+  await request('/?route=admin&action=profile', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadAvatar(file: Blob): Promise<AvatarUpdateResponse> {
+  const formData = new FormData();
+  formData.set('avatar', file, 'avatar.jpg');
+  const response = await request<AvatarUpdateResponse>('/?route=avatar&action=upload', {
+    method: 'POST',
+    body: formData,
+  });
+  return response.data;
+}
+
+export async function selectPresetAvatar(presetKey: string): Promise<AvatarUpdateResponse> {
+  const response = await request<AvatarUpdateResponse>('/?route=avatar&action=select-preset', {
+    method: 'POST',
+    body: JSON.stringify({ preset_key: presetKey }),
+  });
+  return response.data;
+}
+
+export async function removeAvatar(): Promise<void> {
+  await request('/?route=avatar&action=remove', { method: 'DELETE' });
 }
 
 export async function fetchUniversities(params: {
@@ -800,8 +966,7 @@ export async function fetchProgramIntakes(coursePublicId: string): Promise<any[]
 export async function createApplication(payload: {
   programId: string;
   universityId?: string;
-  intakeMonth: number;
-  intakeYear: number;
+  intakeId: string;
   source?: 'direct' | 'agent' | 'referral' | 'website';
   studentUserId?: string;
 }): Promise<{ application: ApplicationDetailResponse; autoSubmitted: boolean }> {
@@ -809,8 +974,7 @@ export async function createApplication(payload: {
     method: 'POST',
     body: JSON.stringify({
       program_id: payload.programId,
-      intake_month: payload.intakeMonth,
-      intake_year: payload.intakeYear,
+      intake_id: payload.intakeId,
     }),
   });
 
@@ -838,7 +1002,7 @@ export async function agentSubmitApplication(applicationPublicId: string): Promi
 }
 
 export function clearAuthSession(): void {
-  accessToken = null;
+  setAccessToken(null);
 }
 
 export async function fetchAdminDashboardStats(): Promise<AdminDashboardStats> {
@@ -1044,6 +1208,20 @@ export type AdminPaymentQueueItem = {
 
 export async function fetchAdminPaymentQueue(): Promise<AdminPaymentQueueItem[]> {
   const response = await api.get<{ queue: AdminPaymentQueueItem[] }>('admin/get_payment_queue');
+  return response.data.queue ?? [];
+}
+
+export type AdminAgentQueueItem = {
+  public_id: string;
+  tier: number;
+  agency_name: string;
+  country: string | null;
+  status: string;
+  email: string | null;
+};
+
+export async function fetchAdminAgentQueue(): Promise<AdminAgentQueueItem[]> {
+  const response = await api.get<{ queue: AdminAgentQueueItem[] }>('admin/get_agent_queue');
   return response.data.queue ?? [];
 }
 
@@ -1878,7 +2056,7 @@ export async function verifyAdminOtpLogin(email: string, otpCode: string): Promi
   );
 
   if (response.data.accessToken || response.data.access_token) {
-    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+    setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   }
 
   return {
@@ -1897,7 +2075,7 @@ export async function verifyTwoFactorLogin(preAuthToken: string, code: string): 
     }
   );
   if (response.data.accessToken || response.data.access_token) {
-    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+    setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   }
   return {
     user: response.data.user,
@@ -1920,6 +2098,12 @@ export async function changePassword(payload: {
   confirm_password: string;
 }): Promise<void> {
   await request('/?route=auth&action=change-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+export async function toggle2FA(payload: { enable: boolean; password: string }): Promise<void> {
+  await request('/?route=auth&action=2fa/toggle', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -1967,14 +2151,14 @@ export async function confirmForgotPassword(
 export async function refreshAuthSession(): Promise<AuthSessionResult> {
   const response = await request<AuthSessionResult>('/?route=auth&action=refresh', { method: 'POST' });
   if (response.data.accessToken) {
-    accessToken = extractAccessToken(response.data as Record<string, unknown>);
+    setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   }
   return response.data;
 }
 
 export async function logoutRequest(): Promise<void> {
   await request('/?route=auth&action=logout', { method: 'POST' });
-  accessToken = null;
+  setAccessToken(null);
 }
 
 export async function verifyStudentRegistrationOtp(email: string, code: string): Promise<{ user: AuthUser; accessToken: string }> {
@@ -1985,7 +2169,7 @@ export async function verifyStudentRegistrationOtp(email: string, code: string):
       body: JSON.stringify({ email, code }),
     }
   );
-  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   return response.data;
 }
 
@@ -1997,7 +2181,7 @@ export async function verifyAgentRegistrationOtp(email: string, code: string): P
       body: JSON.stringify({ email, code }),
     }
   );
-  accessToken = extractAccessToken(response.data as Record<string, unknown>);
+  setAccessToken(extractAccessToken(response.data as Record<string, unknown>));
   return response.data;
 }
 
@@ -2097,10 +2281,6 @@ export async function fetchStudentNoticesFeed(params: Record<string, any> = {}):
   });
   const response = await api.get(`/?route=student&action=notices/feed&` + searchParams.toString());
   return { notices: response.data.notices || [], meta: response.data.meta };
-}
-
-export function setUnauthorizedHandler(handler: () => void): void {
-  // Not fully implemented for interceptors, but placeholder to fix type
 }
 
 

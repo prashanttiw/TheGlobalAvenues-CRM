@@ -73,6 +73,7 @@ const AdminSuperLogsPage = React.lazy(() => import('../pages/admin/AdminSuperLog
 const AdminLeadsPage = React.lazy(() => import('../pages/admin/AdminLeadsPage'));
 const AdminReassignmentsPage = React.lazy(() => import('../pages/admin/AdminReassignmentsPage'));
 const AdminSecurityPage = React.lazy(() => import('../pages/admin/AdminSecurityPage'));
+const AdminProfilePage = React.lazy(() => import('../pages/admin/AdminProfilePage'));
 
 export function AppRouter() {
   return (
@@ -173,6 +174,7 @@ export function AppRouter() {
           <Route path="reports" element={<PageGuard permission="reports.view"><AdminReportsPage /></PageGuard>} />
           <Route path="users" element={<PageGuard permission="user_management.view"><AdminUsersPage /></PageGuard>} />
           <Route path="settings" element={<PageGuard permission="system_settings.view"><AdminSettingsPage /></PageGuard>} />
+          <Route path="profile" element={<PageGuard><AdminProfilePage /></PageGuard>} />
           <Route path="logs" element={<PageGuard><AdminLogsPage /></PageGuard>} />
           <Route path="super-logs" element={<PageGuard permission="activity_logs.view_all"><AdminSuperLogsPage /></PageGuard>} />
           <Route path="security" element={<PageGuard permission="security_events.view"><AdminSecurityPage /></PageGuard>} />

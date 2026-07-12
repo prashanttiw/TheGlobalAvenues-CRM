@@ -24,6 +24,7 @@ export function FileUpload({
   const [uploadProgress, setUploadProgress] = React.useState<number | null>(null)
   const [isUploaded, setIsUploaded] = React.useState(false)
   const inputRef = React.useRef<HTMLInputElement>(null)
+  const uploadIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null)
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault()
@@ -55,20 +56,33 @@ export function FileUpload({
   const simulateUpload = (selectedFile: File) => {
     setUploadProgress(0)
     setIsUploaded(false)
-    
+
+    // The state updater below must stay pure — React 18 StrictMode invokes updater functions
+    // twice in development specifically to catch side effects hidden inside them. onFileSelect
+    // (a real network call in callers) used to live in here and fired twice per upload as a
+    // result. Reaching 100% is instead handled by the effect below, which reacts to the
+    // committed state once per actual completion.
     const interval = setInterval(() => {
       setUploadProgress((prev) => {
-        if (prev === null) return null
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsUploaded(true)
-          onFileSelect?.(selectedFile)
-          return 100
-        }
+        if (prev === null || prev >= 100) return prev
         return prev + 10
       })
     }, 100)
+    uploadIntervalRef.current = interval
   }
+
+  React.useEffect(() => {
+    if (uploadProgress !== null && uploadProgress >= 100 && !isUploaded) {
+      if (uploadIntervalRef.current) {
+        clearInterval(uploadIntervalRef.current)
+        uploadIntervalRef.current = null
+      }
+      setIsUploaded(true)
+      if (file) {
+        onFileSelect?.(file)
+      }
+    }
+  }, [uploadProgress, isUploaded, file, onFileSelect])
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()

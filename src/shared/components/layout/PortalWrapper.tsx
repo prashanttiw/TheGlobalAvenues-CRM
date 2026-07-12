@@ -47,6 +47,7 @@ const ADMIN_NAV_BASE: (NavItem & { permission?: string; hideForSuperAdmin?: bool
   { label: 'Reports', icon: BarChart2, path: '/portal/admin/reports', permission: 'reports.view' },
   { label: 'Users', icon: Users, path: '/portal/admin/users', permission: 'user_management.view' },
   { label: 'Settings', icon: Settings, path: '/portal/admin/settings', permission: 'system_settings.view' },
+  { label: 'Profile', icon: User, path: '/portal/admin/profile' },
   { label: 'Activity Log', icon: Activity, path: '/portal/admin/logs', hideForSuperAdmin: true },
   { label: 'Super Activity Log', icon: Radar, path: '/portal/admin/super-logs', permission: 'activity_logs.view_all' },
   { label: 'Security', icon: Lock, path: '/portal/admin/security', permission: 'security_events.view' },

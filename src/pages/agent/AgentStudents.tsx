@@ -7,6 +7,7 @@ import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
 import { SearchInput } from '../../shared/components/ui/SearchInput';
 import { InlineActions } from '../../shared/components/ui/InlineActions';
+import { UserAvatar } from '../../shared/components/ui/Avatar';
 import { 
   PreviewDrawer, 
   PreviewDrawerContent, 
@@ -16,10 +17,11 @@ import {
 } from '../../shared/components/ui/PreviewDrawer';
 import { Globe, Calendar, Eye, ShieldAlert, ArrowLeft, ArrowRight, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { fetchAgentStudents, fetchAgentTeam } from '../../lib/api';
 
 export default function AgentStudents() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const urlAgentPid = searchParams.get('agent_pid') || '';
 
@@ -84,9 +86,12 @@ export default function AgentStudents() {
       key: 'name',
       header: 'Name',
       cell: (row) => (
-        <div>
-          <p className="font-semibold text-brand-navy">{row.full_name}</p>
-          <p className="text-[11px] text-muted-foreground">ID: {row.public_id}</p>
+        <div className="flex items-center gap-2.5">
+          <UserAvatar name={row.full_name} image={row.avatar_thumb_url ?? undefined} size="sm" />
+          <div>
+            <p className="font-semibold text-brand-navy">{row.full_name}</p>
+            <p className="text-[11px] text-muted-foreground">ID: {row.public_id}</p>
+          </div>
         </div>
       ),
     },
@@ -133,8 +138,13 @@ export default function AgentStudents() {
   return (
     <PageWrapper className="space-y-6">
       <PageHeader
-        title="Students Roster" 
+        title="Students Roster"
         subtitle="Manage and track all students assigned within your agency network."
+        actions={
+          <Button variant="primary" onClick={() => navigate('/portal/agent/students/new')} className="flex items-center gap-1.5">
+            <UserPlus className="h-4 w-4" /> Add Student
+          </Button>
+        }
       />
 
       <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-surface-card p-4 rounded-xl border border-border-warm">

@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Command } from 'cmdk'
 import { useNavigate } from 'react-router-dom'
-import { Search, FileText, Globe, GraduationCap, Briefcase, Activity } from 'lucide-react'
+import { Search, FileText, Globe, GraduationCap, Briefcase, Activity, BookOpen } from 'lucide-react'
 import { useCommandPaletteStore } from '../../hooks/useCommandPalette'
 import { Dialog, DialogContent, DialogOverlay, DialogPortal } from '@radix-ui/react-dialog'
 import { useAuth } from '../../hooks/useAuth'
@@ -55,15 +55,15 @@ export function CommandPalette({ items }: CommandPaletteProps) {
     queryFn: async () => {
       if (!debouncedSearch || debouncedSearch.length < 3) return []
       
-      const rolePrefix = user?.role === 'admin' ? 'admin' : (user?.role === 'agent' ? 'agent' : null)
-      if (!rolePrefix) return [] // Students don't have global search for now, just local suggestions
+      const rolePrefix = user?.role
+      if (!rolePrefix) return []
 
-      const res = await api.get(`/${rolePrefix}/search`, { params: { q: debouncedSearch, types: 'students,applications,universities,agents,leads' } })
+      const res = await api.get(`/${rolePrefix}/search`, { params: { q: debouncedSearch, types: 'students,applications,universities,courses,agents,leads' } })
       // res.data is already the results array (backend returns { data: [...] } directly,
       // and request() unwraps that literal top-level `data` key) — do not re-drill into `.data`.
       return res.data
     },
-    enabled: isOpen && debouncedSearch.length >= 3 && ['admin', 'agent'].includes(user?.role || ''),
+    enabled: isOpen && debouncedSearch.length >= 3 && ['admin', 'agent', 'student'].includes(user?.role || ''),
   })
 
   // Suggestions are just this dashboard's real sidebar nav — single source of truth,
@@ -85,18 +85,32 @@ export function CommandPalette({ items }: CommandPaletteProps) {
       case 'student': return GraduationCap
       case 'agent': return Briefcase
       case 'university': return Globe
+      case 'course': return BookOpen
       case 'application': return FileText
       default: return Search
     }
   }
 
   const getPathForType = (type: string, id: string) => {
-    const base = `/portal/${user?.role === 'admin' ? 'admin' : 'agent'}`
+    const role = user?.role || 'student'
+    const base = `/portal/${role}`
     switch (type) {
       case 'student': return `${base}/students/${id}`
-      case 'agent': return `${base}/agents/${id}`
-      case 'university': return `${base}/universities/${id}`
-      case 'application': return `${base}/applications/${id}`
+      // Only admin has a real agent detail route, and it lives under /tree.
+      case 'agent': return `${base}/agents/${id}/tree`
+      case 'university':
+      // Courses have no standalone detail page — the backend returns the parent
+      // university's id for course rows, so this opens that university instead.
+      case 'course':
+        // Admin has a real /universities/:pid route; agent/student portals only have
+        // a flat list page (local-state browse), so those deep-link via ?open= instead.
+        return role === 'admin' ? `${base}/universities/${id}` : `${base}/universities?open=${id}`
+      case 'application':
+        // Agents have no standalone application view — applications only render nested
+        // inside the owning student's page. The backend returns that student's
+        // public_id (not the application's) for agent-scoped application results.
+        if (role === 'agent') return `${base}/students/${id}`
+        return `${base}/applications?open=${id}`
       default: return '#'
     }
   }

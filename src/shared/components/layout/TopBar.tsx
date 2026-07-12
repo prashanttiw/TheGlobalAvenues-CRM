@@ -1,7 +1,10 @@
 import { Menu, Search } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { useSidebarStore } from '../../hooks/useSidebarStore'
 import { useCommandPaletteStore } from '../../hooks/useCommandPalette'
+import { useAuth } from '../../hooks/useAuth'
 import { Button } from '../ui/Button'
+import { UserAvatar } from '../ui/Avatar'
 import { NotificationCenter } from '../NotificationCenter'
 
 interface TopBarProps {
@@ -11,6 +14,7 @@ interface TopBarProps {
 export function TopBar({ pageTitle }: TopBarProps) {
   const { toggle } = useSidebarStore()
   const { open } = useCommandPaletteStore()
+  const { user } = useAuth()
 
   return (
     <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-border-warm bg-surface-card/95 px-4 shadow-sm backdrop-blur lg:px-8">
@@ -41,6 +45,19 @@ export function TopBar({ pageTitle }: TopBarProps) {
         </Button>
 
         <NotificationCenter />
+
+        {user && (
+          <Link
+            to={`/portal/${user.role}/profile`}
+            className="ml-1 flex items-center gap-2 rounded-button p-1 pr-2 transition-colors hover:bg-surface-warm"
+            aria-label="View profile"
+          >
+            <UserAvatar name={user.name} image={user.avatar} size="sm" />
+            <span className="hidden max-w-[120px] truncate text-sm font-semibold text-brand-navy md:inline">
+              {user.name}
+            </span>
+          </Link>
+        )}
       </div>
     </header>
   )

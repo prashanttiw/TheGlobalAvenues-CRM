@@ -11,6 +11,7 @@ import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
+import { UserAvatar } from '../../shared/components/ui/Avatar'
 import {
   PreviewDrawer,
   PreviewDrawerContent,
@@ -34,6 +35,8 @@ interface AdminStudent {
   status: string
   applicationsCount: number
   registeredDate: string
+  avatar_url?: string | null
+  avatar_thumb_url?: string | null
 }
 
 const KNOWN_STATUSES = new Set<StatusType>([
@@ -87,9 +90,12 @@ export default function AdminStudentsPage() {
       key: 'name',
       header: 'Name',
       cell: (row) => (
-        <div>
-          <p className="font-semibold text-brand-navy">{row.name}</p>
-          <p className="text-xs text-muted-foreground">ID: {row.id} | {row.email || 'Email unavailable'}</p>
+        <div className="flex items-center gap-2.5">
+          <UserAvatar name={row.name} image={row.avatar_thumb_url ?? undefined} size="sm" />
+          <div>
+            <p className="font-semibold text-brand-navy">{row.name}</p>
+            <p className="text-xs text-muted-foreground">ID: {row.id} | {row.email || 'Email unavailable'}</p>
+          </div>
         </div>
       ),
     },

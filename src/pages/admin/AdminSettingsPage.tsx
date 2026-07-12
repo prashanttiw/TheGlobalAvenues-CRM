@@ -7,7 +7,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { usePermission } from '../../hooks/usePermission'
 import { ForbiddenPage } from '../../shared/components/ui/ForbiddenPage'
 import { toast } from 'sonner'
-import { Settings as SettingsIcon, ShieldAlert, Key, Upload, Database, Activity, GraduationCap } from 'lucide-react'
+import { Settings as SettingsIcon, ShieldAlert, Key, Upload, Activity, GraduationCap } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import api from '../../lib/api'
 import { formatDistanceToNow } from 'date-fns'
@@ -44,7 +44,6 @@ export default function AdminSettingsPage() {
     if (!rawSettingsGroups) return rawSettingsGroups
     const filtered: SettingsGroup = {}
     for (const [groupName, settings] of Object.entries(rawSettingsGroups)) {
-      if (groupName === 'backup') continue
       const visible = settings.filter(s => !HIDDEN_SETTING_KEYS.has(s.setting_key))
       if (visible.length > 0) filtered[groupName] = visible
     }
@@ -53,7 +52,12 @@ export default function AdminSettingsPage() {
 
   const { data: recentChanges } = useQuery({
     queryKey: ['admin', 'system-settings-audit'],
-    queryFn: () => api.get('/admin/logs?target_type=system_setting&per_page=10').then(r => r.data.data),
+    // '/admin/logs' was never a registered route (always 404'd, so this widget was permanently
+    // empty) — the real endpoint is activity-logs (ActivityLogController::adminList(), self-scoped,
+    // no extra permission beyond being an authenticated admin — matches system_settings.view already
+    // gating this whole page). Its response is Response::json(['data' => ...]), a single wrapper
+    // already matching request()'s ApiSuccess<T>.data, so a single unwrap is correct here too.
+    queryFn: () => api.get('/admin/activity-logs?target_type=system_setting&per_page=10').then(r => r.data),
   })
 
   useEffect(() => {
@@ -110,7 +114,6 @@ export default function AdminSettingsPage() {
       case 'otp': return <Key className="h-5 w-5 text-brand-orange-accessible" />
       case 'upload': return <Upload className="h-5 w-5 text-brand-navy" />
       case 'security': return <ShieldAlert className="h-5 w-5 text-red-500" />
-      case 'backup': return <Database className="h-5 w-5 text-brand-navy" />
       case 'applications': return <GraduationCap className="h-5 w-5 text-brand-orange-accessible" />
       default: return <SettingsIcon className="h-5 w-5 text-gray-500" />
     }
@@ -199,8 +202,12 @@ export default function AdminSettingsPage() {
                 ) : (
                   recentChanges.map((log: any) => (
                     <div key={log.id} className="text-xs border-b border-border-warm last:border-0 pb-3 last:pb-0">
+                      {/* target_display is always null for system_setting.changed entries (never
+                          populated by ActivityLogger for this action) — label is the same backend's
+                          pre-formatted, human-readable description and already includes the actor
+                          name and the before/after values, so it doesn't need reassembling here. */}
                       <div className="font-semibold text-brand-navy">
-                        {log.actor_display_name} updated setting <span className="font-mono bg-surface-warm px-1 py-0.5 rounded text-[10px]">{log.target_display}</span>
+                        {log.label ?? `${log.actor_display_name} updated a setting`}
                       </div>
                       <div className="text-muted-foreground mt-1">
                         {formatDistanceToNow(new Date(log.created_at), { addSuffix: true })}
