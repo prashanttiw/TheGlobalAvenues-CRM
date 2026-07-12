@@ -207,7 +207,7 @@ final class AdminAgentController
         try {
             $this->pdo->beginTransaction();
 
-            $stmt = $this->pdo->prepare("SELECT id, user_id, status FROM agents WHERE public_id = ? AND deleted_at IS NULL FOR UPDATE");
+            $stmt = $this->pdo->prepare("SELECT id, user_id, status, full_name FROM agents WHERE public_id = ? AND deleted_at IS NULL FOR UPDATE");
             $stmt->execute([$publicId]);
             $agent = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -250,7 +250,7 @@ final class AdminAgentController
             $this->pdo->commit();
 
             ActivityLogger::log('agent.approved', 'agent', (int)$agent['id'], null, [], ['status' => 'approved', 'referral_code' => $code]);
-            NotificationService::fire('agent.approved', ['referral_code' => $code], [$agent['user_id']]);
+            NotificationService::fire('agent.approved', ['referral_code' => $code, 'full_name' => $agent['full_name']], [$agent['user_id']]);
 
             Response::json([
                 'success' => true,
@@ -274,7 +274,7 @@ final class AdminAgentController
         try {
             $this->pdo->beginTransaction();
 
-            $stmt = $this->pdo->prepare("SELECT id, user_id, status FROM agents WHERE public_id = ? AND deleted_at IS NULL FOR UPDATE");
+            $stmt = $this->pdo->prepare("SELECT id, user_id, status, full_name FROM agents WHERE public_id = ? AND deleted_at IS NULL FOR UPDATE");
             $stmt->execute([$publicId]);
             $agent = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -303,6 +303,7 @@ final class AdminAgentController
             ActivityLogger::log('agent.rejected', 'agent', (int)$agent['id'], null, [], ['status' => 'rejected', 'reason' => $reason ?: null]);
             NotificationService::fire('agent.rejected', [
                 'rejection_reason' => $reason ?: 'No reason was provided.',
+                'full_name'        => $agent['full_name'],
             ], [$agent['user_id']]);
 
             Response::json([
@@ -330,7 +331,7 @@ final class AdminAgentController
         try {
             $this->pdo->beginTransaction();
 
-            $stmt = $this->pdo->prepare("SELECT id, user_id, status FROM agents WHERE public_id = ? AND deleted_at IS NULL FOR UPDATE");
+            $stmt = $this->pdo->prepare("SELECT id, user_id, status, full_name FROM agents WHERE public_id = ? AND deleted_at IS NULL FOR UPDATE");
             $stmt->execute([$publicId]);
             $agent = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -363,7 +364,7 @@ final class AdminAgentController
             SecurityEventLogger::log('account_suspended', $agent['user_id']);
 
             ActivityLogger::log('agent.suspended', 'agent', (int)$agent['id'], null, [], ['status' => 'suspended', 'reason' => $reason]);
-            NotificationService::fire('agent.suspended', ['suspension_reason' => $reason], [$agent['user_id']]);
+            NotificationService::fire('agent.suspended', ['suspension_reason' => $reason, 'full_name' => $agent['full_name']], [$agent['user_id']]);
 
             Response::json([
                 'success' => true,
@@ -374,6 +375,47 @@ final class AdminAgentController
             $this->pdo->rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * Dashboard-only lightweight preview of pending agent approvals — every admin sees this
+     * regardless of their individual page grants (only the Approve/Reject buttons on the
+     * dashboard are gated on 'agents.approve', client-side). Deliberately a separate, smaller
+     * endpoint from listAll()/getPending() so those (used by the full Agents management page)
+     * can keep their real page-level permission checks. See
+     * CLIENT_SYSTEM_DOCUMENTATION.md §5.1: "Every admin sees the dashboard's action queues
+     * regardless of their individual page grants."
+     */
+    public function pendingQueue(): void
+    {
+        AuthMiddleware::requireRole('admin');
+
+        $stmt = $this->pdo->prepare(
+            "SELECT a.public_id, a.tier, a.agency_name, a.country, a.status, u.email AS encrypted_email
+             FROM agents a
+             JOIN users u ON u.id = a.user_id
+             WHERE a.status = 'pending' AND a.deleted_at IS NULL
+             ORDER BY a.created_at ASC
+             LIMIT 6"
+        );
+        $stmt->execute();
+        $agents = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        foreach ($agents as &$agent) {
+            $agent['tier'] = (int) $agent['tier'];
+            $agent['email'] = null;
+            if (!empty($agent['encrypted_email'])) {
+                try {
+                    $agent['email'] = \TGA\CRM\Services\EncryptionService::decrypt($agent['encrypted_email']);
+                } catch (\Throwable $e) {
+                    $agent['email'] = null;
+                }
+            }
+            unset($agent['encrypted_email']);
+        }
+        unset($agent);
+
+        Response::json(['queue' => $agents]);
     }
 
     public function listAll(): void
@@ -425,6 +467,7 @@ final class AdminAgentController
                     a.full_name, a.agency_name, a.country, a.address_line, a.city, a.state,
                     a.mobile_number, a.referral_code, a.status,
                     a.created_at, u.email AS encrypted_email,
+                    u.avatar_type, u.avatar_value,
                     ap.public_id AS parent_public_id, ap.full_name AS parent_full_name,
                     ar.public_id AS root_public_id
              FROM agents a
@@ -456,6 +499,11 @@ final class AdminAgentController
             $agent['mobile_number'] = self::decryptMobile($agent['mobile_number']);
 
             $agent['tier'] = (int)$agent['tier'];
+
+            $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($agent['avatar_type'] ?? null, $agent['avatar_value'] ?? null);
+            $agent['avatar_url'] = $avatarUrls['avatar_url'];
+            $agent['avatar_thumb_url'] = $avatarUrls['avatar_thumb_url'];
+            unset($agent['avatar_type'], $agent['avatar_value']);
         }
 
         Response::json([

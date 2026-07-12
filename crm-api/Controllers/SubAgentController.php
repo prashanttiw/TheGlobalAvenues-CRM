@@ -166,6 +166,13 @@ final class SubAgentController
                 'subagent_agency'   => $agencyName,
             ], [(int) $user['sub']]);
 
+            // Welcome the new sub-agent account itself — 'subagent.created' above only
+            // notifies the parent who created it.
+            \TGA\CRM\Services\NotificationService::fire('agent.registered', [
+                'full_name'  => $fullName,
+                'portal_url' => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/agent/',
+            ], [$userId]);
+
             Response::json([
                 'success' => true,
                 'status' => 'pending',

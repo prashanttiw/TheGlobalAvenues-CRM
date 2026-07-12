@@ -27,6 +27,40 @@ final class AuthController
         $this->pdo = Database::getConnection();
     }
 
+    /**
+     * In-app-only "you just logged in" notification, shared by every completed-login
+     * path (password login, 2FA verify, admin OTP login, student/agent OTP login).
+     * No email — firing on every login would add real SMTP volume for accounts that
+     * log in many times a day (product decision 2026-07-08).
+     */
+    private function fireLoginNotification(array $user): void
+    {
+        $name = 'User';
+        $portalName = 'Portal';
+        if ($user['user_type'] === 'admin') {
+            $stmt = $this->pdo->prepare('SELECT full_name FROM admins WHERE user_id = ? LIMIT 1');
+            $stmt->execute([(int) $user['id']]);
+            $name = $stmt->fetchColumn() ?: 'Admin';
+            $portalName = 'Admin Portal';
+        } elseif ($user['user_type'] === 'agent') {
+            $stmt = $this->pdo->prepare('SELECT full_name FROM agents WHERE user_id = ? LIMIT 1');
+            $stmt->execute([(int) $user['id']]);
+            $name = $stmt->fetchColumn() ?: 'Agent';
+            $portalName = 'Agent Portal';
+        } elseif ($user['user_type'] === 'student') {
+            $stmt = $this->pdo->prepare('SELECT full_name FROM students WHERE user_id = ? LIMIT 1');
+            $stmt->execute([(int) $user['id']]);
+            $name = $stmt->fetchColumn() ?: 'Student';
+            $portalName = 'Student Portal';
+        }
+
+        \TGA\CRM\Services\NotificationService::fire('auth.login_success', [
+            'user_name'   => $name,
+            'portal_name' => $portalName,
+            'login_time'  => date('Y-m-d H:i:s'),
+        ], [(int) $user['id']]);
+    }
+
     public function login(): void
     {
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -156,6 +190,7 @@ final class AuthController
 
         $profile = $this->buildUserResponse($user, $permissions);
         \TGA\CRM\Services\SecurityEventLogger::log('login_success', (int) $user['id'], $emailHash, $ip);
+        $this->fireLoginNotification($user);
 
         Response::json([
             'success' => true,
@@ -239,6 +274,7 @@ final class AuthController
         $profile = $this->buildUserResponse($user, $permissions);
 
         \TGA\CRM\Services\SecurityEventLogger::log('login_success', $userId, $emailHash, $ip);
+        $this->fireLoginNotification($user);
 
         Response::json([
             'success' => true,
@@ -799,6 +835,7 @@ final class AuthController
 
         $profile = $this->buildUserResponse($user, $permissions);
         \TGA\CRM\Services\SecurityEventLogger::log('login_success', (int) $user['id'], $emailHash, $ip, ['context' => 'admin']);
+        $this->fireLoginNotification($user);
 
         Response::json([
             'success'      => true,
@@ -963,6 +1000,7 @@ final class AuthController
 
         $profile = $this->buildUserResponse($user, $permissions);
         \TGA\CRM\Services\SecurityEventLogger::log('login_success', (int) $user['id'], $emailHash, $ip);
+        $this->fireLoginNotification($user);
 
         Response::json([
             'success' => true,
@@ -1172,6 +1210,8 @@ final class AuthController
             ? $this->resolveAgentTierAndReferral((int) $user['id'])
             : [null, null];
 
+        $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($user['avatar_type'] ?? null, $user['avatar_value'] ?? null);
+
         return [
             'public_id' => (string) ($user['public_id'] ?? ''),
             'email' => $this->decryptMaybe($user['email'] ?? null),
@@ -1191,6 +1231,8 @@ final class AuthController
             'two_factor_enabled' => (bool) ($user['two_factor_enabled'] ?? false),
             'tier' => $tier,
             'referral_code' => $referralCode,
+            'avatar_url' => $avatarUrls['avatar_url'],
+            'avatar_thumb_url' => $avatarUrls['avatar_thumb_url'],
         ];
     }
 

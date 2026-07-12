@@ -15,7 +15,8 @@ final class ActivityLogger
         ?int $targetId = null,
         ?int $userId = null,
         array $beforeValue = [],
-        array $afterValue = []
+        array $afterValue = [],
+        ?string $actorUserTypeHint = null
     ): void {
         $pdo = Database::getConnection();
         $actorUserType = null;
@@ -49,6 +50,16 @@ final class ActivityLogger
         if ($userId !== null && $actorUserType === null && PHP_SAPI === 'cli') {
             $actorUserType = 'system';
             $actorDisplayName = 'System / Cron';
+        }
+
+        // Caller-supplied fallback: some actions (e.g. finishing self-registration)
+        // fire before the actor's own JWT has been issued, so there's no
+        // Authorization header on the request to resolve identity from. The
+        // caller already knows who just acted — use that instead of falling
+        // back to an anonymous "System" row.
+        if ($actorDisplayName === null && $userId !== null && $actorUserTypeHint !== null) {
+            $actorUserType = $actorUserTypeHint;
+            $actorDisplayName = self::resolveDisplayName($pdo, $actorUserType, $userId) ?? 'System';
         }
 
         $ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';

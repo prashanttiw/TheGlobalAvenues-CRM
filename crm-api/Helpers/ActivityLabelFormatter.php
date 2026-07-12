@@ -95,7 +95,16 @@ final class ActivityLabelFormatter
         'user.password_reset' => 'reset the password for %s',
         'user.password_changed' => 'changed the password for %s',
         'user.updated' => 'updated %s',
+        'admin.created' => 'created a new admin account: %s',
         'admin.deleted' => 'deleted %s',
+        'admin.profile_updated' => 'updated their own profile',
+        'agent.profile_updated' => 'updated their own profile',
+        'student.profile_updated' => 'updated their own profile',
+
+        'student_academic.created' => 'added an academic record for %s',
+        'student_academic.deleted' => 'removed an academic record for %s',
+        'student_test_score.created' => 'added a test score for %s',
+        'student_test_score.deleted' => 'removed a test score for %s',
 
         'report.exported' => 'exported %s',
     ];
@@ -164,6 +173,7 @@ final class ActivityLabelFormatter
         'enabled' => 'ToggleRight',
         'disabled' => 'ToggleLeft',
         'login' => 'LogIn',
+        'profile_updated' => 'Pencil',
     ];
 
     public static function label(array $row): string

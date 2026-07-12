@@ -55,13 +55,6 @@ final class HealthController
             }
         }
 
-        // Google Drive service account file check
-        $driveStatus = 'unconfigured';
-        $driveJsonPath = Environment::get('DRIVE_SERVICE_ACCOUNT_JSON', '');
-        if (!empty($driveJsonPath)) {
-            $driveStatus = file_exists($driveJsonPath) ? 'credentials_ok' : 'credentials_missing';
-        }
-
         Response::json([
             'success' => true,
             'data' => [
@@ -69,7 +62,6 @@ final class HealthController
                 'php_version' => PHP_VERSION,
                 'db' => $dbStatus,
                 'smtp' => $smtpStatus,
-                'drive' => $driveStatus,
                 'disk_free_pct' => $diskPct,
                 'permissions' => [
                     'uploads_writable' => $uploadsWritable,

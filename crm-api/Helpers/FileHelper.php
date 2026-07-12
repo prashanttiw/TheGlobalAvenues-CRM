@@ -8,7 +8,13 @@ final class FileHelper
 {
     public static function ensureDirectory(string $path): void
     {
-        if (!is_dir($path) && !mkdir($path, 0775, true) && !is_dir($path)) {
+        // @-suppressed: a concurrent request can create this same directory between the is_dir()
+        // check and mkdir() — mkdir() then emits an E_WARNING ("File exists") that index.php's
+        // global error handler promotes to a thrown ErrorException, which would abort before the
+        // final is_dir() recheck below ever runs. @ makes error_reporting() return 0 during the
+        // call, and the handler already honors that (its own `!(error_reporting() & $level)` guard),
+        // so this restores the race-tolerant fallthrough this code was written to have.
+        if (!is_dir($path) && !@mkdir($path, 0775, true) && !is_dir($path)) {
             throw new \RuntimeException(sprintf('Failed to create directory: %s', $path));
         }
     }

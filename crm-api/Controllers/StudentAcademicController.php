@@ -149,7 +149,25 @@ class StudentAcademicController
             !empty($input['is_highest_qualification']) ? 1 : 0
         ]);
 
+        $actor = AuthMiddleware::user();
+        \TGA\CRM\Services\ActivityLogger::log(
+            'student_academic.created',
+            'student',
+            $studentId,
+            (int) $actor['id'],
+            [],
+            ['display' => $this->studentDisplayName($studentId), 'institution_name' => $input['institution_name'], 'degree_level' => $input['degree_level']]
+        );
+
         return $publicId;
+    }
+
+    private function studentDisplayName(int $studentId): ?string
+    {
+        $stmt = $this->pdo->prepare('SELECT full_name FROM students WHERE id = ?');
+        $stmt->execute([$studentId]);
+        $name = $stmt->fetchColumn();
+        return is_string($name) && $name !== '' ? $name : null;
     }
 
     public function addTestScore(): void
@@ -200,6 +218,16 @@ class StudentAcademicController
             $input['test_date'] ?? null
         ]);
 
+        $actor = AuthMiddleware::user();
+        \TGA\CRM\Services\ActivityLogger::log(
+            'student_test_score.created',
+            'student',
+            $studentId,
+            (int) $actor['id'],
+            [],
+            ['display' => $this->studentDisplayName($studentId), 'test_name' => $input['test_name'], 'overall_score' => $input['overall_score']]
+        );
+
         return $publicId;
     }
 
@@ -224,12 +252,26 @@ class StudentAcademicController
 
     private function deleteAcademicFor(int $studentId, string $publicId): void
     {
+        $lookupStmt = $this->pdo->prepare("SELECT institution_name FROM student_academics WHERE public_id = ? AND student_id = ? AND deleted_at IS NULL");
+        $lookupStmt->execute([$publicId, $studentId]);
+        $institutionName = $lookupStmt->fetchColumn();
+
         $stmt = $this->pdo->prepare("UPDATE student_academics SET deleted_at = NOW() WHERE public_id = ? AND student_id = ?");
         $stmt->execute([$publicId, $studentId]);
 
         if ($stmt->rowCount() === 0) {
             Response::error('Record not found or already deleted', 'NOT_FOUND', 404);
         }
+
+        $actor = AuthMiddleware::user();
+        \TGA\CRM\Services\ActivityLogger::log(
+            'student_academic.deleted',
+            'student',
+            $studentId,
+            (int) $actor['id'],
+            ['institution_name' => $institutionName ?: null],
+            ['display' => $this->studentDisplayName($studentId)]
+        );
     }
 
     public function deleteTestScore(string $publicId): void
@@ -253,11 +295,25 @@ class StudentAcademicController
 
     private function deleteTestScoreFor(int $studentId, string $publicId): void
     {
+        $lookupStmt = $this->pdo->prepare("SELECT test_name FROM student_test_scores WHERE public_id = ? AND student_id = ? AND deleted_at IS NULL");
+        $lookupStmt->execute([$publicId, $studentId]);
+        $testName = $lookupStmt->fetchColumn();
+
         $stmt = $this->pdo->prepare("UPDATE student_test_scores SET deleted_at = NOW() WHERE public_id = ? AND student_id = ?");
         $stmt->execute([$publicId, $studentId]);
 
         if ($stmt->rowCount() === 0) {
             Response::error('Record not found or already deleted', 'NOT_FOUND', 404);
         }
+
+        $actor = AuthMiddleware::user();
+        \TGA\CRM\Services\ActivityLogger::log(
+            'student_test_score.deleted',
+            'student',
+            $studentId,
+            (int) $actor['id'],
+            ['test_name' => $testName ?: null],
+            ['display' => $this->studentDisplayName($studentId)]
+        );
     }
 }

@@ -591,10 +591,9 @@ class ApplicationController
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $programPid = $input['program_id'] ?? '';
-        $intakeMonth = isset($input['intake_month']) ? (int)$input['intake_month'] : null;
-        $intakeYear = isset($input['intake_year']) ? (int)$input['intake_year'] : null;
+        $intakePid = $input['intake_id'] ?? '';
 
-        if (!$programPid || !$intakeMonth || !$intakeYear) {
+        if (!$programPid || !$intakePid) {
             Response::error('Program and Intake details are required', 'VALIDATION_ERROR', 400);
         }
 
@@ -619,19 +618,19 @@ class ApplicationController
             Response::error('Course not found', 'NOT_FOUND', 404);
         }
 
-        // Find the intake (intakes has no deleted_at column — hard-delete only, see 016_create_intakes_table.sql)
+        // Find the intake by public_id, scoped to the course (intakes has no deleted_at column — hard-delete only, see 016_create_intakes_table.sql)
         $stmt = $this->pdo->prepare("
             SELECT id, status FROM intakes
-            WHERE course_id = ? AND intake_month = ? AND intake_year = ?
+            WHERE public_id = ? AND course_id = ?
         ");
-        $stmt->execute([$courseId, $intakeMonth, $intakeYear]);
+        $stmt->execute([$intakePid, $courseId]);
         $intake = $stmt->fetch(PDO::FETCH_ASSOC);
         if (!$intake) {
-            Response::error('No intake found for the selected course, month and year', 'NOT_FOUND', 404);
+            Response::error('Intake not found for the selected course', 'NOT_FOUND', 404);
         }
 
-        // Check if the intake is closed
-        if ($intake['status'] === 'closed') {
+        // Check if the intake is open for applications
+        if ($intake['status'] !== 'open') {
             Response::error('The selected intake is closed for applications', 'VALIDATION_ERROR', 400);
         }
 

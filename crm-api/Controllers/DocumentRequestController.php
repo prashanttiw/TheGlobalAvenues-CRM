@@ -256,7 +256,7 @@ class DocumentRequestController
         }
 
         $queryField = is_numeric($documentId) ? 'id' : 'public_id';
-        $stmt = $this->pdo->prepare("SELECT * FROM document_requests WHERE {$queryField} = ? AND deleted_at IS NULL");
+        $stmt = $this->pdo->prepare("SELECT * FROM document_requests WHERE {$queryField} = ?");
         $stmt->execute([$documentId]);
         $docRequest = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -368,7 +368,7 @@ class DocumentRequestController
         }
 
         if ($docRequest['submitted_file_id']) {
-            $stmt = $this->pdo->prepare("SELECT public_id, display_filename, mime_type, file_size_bytes, drive_sync_status FROM files WHERE id = ?");
+            $stmt = $this->pdo->prepare("SELECT public_id, display_filename, mime_type, file_size_bytes FROM files WHERE id = ?");
             $stmt->execute([$docRequest['submitted_file_id']]);
             $file = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($file) {
@@ -470,7 +470,7 @@ class DocumentRequestController
 
         $stmt = $this->pdo->prepare("
             SELECT dr.public_id, dr.doc_label, dr.description, dr.deadline, dr.status, dr.rejection_reason,
-                   f.public_id as file_public_id, f.display_filename as file_name, f.drive_sync_status
+                   f.public_id as file_public_id, f.display_filename as file_name
             FROM document_requests dr
             LEFT JOIN files f ON dr.submitted_file_id = f.id
             WHERE dr.student_id = ?
@@ -597,14 +597,17 @@ class DocumentRequestController
      */
     public function getDocumentQueue(): void
     {
-        RBACMiddleware::requirePermission('applications', 'view');
+        // Dashboard-only endpoint — every admin sees this queue regardless of their individual
+        // page grants (only the Approve/Reject buttons are gated on 'applications.edit', client-side).
+        // See CLIENT_SYSTEM_DOCUMENTATION.md §5.1: "Every admin sees the dashboard's action queues
+        // regardless of their individual page grants."
+        AuthMiddleware::requireRole('admin');
 
         $stmt = $this->pdo->query("
             SELECT dr.public_id, dr.doc_label, dr.description, dr.deadline, dr.status, dr.created_at,
                    app.public_id as application_pid, app.reference_number as application_reference,
                    u.email as student_email, s.full_name as student_name,
-                   f.public_id as file_public_id, f.display_filename as file_name,
-                   f.drive_sync_status as drive_sync_status
+                   f.public_id as file_public_id, f.display_filename as file_name
             FROM document_requests dr
             JOIN applications app ON dr.application_id = app.id
             JOIN students s ON app.student_id = s.id

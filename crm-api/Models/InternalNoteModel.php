@@ -26,10 +26,15 @@ final class InternalNoteModel extends BaseModel
             return [];
         }
 
+        // users has no name columns (email/phone are the only PII, both encrypted) — display names
+        // live on the role-specific profile tables. author_type is only ever 'admin' or 'agent'
+        // (see 024_create_internal_notes_table.sql), so exactly one of these LEFT JOINs matches per row.
         $stmt = $this->pdo->prepare("
-            SELECT n.*, u.first_name, u.last_name, u.user_type
+            SELECT n.*, u.user_type, COALESCE(adm.full_name, ag.full_name) AS author_full_name
             FROM internal_notes n
             JOIN users u ON n.author_id = u.id
+            LEFT JOIN admins adm ON adm.user_id = u.id AND u.user_type = 'admin'
+            LEFT JOIN agents ag ON ag.user_id = u.id AND u.user_type = 'agent'
             WHERE n.entity_type = ? AND n.entity_id = ? AND n.deleted_at IS NULL
             {$roleCond}
             ORDER BY n.is_pinned DESC, n.created_at DESC

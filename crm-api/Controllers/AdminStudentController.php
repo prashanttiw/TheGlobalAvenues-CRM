@@ -104,6 +104,7 @@ final class AdminStudentController
         $stmt = $this->pdo->prepare("
             SELECT s.id, s.public_id, s.full_name, s.nationality, s.profile_status, s.created_at,
                    u.email AS encrypted_email, u.phone AS encrypted_phone,
+                   u.avatar_type, u.avatar_value,
                    a.public_id AS agent_public_id, a.full_name AS agent_name, a.agency_name,
                    COUNT(app.id) AS applications_count
             FROM students s
@@ -112,7 +113,7 @@ final class AdminStudentController
             LEFT JOIN applications app ON app.student_id = s.id AND app.deleted_at IS NULL
             WHERE {$where}
             GROUP BY s.id, s.public_id, s.full_name, s.nationality, s.profile_status, s.created_at,
-                     u.email, u.phone, a.public_id, a.full_name, a.agency_name
+                     u.email, u.phone, u.avatar_type, u.avatar_value, a.public_id, a.full_name, a.agency_name
             ORDER BY s.created_at DESC
             LIMIT :limit OFFSET :offset
         ");
@@ -144,6 +145,8 @@ final class AdminStudentController
                 }
             }
 
+            $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($row['avatar_type'] ?? null, $row['avatar_value'] ?? null);
+
             $students[] = [
                 'id' => $row['public_id'],
                 'public_id' => $row['public_id'],
@@ -156,6 +159,8 @@ final class AdminStudentController
                 'status' => $row['profile_status'],
                 'applicationsCount' => (int) $row['applications_count'],
                 'registeredDate' => $row['created_at'],
+                'avatar_url' => $avatarUrls['avatar_url'],
+                'avatar_thumb_url' => $avatarUrls['avatar_thumb_url'],
             ];
         }
 

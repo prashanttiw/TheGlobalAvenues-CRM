@@ -9,7 +9,6 @@ use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Services\ActivityLogger;
-use TGA\CRM\Services\DriveService;
 use TGA\CRM\Helpers\FileHelper;
 
 class FileController
@@ -45,8 +44,13 @@ class FileController
                     $studentId = $stmt->fetchColumn();
 
                     if ($studentId) {
-                        // Check if student uploaded it
-                        if ($fileRecord['uploaded_by_type'] === 'student' && $fileRecord['uploaded_by_id'] == $studentId) {
+                        // Access if the student OWNS the file. owner_type/owner_id is the canonical
+                        // "whose file is this" column and owner_id holds the students.id — which is
+                        // exactly what we resolved above. (The earlier check compared uploaded_by_id,
+                        // but that column stores the uploader's users.id — never a student's own
+                        // students.id, so it silently denied owners their own files and risked a
+                        // cross-id-space false match.)
+                        if ($fileRecord['owner_type'] === 'student' && (int) $fileRecord['owner_id'] === (int) $studentId) {
                             $hasAccess = true;
                         } else {
                             // Check if linked to an application owned by the student
@@ -69,8 +73,12 @@ class FileController
                     $agentId = $stmt->fetchColumn();
 
                     if ($agentId) {
-                        // Check if agent uploaded it
-                        if ($fileRecord['uploaded_by_type'] === 'agent' && $fileRecord['uploaded_by_id'] == $agentId) {
+                        // Access if the agent OWNS the file, or uploaded it. For agents both owner_id
+                        // and uploaded_by_id hold the agents.id (same id-space, safe to compare), so
+                        // owner covers a sub-agent downloading a doc a parent uploaded FOR them, while
+                        // uploaded_by keeps the parent's access to what they uploaded.
+                        if (($fileRecord['owner_type'] === 'agent' && (int) $fileRecord['owner_id'] === (int) $agentId)
+                            || ($fileRecord['uploaded_by_type'] === 'agent' && (int) $fileRecord['uploaded_by_id'] === (int) $agentId)) {
                             $hasAccess = true;
                         } else {
                             // Check if linked to an application managed by the agent
@@ -182,7 +190,7 @@ class FileController
     }
 
     /**
-     * Permanently erase a file from both Google Drive and local storage.
+     * Permanently erase a file from local storage.
      * Super admin only, requires a deletion reason.
      */
     public function permanentErase(string $pid): void
@@ -220,113 +228,36 @@ class FileController
             Response::json(['success' => true, 'message' => 'File has already been permanently erased.']);
         }
 
-        $driveFileId = $fileRecord['drive_file_id'];
-        $driveSyncStatus = $fileRecord['drive_sync_status'];
+        $this->pdo->prepare("
+            UPDATE files
+            SET deleted_at = NOW(),
+                deleted_by = ?,
+                deletion_reason = ?,
+                erasure_status = 'erased',
+                erasure_local_deleted_at = NOW()
+            WHERE id = ?
+        ")->execute([$admin['id'], $reason, $fileRecord['id']]);
 
-        $attemptDriveDelete = ($driveSyncStatus === 'synced' && !empty($driveFileId));
-
-        if ($attemptDriveDelete) {
-            try {
-                // Delete from Google Drive
-                DriveService::deleteFile($driveFileId);
-                
-                // Drive delete succeeded
-                $this->pdo->prepare("
-                    UPDATE files 
-                    SET deleted_at = NOW(),
-                        deleted_by = ?,
-                        deletion_reason = ?,
-                        erasure_status = 'erased',
-                        erasure_local_deleted_at = NOW(),
-                        erasure_drive_deleted_at = NOW(),
-                        erasure_drive_last_error = NULL
-                    WHERE id = ?
-                ")->execute([$admin['id'], $reason, $fileRecord['id']]);
-
-                // Delete local file
-                $baseDir = dirname(__DIR__, 2);
-                $absolutePath = $baseDir . DIRECTORY_SEPARATOR . $fileRecord['storage_path'];
-                if (!file_exists($absolutePath) && file_exists($fileRecord['storage_path'])) {
-                    $absolutePath = $fileRecord['storage_path'];
-                }
-                if (file_exists($absolutePath)) {
-                    @unlink($absolutePath);
-                }
-
-                // Log activity
-                ActivityLogger::log(
-                    'file.permanently_erased',
-                    'file',
-                    $fileRecord['id'],
-                    $user['id'],
-                    [],
-                    ['public_id' => $fileRecord['public_id'], 'reason' => $reason, 'status' => 'erased']
-                );
-
-                Response::json(['success' => true, 'message' => 'File permanently erased from local storage and Google Drive.']);
-
-            } catch (\Throwable $e) {
-                // Drive delete failed
-                $this->pdo->prepare("
-                    UPDATE files 
-                    SET erasure_status = 'erase_pending_remote_delete',
-                        erasure_drive_last_error = ?,
-                        erasure_retry_count = erasure_retry_count + 1
-                    WHERE id = ?
-                ")->execute([$e->getMessage(), $fileRecord['id']]);
-
-                // Log activity for failure/incomplete erase
-                ActivityLogger::log(
-                    'file.erase_failed_pending',
-                    'file',
-                    $fileRecord['id'],
-                    $user['id'],
-                    [],
-                    ['public_id' => $fileRecord['public_id'], 'reason' => $reason, 'error' => $e->getMessage(), 'status' => 'erase_pending_remote_delete']
-                );
-
-                Response::json([
-                    'success' => false,
-                    'error' => 'DRIVE_DELETE_FAILED',
-                    'message' => 'Google Drive deletion failed. Local file preserved. Erasure marked pending and will retry in background.',
-                    'details' => $e->getMessage()
-                ], 502); // 502 Bad Gateway/API failure
-            }
-        } else {
-            // Never synced or sync pending. Skip Drive delete, go straight to local delete.
-            $this->pdo->prepare("
-                UPDATE files 
-                SET deleted_at = NOW(),
-                    deleted_by = ?,
-                    deletion_reason = ?,
-                    erasure_status = 'erased',
-                    erasure_local_deleted_at = NOW(),
-                    erasure_drive_deleted_at = NULL,
-                    erasure_drive_last_error = NULL
-                WHERE id = ?
-            ")->execute([$admin['id'], $reason, $fileRecord['id']]);
-
-            // Delete local file
-            $baseDir = dirname(__DIR__, 2);
-            $absolutePath = $baseDir . DIRECTORY_SEPARATOR . $fileRecord['storage_path'];
-            if (!file_exists($absolutePath) && file_exists($fileRecord['storage_path'])) {
-                $absolutePath = $fileRecord['storage_path'];
-            }
-            if (file_exists($absolutePath)) {
-                @unlink($absolutePath);
-            }
-
-            // Log activity
-            ActivityLogger::log(
-                'file.permanently_erased',
-                'file',
-                $fileRecord['id'],
-                $user['id'],
-                [],
-                ['public_id' => $fileRecord['public_id'], 'reason' => $reason, 'status' => 'erased']
-            );
-
-            Response::json(['success' => true, 'message' => 'File permanently erased locally (never synced to Drive).']);
+        // Delete local file
+        $baseDir = dirname(__DIR__, 2);
+        $absolutePath = $baseDir . DIRECTORY_SEPARATOR . $fileRecord['storage_path'];
+        if (!file_exists($absolutePath) && file_exists($fileRecord['storage_path'])) {
+            $absolutePath = $fileRecord['storage_path'];
         }
+        if (file_exists($absolutePath)) {
+            @unlink($absolutePath);
+        }
+
+        // Log activity
+        ActivityLogger::log(
+            'file.permanently_erased',
+            'file',
+            $fileRecord['id'],
+            $user['id'],
+            [],
+            ['public_id' => $fileRecord['public_id'], 'reason' => $reason, 'status' => 'erased']
+        );
+
+        Response::json(['success' => true, 'message' => 'File permanently erased.']);
     }
 }

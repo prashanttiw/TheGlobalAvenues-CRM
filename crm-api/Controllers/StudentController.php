@@ -75,9 +75,12 @@ class StudentController
         $nameParts = $fullName === '' ? [] : (preg_split('/\s+/', $fullName, 2) ?: []);
         $firstName = $nameParts[0] ?? '';
         $lastName = $nameParts[1] ?? '';
+        $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($row['avatar_type'] ?? null, $row['avatar_value'] ?? null);
 
         return [
             'public_id' => (string) ($row['public_id'] ?? ''),
+            'avatar_url' => $avatarUrls['avatar_url'],
+            'avatar_thumb_url' => $avatarUrls['avatar_thumb_url'],
             'first_name' => $firstName,
             'last_name' => $lastName,
             'full_name' => $fullName,
@@ -114,7 +117,8 @@ class StudentController
             SELECT s.public_id, s.full_name, s.date_of_birth, s.nationality,
                    s.passport_number, s.passport_expiry, s.phone_in_profile,
                    s.lead_source, s.profile_status, s.created_at,
-                   u.email, u.phone AS user_phone, u.status, u.user_type
+                   u.email, u.phone AS user_phone, u.status, u.user_type,
+                   u.avatar_type, u.avatar_value
             FROM students s
             JOIN users u ON u.id = s.user_id
             WHERE s.id = ? AND s.deleted_at IS NULL
@@ -275,6 +279,15 @@ class StudentController
             }
         }
 
+        $beforeStmt = $this->pdo->prepare(
+            'SELECT s.full_name, s.date_of_birth, s.nationality, s.passport_expiry,
+                    u.email_lookup_hash, u.phone_lookup_hash
+             FROM students s JOIN users u ON u.id = s.user_id
+             WHERE s.id = ?'
+        );
+        $beforeStmt->execute([$studentId]);
+        $beforeRow = $beforeStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
         $fullName = trim($firstName . ' ' . $lastName);
         $encryptedEmail = EncryptionService::encrypt($email);
         $encryptedPhone = $phone !== '' ? EncryptionService::encrypt($phone) : null;
@@ -315,6 +328,27 @@ class StudentController
             }
             throw $e;
         }
+
+        ActivityLogger::log(
+            'student.profile_updated',
+            'student',
+            $studentId,
+            $userId,
+            [
+                'full_name' => $beforeRow['full_name'] ?? null,
+                'date_of_birth' => $beforeRow['date_of_birth'] ?? null,
+                'nationality' => $beforeRow['nationality'] ?? null,
+                'passport_expiry' => $beforeRow['passport_expiry'] ?? null,
+            ],
+            [
+                'full_name' => $fullName,
+                'date_of_birth' => $dob !== '' ? $dob : null,
+                'nationality' => $nationality !== '' ? $nationality : null,
+                'passport_expiry' => $passportExpiry !== '' ? $passportExpiry : null,
+                'email_changed' => ($beforeRow['email_lookup_hash'] ?? null) !== $emailHash,
+                'phone_changed' => ($beforeRow['phone_lookup_hash'] ?? null) !== $phoneHash,
+            ]
+        );
 
         $row = $this->fetchStudentProfileRow($studentId);
         Response::json([

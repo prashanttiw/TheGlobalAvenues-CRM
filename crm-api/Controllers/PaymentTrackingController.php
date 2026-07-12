@@ -13,7 +13,6 @@ use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Models\ApplicationModel;
 use TGA\CRM\Models\PaymentTrackingModel;
 use TGA\CRM\Services\ActivityLogger;
-use TGA\CRM\Services\ReminderService;
 use TGA\CRM\Services\NotificationService;
 
 class PaymentTrackingController
@@ -115,17 +114,6 @@ class PaymentTrackingController
                 if ($aUid) $userIds[] = (int)$aUid;
             }
 
-            if (!empty($input['due_date'])) {
-                ReminderService::schedule(
-                    $this->pdo,
-                    'payment',
-                    $paymentId,
-                    $input['due_date'],
-                    [7 => 'payment_upcoming', 1 => 'payment_urgent'],
-                    $userIds
-                );
-            }
-
             if (!empty($userIds)) {
                 NotificationService::fire('payment.requested', ['label' => $label, 'amount' => $input['amount'] ?? null, 'currency' => $input['currency'] ?? 'EUR'], $userIds);
             }
@@ -198,8 +186,6 @@ class PaymentTrackingController
             $this->pdo->commit();
 
             ActivityLogger::log('payment_request.submitted', 'application_payment', $payment['id'], $user['id']);
-
-            ReminderService::cancelForEntity($this->pdo, 'payment', $payment['id']);
 
             // Notify Admin
             NotificationService::fire('payment.submitted', ['label' => $payment['label'], 'application_id' => $application['id']], [1]);
@@ -308,8 +294,6 @@ class PaymentTrackingController
 
             ActivityLogger::log('payment_request.submitted', 'application_payment', $payment['id'], $user['id']);
 
-            ReminderService::cancelForEntity($this->pdo, 'payment', $payment['id']);
-
             // Notify Admin
             NotificationService::fire('payment.submitted', ['label' => $payment['label'], 'application_id' => $application['id']], [1]);
 
@@ -323,7 +307,11 @@ class PaymentTrackingController
 
     public function adminQueue(): void
     {
-        RBACMiddleware::requirePermission('applications', 'view');
+        // Dashboard-only endpoint — every admin sees this queue regardless of their individual
+        // page grants (only the Confirm/Dispute buttons are gated on 'applications.edit', client-side).
+        // See CLIENT_SYSTEM_DOCUMENTATION.md §5.1: "Every admin sees the dashboard's action queues
+        // regardless of their individual page grants."
+        AuthMiddleware::requireRole('admin');
 
         $stmt = $this->pdo->query("
             SELECT ap.public_id, ap.label, ap.amount, ap.currency, ap.due_date, ap.status, ap.marked_paid_at,
@@ -487,9 +475,6 @@ class PaymentTrackingController
 
             ActivityLogger::log('payment_request.resolved', 'application_payment', $payment['id'], $user['id'], [], ['resolution' => $resolution]);
 
-            if ($resolution === 'cancelled') {
-                ReminderService::cancelForEntity($this->pdo, 'payment', $payment['id']);
-            }
 
             // Notify Student/Agent
             $stmt = $this->pdo->prepare("SELECT student_id, agent_id_at_submission FROM applications WHERE id = ?");

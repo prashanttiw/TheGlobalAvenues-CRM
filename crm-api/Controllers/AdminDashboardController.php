@@ -56,6 +56,8 @@ final class AdminDashboardController
         // Fixed: was referencing non-existent u.first_name/u.last_name; student names live in students.full_name
         $recentStageStmt = $this->pdo->query("
             SELECT
+                al.id,
+                al.target_id AS application_id,
                 COALESCE(
                     JSON_UNQUOTE(JSON_EXTRACT(al.before_value, '$.status')),
                     JSON_UNQUOTE(JSON_EXTRACT(al.before_value, '$.old_status'))
@@ -77,6 +79,12 @@ final class AdminDashboardController
         $recentStageMovement = [];
         foreach ($recentStageStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $recentStageMovement[] = [
+                // One application can appear more than once here — each row is a distinct status
+                // TRANSITION event, not a per-application summary — so reference_number alone isn't
+                // unique enough for a React list key. al.id is the activity_logs row's own primary
+                // key, guaranteed unique per event.
+                'id' => (int) $row['id'],
+                'application_id' => (int) $row['application_id'],
                 'from_status' => $row['from_status'],
                 'to_status' => $row['to_status'],
                 'created_at' => $row['created_at'],
@@ -206,6 +214,7 @@ final class AdminDashboardController
 
         $stmt = $this->pdo->prepare("
             SELECT u.id, u.public_id, u.email, u.phone, u.status, u.created_at, u.last_login_at,
+                   u.avatar_type, u.avatar_value,
                    adm.full_name, adm.is_super_admin,
                    COALESCE(r.name, CASE WHEN adm.is_super_admin = 1 THEN 'super_admin' ELSE NULL END) AS role,
                    r.public_id AS role_public_id,
@@ -257,6 +266,8 @@ final class AdminDashboardController
                 $pages = AdminPageAccessService::resolveAccessLevels(explode(',', $row['perm_keys']));
             }
 
+            $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($row['avatar_type'] ?? null, $row['avatar_value'] ?? null);
+
             $users[] = [
                 'public_id'       => $row['public_id'],
                 'email'           => $email ?: '',
@@ -270,6 +281,8 @@ final class AdminDashboardController
                 'firstName'       => $firstName ?: 'Portal',
                 'lastName'        => $lastName ?: 'User',
                 'pages'           => $pages,
+                'avatar_url'      => $avatarUrls['avatar_url'],
+                'avatar_thumb_url' => $avatarUrls['avatar_thumb_url'],
             ];
         }
 

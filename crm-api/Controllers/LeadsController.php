@@ -529,7 +529,7 @@ class LeadsController
             $this->pdo->commit();
 
             ActivityLogger::log('lead.converted', 'leads', (int)$lead['id'], (int)$user['id'], [], ['student_id' => $studentId]);
-            NotificationService::fire('student.registered', ['name' => $firstName], [$userId]);
+            NotificationService::fire('student.registered', ['name' => $lead['full_name'], 'student_name' => $lead['full_name']], [$userId]);
 
             Response::json(['success' => true, 'message' => 'Lead converted to student', 'student_public_id' => $studentPid]);
         } catch (\PDOException $e) {

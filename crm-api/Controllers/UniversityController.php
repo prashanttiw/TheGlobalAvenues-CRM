@@ -322,8 +322,17 @@ class UniversityController
         $params = [];
 
         if ($q !== '') {
-            $whereClauses[] = '(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?)';
+            // Same EXISTS pattern as adminList() — a university with N matching
+            // courses/intakes must still contribute exactly one row, or pagination breaks.
+            // Restricted to active courses/intakes since this is the public/portal browse
+            // endpoint (agent + student), which only ever displays active catalog entries.
+            $whereClauses[] = "(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?
+                OR EXISTS (SELECT 1 FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL AND c.name LIKE ?)
+                OR EXISTS (SELECT 1 FROM courses c2 JOIN intakes i ON i.course_id = c2.id WHERE c2.university_id = u.id AND c2.status = 'active' AND c2.deleted_at IS NULL AND i.name LIKE ?)
+            )";
             $like = '%' . $q . '%';
+            $params[] = $like;
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;

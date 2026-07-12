@@ -9,6 +9,7 @@ use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Paginator;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
+use TGA\CRM\Services\EncryptionService;
 
 final class AgentController
 {
@@ -100,8 +101,9 @@ final class AgentController
             $studentConditions[] = "s.agent_id = :my_agent_id";
             $studentParams['my_agent_id'] = (int)$agent['id'];
         } elseif ((int)$agent['tier'] === 2) {
-            $studentConditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)";
+            $studentConditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id2)";
             $studentParams['my_agent_id'] = (int)$agent['id'];
+            $studentParams['my_agent_id2'] = (int)$agent['id'];
         } else {
             $studentConditions[] = "a.root_agent_id = :root";
             $studentParams['root'] = $root;
@@ -236,8 +238,9 @@ final class AgentController
                 $conditions[] = "s.agent_id = :my_agent_id";
                 $params['my_agent_id'] = (int)$agent['id'];
             } elseif ((int)$agent['tier'] === 2) {
-                $conditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)";
+                $conditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id2)";
                 $params['my_agent_id'] = (int)$agent['id'];
+                $params['my_agent_id2'] = (int)$agent['id'];
             } else {
                 $conditions[] = "a.root_agent_id = :root";
                 $params['root'] = $root;
@@ -248,14 +251,34 @@ final class AgentController
             $params['status'] = $status;
         }
         if ($search) {
-            $conditions[] = "s.full_name LIKE :search";
+            // Email/phone are XSalsa20-encrypted — LIKE on ciphertext is meaningless, so match
+            // by exact lookup-hash equality plus fixed-length prefix-hash equality for a
+            // "starts with" match (same pattern as AdminStudentController::listAll()).
+            $searchOr = ['s.full_name LIKE :search', 'u.email_lookup_hash = :search_email', 'u.phone_lookup_hash = :search_phone'];
             $params['search'] = "%{$search}%";
+            $params['search_email'] = EncryptionService::hash($search);
+            $params['search_phone'] = EncryptionService::hash($search);
+            foreach ([4, 6, 8] as $len) {
+                $prefixHash = EncryptionService::hashPrefix($search, $len);
+                if ($prefixHash !== null) {
+                    $searchOr[] = "u.email_prefix{$len}_hash = :search_email_p{$len}";
+                    $params["search_email_p{$len}"] = $prefixHash;
+                }
+            }
+            foreach ([4, 6] as $len) {
+                $phonePrefixHash = EncryptionService::hashPhonePrefix($search, $len);
+                if ($phonePrefixHash !== null) {
+                    $searchOr[] = "u.phone_prefix{$len}_hash = :search_phone_p{$len}";
+                    $params["search_phone_p{$len}"] = $phonePrefixHash;
+                }
+            }
+            $conditions[] = '(' . implode(' OR ', $searchOr) . ')';
         }
 
         $where = implode(' AND ', $conditions);
 
         // Count query
-        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM students s JOIN agents a ON a.id = s.agent_id WHERE {$where}");
+        $countStmt = $this->pdo->prepare("SELECT COUNT(*) FROM students s JOIN agents a ON a.id = s.agent_id JOIN users u ON u.id = s.user_id WHERE {$where}");
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
@@ -263,9 +286,11 @@ final class AgentController
         $dataStmt = $this->pdo->prepare(
             "SELECT s.public_id, s.full_name, s.nationality, s.profile_status, s.created_at,
                     a.full_name AS agent_name, a.public_id AS agent_public_id, a.tier AS agent_tier,
+                    u.avatar_type, u.avatar_value,
                     COALESCE(agg.applied_count, 0) AS applied_count
              FROM students s
              JOIN agents a ON a.id = s.agent_id
+             JOIN users u ON u.id = s.user_id
              LEFT JOIN (
                  SELECT student_id, COUNT(*) AS applied_count
                  FROM applications
@@ -283,7 +308,11 @@ final class AgentController
         $dataStmt->bindValue(':limit',  $pager['per_page'], PDO::PARAM_INT);
         $dataStmt->bindValue(':offset', $pager['offset'],   PDO::PARAM_INT);
         $dataStmt->execute();
-        $students = $dataStmt->fetchAll(PDO::FETCH_ASSOC);
+        $students = array_map(static function (array $row): array {
+            $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($row['avatar_type'] ?? null, $row['avatar_value'] ?? null);
+            unset($row['avatar_type'], $row['avatar_value']);
+            return $row + $avatarUrls;
+        }, $dataStmt->fetchAll(PDO::FETCH_ASSOC));
 
         Response::json([
             'data' => $students,
@@ -316,8 +345,9 @@ final class AgentController
             $checkSql = "s.agent_id = :my_agent_id";
             $checkParams['my_agent_id'] = (int)$agent['id'];
         } elseif ((int)$agent['tier'] === 2) {
-            $checkSql = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)";
+            $checkSql = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id2)";
             $checkParams['my_agent_id'] = (int)$agent['id'];
+            $checkParams['my_agent_id2'] = (int)$agent['id'];
         } else {
             $checkSql = "a.root_agent_id = :root";
             $checkParams['root'] = $root;
@@ -439,6 +469,11 @@ final class AgentController
         $pendingStmt->execute([$agent['id']]);
         $pendingRequests = (int) $pendingStmt->fetchColumn();
 
+        $avatarStmt = $this->pdo->prepare('SELECT avatar_type, avatar_value FROM users WHERE id = ?');
+        $avatarStmt->execute([$user['id']]);
+        $avatarRow = $avatarStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $avatarUrls = \TGA\CRM\Services\ImageProcessor::resolveAvatarUrls($avatarRow['avatar_type'] ?? null, $avatarRow['avatar_value'] ?? null);
+
         Response::json([
             'data' => [
                 'public_id'       => $agent['public_id'],
@@ -450,6 +485,8 @@ final class AgentController
                 'country'         => $agent['country'],
                 'created_at'      => $agent['created_at'],
                 'pending_student_requests' => $pendingRequests,
+                'avatar_url' => $avatarUrls['avatar_url'],
+                'avatar_thumb_url' => $avatarUrls['avatar_thumb_url'],
             ],
         ]);
     }
@@ -476,6 +513,17 @@ final class AgentController
         $this->pdo->prepare(
             "UPDATE agents SET agency_name = ?, country = ?, updated_at = NOW() WHERE id = ?"
         )->execute([$agencyName, $country, $agent['id']]);
+
+        if ($agencyName !== $agent['agency_name'] || $country !== $agent['country']) {
+            \TGA\CRM\Services\ActivityLogger::log(
+                'agent.profile_updated',
+                'agent',
+                (int) $agent['id'],
+                (int) $user['id'],
+                ['agency_name' => $agent['agency_name'], 'country' => $agent['country']],
+                ['agency_name' => $agencyName, 'country' => $country]
+            );
+        }
 
         Response::json(['data' => ['message' => 'Profile updated successfully.']]);
     }
@@ -775,8 +823,9 @@ final class AgentController
                 $conditions[] = 's.agent_id = :my_agent_id';
                 $params['my_agent_id'] = (int) $agent['id'];
             } elseif ((int) $agent['tier'] === 2) {
-                $conditions[] = '(s.agent_id = :my_agent_id OR ag_owner.parent_agent_id = :my_agent_id)';
+                $conditions[] = '(s.agent_id = :my_agent_id OR ag_owner.parent_agent_id = :my_agent_id2)';
                 $params['my_agent_id'] = (int) $agent['id'];
+                $params['my_agent_id2'] = (int) $agent['id'];
             } else {
                 $conditions[] = 'ag_owner.root_agent_id = :root';
                 $params['root'] = $root;
@@ -853,8 +902,9 @@ final class AgentController
             $scopeSql = 's.agent_id = :my_agent_id';
             $scopeParams['my_agent_id'] = (int) $agent['id'];
         } elseif ((int) $agent['tier'] === 2) {
-            $scopeSql = '(s.agent_id = :my_agent_id OR ag_owner.parent_agent_id = :my_agent_id)';
+            $scopeSql = '(s.agent_id = :my_agent_id OR ag_owner.parent_agent_id = :my_agent_id2)';
             $scopeParams['my_agent_id'] = (int) $agent['id'];
+            $scopeParams['my_agent_id2'] = (int) $agent['id'];
         } else {
             $scopeSql = 'ag_owner.root_agent_id = :root';
             $scopeParams['root'] = $root;

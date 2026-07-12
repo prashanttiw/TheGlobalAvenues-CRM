@@ -113,8 +113,7 @@ class InternalNotesController
                 'visible_to_admin' => (bool)$note['visible_to_admin'],
                 'created_at' => $note['created_at'],
                 'author' => [
-                    'first_name' => $note['first_name'],
-                    'last_name' => $note['last_name'],
+                    'full_name' => $note['author_full_name'] ?? 'Unknown',
                     'user_type' => $note['user_type']
                 ]
             ];

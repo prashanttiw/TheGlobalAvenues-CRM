@@ -7,6 +7,7 @@ namespace TGA\CRM\Services;
 use PDO;
 use Exception;
 use TGA\CRM\Helpers\UlidGenerator;
+use TGA\CRM\Config\Environment;
 
 class StateManager
 {
@@ -125,32 +126,45 @@ class StateManager
 
             ActivityLogger::log('application.status_changed', 'application', $applicationId, $byUserId, ['old_status' => $currentStatus], ['new_status' => $newStatus]);
 
-            // Fire Notifications
+            // Fire Notifications — separate calls per recipient so 'recipient_name' can
+            // actually be personalized (fire() renders subject/body once per call, before
+            // fanning out to recipientUserIds, so one shared call can't have per-person text).
             $stmt = $pdo->prepare("
-                SELECT s.user_id as student_user_id, a.agent_id_at_submission
+                SELECT s.user_id as student_user_id, s.full_name as student_name,
+                       app.agent_id_at_submission, app.reference_number
                 FROM applications app
                 JOIN students s ON app.student_id = s.id
-                LEFT JOIN applications a ON a.id = app.id
                 WHERE app.id = ?
             ");
             $stmt->execute([$applicationId]);
             $appData = $stmt->fetch(PDO::FETCH_ASSOC);
 
-            $userIds = [];
+            $portalUrl = Environment::get('APP_FRONTEND_URL', '');
+            $referenceNumber = $appData['reference_number'] ?? '';
+
             if (!empty($appData['student_user_id'])) {
-                $userIds[] = (int)$appData['student_user_id'];
-            }
-            if (!empty($appData['agent_id_at_submission'])) {
-                $stmt = $pdo->prepare("SELECT user_id FROM agents WHERE id = ?");
-                $stmt->execute([$appData['agent_id_at_submission']]);
-                $agentUserId = $stmt->fetchColumn();
-                if ($agentUserId) {
-                    $userIds[] = (int)$agentUserId;
-                }
+                NotificationService::fire('application.status_changed', [
+                    'application_id'   => $applicationId,
+                    'new_status'       => $newStatus,
+                    'reference_number' => $referenceNumber,
+                    'recipient_name'   => $appData['student_name'] ?? 'there',
+                    'portal_url'       => $portalUrl . '/portal/student/',
+                ], [(int)$appData['student_user_id']]);
             }
 
-            if (!empty($userIds)) {
-                NotificationService::fire('application.status_changed', ['application_id' => $applicationId, 'new_status' => $newStatus], $userIds);
+            if (!empty($appData['agent_id_at_submission'])) {
+                $stmt = $pdo->prepare("SELECT user_id, full_name FROM agents WHERE id = ?");
+                $stmt->execute([$appData['agent_id_at_submission']]);
+                $agentRow = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!empty($agentRow['user_id'])) {
+                    NotificationService::fire('application.status_changed', [
+                        'application_id'   => $applicationId,
+                        'new_status'       => $newStatus,
+                        'reference_number' => $referenceNumber,
+                        'recipient_name'   => $agentRow['full_name'] ?? 'there',
+                        'portal_url'       => $portalUrl . '/portal/agent/',
+                    ], [(int)$agentRow['user_id']]);
+                }
             }
 
             // Fire SLA Triggers

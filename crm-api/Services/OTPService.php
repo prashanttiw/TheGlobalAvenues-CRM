@@ -159,7 +159,10 @@ final class OTPService
                 ->execute([$identifierHash, $purpose]);
             throw new \RuntimeException('OTP_EMAIL_DELIVERY_FAILED');
         }
-        // Dev mode: SMTP failure is tolerated — OTP stays in DB so otp_code_preview can be used
+        // Dev mode: SMTP failure is tolerated (OTP stays in DB, hashed) rather than deleting it and
+        // forcing a retry — lets local testing continue past a flaky/unconfigured SMTP setup without
+        // losing the code. There is no on-screen fallback to read the code itself; check the DB or
+        // mail logs directly.
 
         return $code;
     }
