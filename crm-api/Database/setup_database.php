@@ -377,6 +377,18 @@ try {
     $pdo->exec(file_get_contents($migration084File));
     echo "Migration 084 applied.\n\n";
 
+    // 7g. Migration 085: brands the last 6 plain-text notification_templates rows (agent.registered,
+    // document.requested/submitted/reviewed/cancelled, application.status_changed) to match the
+    // HTML style migration 070 gave everything else. UPDATEs by event_key, same ordering
+    // requirement as 070/081/082 — must run after the truncate-and-reseed in step 6.
+    $migration085File = __DIR__ . '/migrations/085_brand_remaining_plaintext_templates.sql';
+    if (!is_file($migration085File)) {
+        throw new \RuntimeException("085_brand_remaining_plaintext_templates.sql not found at {$migration085File}");
+    }
+    echo "Applying migration 085...\n";
+    $pdo->exec(file_get_contents($migration085File));
+    echo "Migration 085 applied.\n\n";
+
     // 8. Helper to create a user record with encryption and lookup hashes
     $createUser = function (string $email, string $phone, string $password, string $userType, string $status = 'active') use ($pdo): array {
         $publicId = UlidGenerator::generate();

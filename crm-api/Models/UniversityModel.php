@@ -64,4 +64,33 @@ class UniversityModel extends BaseModel
         $stmt->execute([$id, $id]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
+
+    /**
+     * All campus rows of the same institution as $id, INCLUDING itself — used by the
+     * student/agent "pick a campus" step. A university with no campus_group_id (no siblings)
+     * still returns its own single row, so callers never have to special-case "no group".
+     * Each row carries its own active course_count so the campus-picker cards can show it
+     * without a follow-up request per card.
+     *
+     * $activeOnly=true (the public/student/agent default) restricts to status='active' campuses.
+     * Admin callers pass false so an inactive campus can still be found/managed via the catalog
+     * filters, matching adminList()'s own behavior of never restricting by status.
+     */
+    public function findGroupMembers(int $id, bool $activeOnly = true): array
+    {
+        $statusClause = $activeOnly ? "AND u.status = 'active'" : '';
+        $stmt = $this->pdo->prepare("
+            SELECT u.id, u.public_id, u.name, u.city, u.country, u.logo_file_id, u.status,
+                   (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL) as course_count
+            FROM universities u
+            WHERE u.deleted_at IS NULL {$statusClause}
+              AND (
+                (u.campus_group_id IS NOT NULL AND u.campus_group_id = (SELECT campus_group_id FROM universities WHERE id = ?))
+                OR u.id = ?
+              )
+            ORDER BY u.created_at ASC
+        ");
+        $stmt->execute([$id, $id]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
 }
