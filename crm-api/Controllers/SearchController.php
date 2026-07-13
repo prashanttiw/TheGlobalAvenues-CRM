@@ -9,6 +9,7 @@ use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RateLimitMiddleware;
+use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Services\EncryptionService;
 
 class SearchController
@@ -72,7 +73,9 @@ class SearchController
 
         // 1. Students — scoped by role. Students never search other students (privacy) — this
         // block is skipped entirely for that role.
-        if (in_array('students', $requestedTypes, true) && $user['utype'] !== 'student') {
+        if (in_array('students', $requestedTypes, true) && $user['utype'] !== 'student'
+            && ($user['utype'] !== 'admin' || RBACMiddleware::hasPermission($user, 'students', 'view'))
+        ) {
             // Email/phone are XSalsa20-encrypted — LIKE on ciphertext is meaningless, so match
             // by exact lookup-hash equality plus fixed-length prefix-hash equality for a
             // "starts with" match (same pattern as AdminStudentController::listAll()).
@@ -161,7 +164,7 @@ class SearchController
                 $params[] = $q . '*';
                 $params[] = '%' . $q . '%';
                 $params[] = $user['id'];
-            } else {
+            } elseif ($user['utype'] !== 'admin' || RBACMiddleware::hasPermission($user, 'applications', 'view')) {
                 $qStr = "
                     SELECT 'application' AS type, app.public_id, app.reference_number AS title, app.status AS subtitle, s.full_name AS meta, 2 as sort_order
                     FROM applications app
@@ -206,7 +209,9 @@ class SearchController
         }
 
         // 4. Agents (Admin only)
-        if (in_array('agents', $requestedTypes, true) && $user['utype'] === 'admin') {
+        if (in_array('agents', $requestedTypes, true) && $user['utype'] === 'admin'
+            && RBACMiddleware::hasPermission($user, 'agents', 'view')
+        ) {
             // No join to `users` needed (and users has no first_name/last_name column —
             // only agents/students/admins have their own full_name) — agents.full_name
             // already holds the agent's personal name. The FULLTEXT index on this table
@@ -223,7 +228,9 @@ class SearchController
         }
 
         // 5. Leads (Admin only)
-        if (in_array('leads', $requestedTypes, true) && $user['utype'] === 'admin') {
+        if (in_array('leads', $requestedTypes, true) && $user['utype'] === 'admin'
+            && RBACMiddleware::hasPermission($user, 'leads', 'view')
+        ) {
             $queries[] = "
                 SELECT 'lead' AS type, public_id, full_name AS title, status AS subtitle, source AS meta, 5 as sort_order
                 FROM leads
