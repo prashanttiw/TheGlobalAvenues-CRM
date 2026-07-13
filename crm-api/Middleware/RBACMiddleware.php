@@ -47,6 +47,25 @@ final class RBACMiddleware {
     }
 
     /**
+     * Non-throwing check for call sites that need to conditionally include/omit a whole
+     * branch of a response (e.g. SearchController's per-entity-type search) rather than
+     * rejecting the entire request when one of several optional permissions is missing.
+     * Same rule as enforce(): super admins and the '*' sentinel always pass.
+     */
+    public static function hasPermission(array $user, string $module, string $action): bool
+    {
+        $perms = (array) ($user['perms'] ?? []);
+
+        if (!empty($user['is_super']) || in_array('*', $perms, true)) {
+            return true;
+        }
+        if (($user['utype'] ?? '') !== 'admin' && ($user['user_type'] ?? '') !== 'admin') {
+            return false;
+        }
+        return in_array($module . '.' . $action, $perms, true);
+    }
+
+    /**
      * Build the permissions array at login time (stored in JWT payload).
      * Called once during AuthController::login() for admin users.
      */

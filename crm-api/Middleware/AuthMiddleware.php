@@ -44,9 +44,13 @@ final class AuthMiddleware
             Response::error('Invalid or expired token', Constants::AUTH_ERROR_CODES['invalid'], 401);
         }
 
-        // Fast global revocation check (JWT compromise recovery)
+        // Fast global revocation check (JWT compromise recovery). Uses <= , not < : an admin
+        // responding to an incident naturally sets this to "right now" expecting everything
+        // issued up to and including that instant to die — with 1-second timestamp
+        // granularity, a strict < left any token minted in that same second still valid,
+        // undermining the one guarantee this emergency switch exists to provide.
         $minIat = (int) \TGA\CRM\Services\SystemSettings::get('jwt_min_iat', '0');
-        if (isset($payload['iat']) && (int) $payload['iat'] < $minIat) {
+        if ($minIat > 0 && isset($payload['iat']) && (int) $payload['iat'] <= $minIat) {
             Response::error('Session has been revoked due to security updates', 'SESSION_REVOKED', 401);
         }
 
