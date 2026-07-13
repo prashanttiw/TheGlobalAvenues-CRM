@@ -174,6 +174,12 @@ final class AdminDashboardController
         // Default: admin users only (for /admin/users page).
         // Legacy: role=student or role=agent lets old dashboard query those user types.
         if ($role === 'student' || $role === 'agent') {
+            // Gate on the matching page permission — without this, any authenticated admin
+            // (even one with zero page grants) could pull the full student/agent roster with
+            // decrypted email/phone by hitting ?role=student directly, bypassing students.view
+            // / agents.view entirely (the admin-roster branch below already had this guard;
+            // this branch didn't).
+            RBACMiddleware::requirePermission($role === 'student' ? 'students' : 'agents', 'view');
             $where = "WHERE u.deleted_at IS NULL AND u.user_type = ?";
             $params[] = $role;
         } else {
@@ -333,6 +339,18 @@ final class AdminDashboardController
             Response::error('User not found', 'NOT_FOUND', 404);
         }
 
+        // Gate on the permission matching the *target's* user_type — this endpoint had no RBAC
+        // check at all before, so any authenticated admin (regardless of page grants) could pull
+        // full decrypted profile PII, including passport number/DOB/nationality for students,
+        // for any user in the system just by knowing/guessing their public_id.
+        $targetPermModule = match ($userRow['user_type'] ?? '') {
+            'student' => 'students',
+            'agent' => 'agents',
+            'admin' => 'user_management',
+            default => 'user_management',
+        };
+        RBACMiddleware::requirePermission($targetPermModule, 'view');
+
         $userId = (int)$userRow['id']; // internal integer — used for profile sub-queries only
 
         $decryptMaybe = static function (mixed $val): ?string {
@@ -475,6 +493,19 @@ final class AdminDashboardController
             }
 
             if ($roleName === 'super_admin') {
+                // Promoting someone to super admin is a materially bigger power than the
+                // 'user_management.edit' permission (manage admin accounts / page grants)
+                // implies. registerAdmin() and deleteAdmin() both already require the CALLER
+                // to be a super admin for super-admin-tier actions — this legacy role-string
+                // path was the one place that used the weaker page-grant permission instead,
+                // letting any admin with "Users" write access mint new super admins.
+                $callerAdmStmt = $this->pdo->prepare("SELECT is_super_admin FROM admins WHERE user_id = ? LIMIT 1");
+                $callerAdmStmt->execute([(int) ($payload['sub'] ?? $payload['id'] ?? 0)]);
+                $callerIsSuperAdmin = (int) ($callerAdmStmt->fetchColumn() ?: 0) === 1;
+                if (!$callerIsSuperAdmin) {
+                    Response::error('Only super admins can grant super admin access.', 'FORBIDDEN', 403);
+                }
+
                 $upAdm = $this->pdo->prepare("UPDATE admins SET is_super_admin = 1, role_id = NULL, updated_at = NOW() WHERE user_id = ?");
                 $upAdm->execute([$userId]);
             } else {
