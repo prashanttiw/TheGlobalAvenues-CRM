@@ -8,6 +8,7 @@ use PDO;
 use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Response;
 use TGA\CRM\Middleware\AuthMiddleware;
+use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Services\ActivityLogger;
 use OpenSpout\Writer\XLSX\Writer;
 use OpenSpout\Writer\XLSX\Options;
@@ -53,6 +54,12 @@ final class ExportController
         if (!in_array($type, $allowedTypes, true)) {
             Response::error('INVALID_TYPE', 'Export type not supported', 422);
         }
+
+        // `reports.view` alone (checked in enforceAuthAndPermissions()) only proves the caller
+        // can see aggregate report dashboards — it was letting a reports-only-granted admin bulk
+        // export raw row-level students/agents/applications/commissions data with no check
+        // against the matching module's own view permission at all. Require both.
+        RBACMiddleware::requirePermission($type, 'view');
 
         $allowedFormats = ['csv', 'xlsx', 'pdf'];
         if (!in_array($format, $allowedFormats, true)) {
