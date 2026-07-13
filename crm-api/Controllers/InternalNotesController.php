@@ -24,21 +24,26 @@ class InternalNotesController
         $this->model = new InternalNoteModel($this->pdo);
     }
 
-    private function verifyModuleAccess(string $entityType, int $recordId, array $user): void
+    /** @var array<string,string> entityType => page-access module key, shared by verifyModuleAccess() and the cross-author check in update()/delete() */
+    private const ENTITY_PERM_MAP = [
+        'student' => 'students',
+        'application' => 'applications',
+        'agent' => 'agents',
+        'university' => 'universities',
+        'course' => 'courses',
+        'lead' => 'leads',
+    ];
+
+    private function verifyModuleAccess(string $entityType, int $recordId, array $user, string $action = 'view'): void
     {
-        // Admins use RBAC
+        // Admins use RBAC. $action defaults to 'view' (list/read, and the record-visibility
+        // check update()/delete() run before their own separate write-permission check) —
+        // create() passes 'edit' explicitly, since adding a note is a write action and was
+        // previously only gated on view, letting a read-only-granted admin create notes.
         if ($user['utype'] === 'admin') {
-            $permMap = [
-                'student' => 'students',
-                'application' => 'applications',
-                'agent' => 'agents',
-                'university' => 'universities',
-                'course' => 'courses',
-                'lead' => 'leads'
-            ];
-            $perm = $permMap[$entityType] ?? null;
+            $perm = self::ENTITY_PERM_MAP[$entityType] ?? null;
             if ($perm) {
-                RBACMiddleware::requirePermission($perm, 'view');
+                RBACMiddleware::requirePermission($perm, $action);
             }
         } elseif ($user['utype'] === 'agent') {
             // Agents can only view notes on students/applications within their subtree
@@ -127,7 +132,7 @@ class InternalNotesController
         $user = AuthMiddleware::user();
         $entityType = $this->mapModuleToEntity($moduleName);
         $recordId = $this->resolvePublicId($entityType, $recordPublicId);
-        $this->verifyModuleAccess($entityType, $recordId, $user);
+        $this->verifyModuleAccess($entityType, $recordId, $user, 'edit');
 
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $content = trim($input['content'] ?? '');
@@ -169,8 +174,19 @@ class InternalNotesController
             Response::error('Note not found', 'NOT_FOUND', 404);
         }
 
-        if ($user['utype'] !== 'admin' && (string)$note['author_id'] !== (string)$user['id']) {
+        $isOwnNote = (string)$note['author_id'] === (string)$user['id'];
+        if ($user['utype'] !== 'admin' && !$isOwnNote) {
             Response::error('You can only edit your own notes', 'FORBIDDEN', 403);
+        }
+        // An admin editing someone ELSE's note needs write access to that module, not just
+        // view — previously any admin who could merely *see* the module (view-only grant)
+        // could edit or delete every other admin's notes on it. Editing your own note is
+        // still always allowed regardless of grant level.
+        if ($user['utype'] === 'admin' && !$isOwnNote) {
+            $perm = self::ENTITY_PERM_MAP[$note['entity_type']] ?? null;
+            if ($perm) {
+                RBACMiddleware::requirePermission($perm, 'edit');
+            }
         }
 
         $this->verifyModuleAccess($note['entity_type'], (int)$note['entity_id'], $user);
@@ -203,8 +219,15 @@ class InternalNotesController
             Response::error('Note not found', 'NOT_FOUND', 404);
         }
 
-        if ($user['utype'] !== 'admin' && (string)$note['author_id'] !== (string)$user['id']) {
+        $isOwnNote = (string)$note['author_id'] === (string)$user['id'];
+        if ($user['utype'] !== 'admin' && !$isOwnNote) {
             Response::error('You can only delete your own notes', 'FORBIDDEN', 403);
+        }
+        if ($user['utype'] === 'admin' && !$isOwnNote) {
+            $perm = self::ENTITY_PERM_MAP[$note['entity_type']] ?? null;
+            if ($perm) {
+                RBACMiddleware::requirePermission($perm, 'edit');
+            }
         }
 
         $this->verifyModuleAccess($note['entity_type'], (int)$note['entity_id'], $user);
