@@ -2882,3 +2882,233 @@ parts of the command palette to be removed and wired to what each dashboard actu
 **Verified live** (all three portals, real data): admin search for "Kum" returned real students *and* agents in one query (including agents matched by personal name via the composite-index fix, not just agency name); "University" returned 5 real universities; "Test" returned real students/agents/leads (15 results); "TGA-2026" returned real applications by reference number. Agent-scoped search for "Test" correctly returned *only* students within that agent's subtree — no agents/leads (admin-only types, backend-enforced) leaked through. Clicking any result correctly navigated to the real detail page (`getPathForType`). "Go to" suggestions on all three portals now exactly match each portal's real sidebar nav, confirmed via DOM snapshot.
 
 **Files changed**: `crm-api/Controllers/SearchController.php` (parenthesized UNION branches, fixed agents branch's broken join/column/index, normalized short-query response shape); `src/shared/components/utilities/CommandPalette.tsx` (fixed `res.data.data` bug, removed fake `COMMAND_ITEMS`/Tools, now takes `items` prop); `src/shared/components/layout/DashboardLayout.tsx` (passes `sidebarItems` through to `CommandPalette`).
+
+### 2026-07-08 — Global search field coverage (email, courses) + agent/student result-routing 404s fixed
+
+User asked to verify global search covers every field (name/email/agent/university/course) in admin, then
+extend the same coverage to agent/student portals — previously flagged (2026-07-04, above) as "working" but
+untested for course/email fields or for non-admin roles.
+
+**Backend gaps found and fixed in `SearchController::search()`**:
+- Students were only matched on `full_name` — no email/phone search at all. Added the same exact-hash +
+  prefix-hash (`email_prefix4/6/8_hash`, `phone_prefix4/6_hash`) pattern already used by
+  `AdminStudentController::listAll()`, requiring a new `JOIN users u ON u.id = s.user_id`.
+- `courses` was not a searchable type at all — confirmed live: searching a course name ("Drone
+  Engineering") returned an unrelated university via a coincidental FULLTEXT word match on "Engineering",
+  not the actual course. Added a `courses` type (`LIKE` match — `courses.name` has no FULLTEXT index,
+  same as everywhere else courses are searched in this codebase). Deliberately returns the **parent
+  university's** `public_id`, not the course's own — there is no standalone course detail page anywhere in
+  the frontend.
+- `/student/search` route didn't exist — added it (`StudentRoutes.php`), scoped to the student's own
+  applications only + universities/courses; `students`/`agents`/`leads` types are explicitly skipped for
+  `utype === 'student'` (privacy — a student must never be able to search other students).
+
+**Bigger finding — clicking search results 404'd for agent/student even after the backend returned correct
+data**: several list pages have no real detail *route*, only client-side `useState` + inline render
+(`selectedX` → conditional JSX), so nothing outside that component can deep-link into them. Confirmed live
+(navigated a student to a course search result → hard 404) before fixing:
+- `UniversityBrowse.tsx` (shared by `AgentUniversitiesPage` + `StudentUniversitiesPage`) — added
+  `?open=<pid>` deep-link support: on mount, if present, seeds a minimal stub university record and lets
+  the existing `detailQuery` backfill the real name/city/country/logo once it resolves. Fixes both portals
+  from one change since the component is shared.
+- `StudentApplications.tsx` and `AdminApplicationsPage.tsx` (admin had the exact same latent gap — nothing
+  had ever tried to deep-link into it before) — same `?open=<pid>` pattern, opening the existing detail
+  drawer/panel which already self-fetches by pid independent of the paginated list.
+- Admin's own `agent`-type search results pointed at `/agents/:id`, which doesn't exist — the real route is
+  `/agents/:id/tree`. Fixed in `CommandPalette.tsx`'s `getPathForType()`.
+- Agents have **no standalone application detail view** — applications only ever render nested inside the
+  owning student's page (`AgentStudentDetailPage`, route `agent/students/:pid`). Changed the agent-scoped
+  applications query in `SearchController` to return the **student's** `public_id` instead of the
+  application's, and `getPathForType('application', id)` now routes agents to `/students/{id}` instead of a
+  dead-end application route.
+
+**Per-page (non-global-search) parity gaps found in the same pass**:
+- `AgentController::listStudents()` — search only matched `s.full_name`, no email/phone at all, unlike the
+  admin Students page. Added the identical hash/prefix-hash pattern (new `JOIN users u`).
+- `UniversityController::publicList()` — the endpoint `UniversityBrowse` actually calls (not `adminList()`)
+  — was missing the course/intake `EXISTS` subquery search that `adminList()` already had (see 2026-07-04
+  Phase 2 above). Added it, restricted to `status = 'active'` since this is the public/portal browse
+  endpoint. Verified live: searching "Drone Engineering" on the **agent** Universities page now correctly
+  surfaces "University of Applied Sciences - Kufstein, Tirol" — same behavior the admin list page already
+  had.
+
+**Verified live end-to-end for all of the above** — logged in as student, agent, and admin separately;
+searched; clicked through; confirmed the correct destination page loads with real data and no 404, not just
+that the API returns the right JSON.
+
+**Files changed**: `crm-api/Controllers/SearchController.php`, `crm-api/Routes/StudentRoutes.php`,
+`crm-api/Controllers/AgentController.php`, `crm-api/Controllers/UniversityController.php`,
+`src/shared/components/utilities/CommandPalette.tsx`, `src/shared/components/catalog/UniversityBrowse.tsx`,
+`src/pages/student/StudentApplications.tsx`, `src/pages/admin/AdminApplicationsPage.tsx`.
+
+### 2026-07-10 — Student self-apply 400 fixed (F10 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live through the real UI. Logged in
+> as a student, browsed Malita International College → Level 4 Diploma in Business Management → clicked the
+> real Apply button on the one `open` intake. Captured the outgoing request: it now sends
+> `{program_id, intake_id: <public_id>}` (not month/year) and returned `201 Created`, reference
+> `TGA-2026-000005`, navigating to the complete-application page. Also confirmed the server-side hardening
+> directly: applying to an `upcoming` intake → 400 "closed for applications", to a `closed` intake → 400, and
+> a duplicate on the open intake → 409 dup-guard. The upstream NULL-column data gap in `intakes` is
+> untouched (still 100% NULL `intake_year`), exactly as the fix intended — apply now works regardless. Solid.
+
+Student self-service "Apply" was 400ing on every single intake system-wide: "Program and Intake details
+are required." Root cause chain, confirmed live: `UniversityBrowse.tsx`'s `handleApply()` sent
+`intake_month`/`intake_year` read off the intake object; every one of 4,420 rows in `intakes` has
+`intake_year IS NULL` and `course_start_date IS NULL` (traced to the 2026-07-03 catalog import never
+backfilling those columns — see the "University Catalog Import" entry). A JSON `null` fails PHP's
+`isset()`, so `ApplicationController::studentCreate()` treated intake_year as missing and 400'd before ever
+reaching the DB query — and even if it had reached the query, `WHERE intake_year = ?` bound to `NULL` can
+never match in SQL anyway (needs `IS NULL`), so the month/year-matching approach was unsound regardless of
+the NULL data.
+
+**Fix**: stopped matching intakes by `course_id + intake_month + intake_year` entirely and switched to
+looking the intake up by its own `public_id`, mirroring the pattern `ApplicationController::createDraft()`
+(the admin/agent apply-on-behalf endpoint) already uses successfully (`student_pid` + `intake_pid`). This
+sidesteps the NULL-column data gap completely rather than papering over the `isset()` symptom.
+- `UniversityBrowse.tsx` `handleApply()`: now sends `intakeId: intake.public_id` instead of
+  `intakeMonth`/`intakeYear`.
+- `src/lib/api.ts` `createApplication()`: payload changed from `{intakeMonth, intakeYear}` to
+  `{intakeId}`; POST body now sends `intake_id`.
+- `ApplicationController::studentCreate()`: looks up the intake via
+  `SELECT id, status FROM intakes WHERE public_id = ? AND course_id = ?` instead of month/year matching;
+  tightened the open-check from `status === 'closed'` to `status !== 'open'` to match the frontend's own
+  button-disable condition (`upcoming`-status intakes were previously not blocked server-side).
+
+**Verified live**: logged in as test student (`testuser456@example.com`), browsed to Malita International
+College → Level 4 Diploma in Business Management → the one intake with `status='open'` in the local DB
+("June Intake (Copy)") → clicked Apply → `POST ?route=application&action=create` returned `201 Created`
+with `auto_submitted: true`, reference `TGA-2026-000004`, and the UI toast confirmed submission. The
+upstream NULL-data gap in `intakes.intake_year`/`course_start_date` itself is untouched by this fix
+(still worth a backfill pass, and production DB should be checked for the same gap) — this fix makes the
+apply flow correct independent of whether that data is ever backfilled.
+
+**Files changed**: `src/shared/components/catalog/UniversityBrowse.tsx`, `src/lib/api.ts`,
+`crm-api/Controllers/ApplicationController.php`.
+
+### 2026-07-10 — Document approve/reject 500 fixed (F14 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed fixed. As super admin, called the
+> real `PUT document-requests/{pid}/review` endpoint on a live request: both **reject** (with reason) and
+> **approve** returned `200` (no 500). Verified DB side effects: `document_requests.status` flipped,
+> `reviewed_at`/`reviewed_by` set, and a matching `application_updates` timeline note written for each branch.
+> Validation still guards correctly (reject with no reason → 400, invalid status → 400). Grepped the whole
+> controller — no other `document_requests` query re-introduces the phantom `deleted_at` clause. Works.
+
+Every admin document-request approve/reject call 500'd. `DocumentRequestController::adminReview()` line
+259 queried `SELECT * FROM document_requests WHERE {$queryField} = ? AND deleted_at IS NULL` — but
+`document_requests` (migration `019_create_document_requests_table.sql`) has no `deleted_at` column at all
+(same class of bug as the `admins`/`intakes` missing-`deleted_at` bugs already documented above in this
+file). Dropped the clause.
+
+**Verified live**: logged in as super admin, opened application `TGA-2026-000001`'s detail drawer, clicked
+Approve on the "QA Test - Updated Transcript" document request. `PUT
+?route=admin&action=document-requests/{pid}/review` returned `200 OK`; confirmed in the DB the row's
+`status` flipped to `approved` with a `reviewed_at` timestamp. No other call site in this controller had
+the same bug (checked all `document_requests` queries in the file).
+
+**Files changed**: `crm-api/Controllers/DocumentRequestController.php`.
+
+### 2026-07-10 — Raw backend error text no longer rendered in Admin Dashboard banner (F4 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live. Patched `window.fetch` in the
+> browser to make `get_dashboard_stats` throw a raw backend-looking string (`SQLSTATE... secret_table...`),
+> then SPA-navigated Overview→Profile→Overview to re-run `loadSectionData()` without a reload (preserving the
+> patch). The banner rendered the generic "Something went wrong while loading this section…" message; the raw
+> string did **not** appear anywhere in the DOM. Restored `fetch` and re-navigated — dashboard loaded clean,
+> no banner, stats rendered — confirming no regression to the happy path. Works.
+
+`AdminDashboardPage.tsx`'s `loadSectionData()` set the persistent error banner to
+`err instanceof Error ? err.message : 'Failed to load admin data.'` — whatever the backend/network threw
+(a raw exception message, a rate-limit string, a connection error) rendered verbatim in the UI. Production
+already downgrades real backend exception messages to a generic one (`index.php`'s handler), so this was
+never a data leak, just an unexplained, sometimes-technical-looking banner on an otherwise-working page —
+most visible whenever F3 (the `EncryptionService` race, fixed earlier this session) intermittently threw.
+
+**Fix**: the `catch` block now always sets a generic, friendly banner message
+("Something went wrong while loading this section. Please refresh or try again in a moment.") and
+`console.error()`s the real error for developers instead of surfacing it to the admin.
+
+**Verified live**: patched `window.fetch` in the browser to force `fetchAdminDashboardStats()` to reject
+with a fake raw backend error string, then triggered a client-side re-navigation (Users → Overview) to
+re-run `loadSectionData()` without a full page reload (preserving the patch) — banner correctly rendered
+the generic friendly message, not the fake raw error text. Restored `window.fetch` and re-triggered the
+same navigation — dashboard loaded normally with no error banner, confirming no regression to the
+happy path.
+
+**Files changed**: `src/pages/admin/AdminDashboardPage.tsx`.
+
+### 2026-07-10 — Dashboard action queues no longer 403 for restricted admins (F7 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live with the most-restricted real
+> admin ("Operations Officer", grant = `security_events.view` only). Backend: all three dashboard queue
+> endpoints (`get_document_queue`, `get_payment_queue`, new `get_agent_queue`) returned `200` for this admin,
+> while the deliberately-preserved guard held — the full `agents` list still `403`s ("no 'view' permission on
+> 'agents'"), so the new pending-queue endpoint didn't leak the whole roster. UI: logged in as this admin,
+> dashboard rendered with **no error banner**, "Pending Agents: 2" tile matched 2 rendered cards, and every
+> Approve/Reject button was `disabled` (visible-but-read-only, as documented). Solid.
+
+`CLIENT_SYSTEM_DOCUMENTATION.md` §5.1 promises: "Every admin sees the dashboard's action queues
+regardless of their individual page grants — but the Approve/Reject/Verify buttons within them only
+appear if that specific admin actually holds the matching permission... otherwise the queue is still
+visible but read-only." The three dashboard queue endpoints didn't honor this: `getDocumentQueue()` and
+`adminQueue()` (payments) both required `applications.view`, and the dashboard's pending-agents preview
+reused the full Agents page's `listAll()`, which requires `agents.view`. An admin with "No Access" to
+either page (a real, supported page-grant value per §4.3) got a hard 403 on that call — and because the
+overview section fetches all three via `Promise.all`, one 403 failed **all three panels together**
+(the headline stat tiles come from a separate, unaffected call, which is exactly why a nonzero
+"Pending Agents" count could sit above a blank/failed queue list, as the audit finding described).
+
+**Fix**: made all three dashboard queue reads bypass per-page RBAC entirely (`AuthMiddleware::requireRole('admin')`
+instead of `RBACMiddleware::requirePermission(...)`), matching the documented "every admin can always
+see the dashboard" exception:
+- `DocumentRequestController::getDocumentQueue()` and `PaymentTrackingController::adminQueue()` — already
+  dedicated, dashboard-only endpoints, so the permission check was simply swapped in place.
+- Pending agents needed a **new** dedicated endpoint, `AdminAgentController::pendingQueue()`
+  (`GET ?route=admin&action=get_agent_queue`), rather than relaxing `listAll()` directly — that method
+  is shared with the full, paginated Agents management page, and stripping its `agents.view` check would
+  have let a "No Access" admin see the *entire* agents list outside the dashboard context, a real
+  permission leak. `pendingQueue()` returns just the top 6 pending agents, no page-level check.
+  `src/lib/api.ts` gained `fetchAdminAgentQueue()`; `AdminDashboardPage.tsx`'s overview branch now calls
+  it instead of `fetchAdminAgents({status:'pending', perPage:6})`.
+- The Approve/Reject/Verify/Confirm/Dispute buttons were already correctly gated client-side on
+  `permissions?.canApproveAgents` / `permissions?.canReviewDocuments` (disabled, not hidden — the doc's
+  intent is preserved either way) — no frontend button-gating changes were needed.
+
+**Verified live** with the most-restricted real admin account in the local DB: "Operations Officer"
+(role `page_access_...`, permissions = `security_events.view` only — no `agents.view`, no
+`applications.view` at all, previously guaranteed to 403 on **all three** old endpoints simultaneously).
+Logged in as this account: dashboard loaded with **no error banner**, "Pending Agents: 2" tile matched
+2 real agent cards rendered in the queue below (previously would have shown 2 vs. an empty/failed list),
+documents/payments queues correctly showed their real empty states, and both agent cards' Approve
+buttons confirmed `disabled: true` in the DOM — exactly the promised "visible but read-only" behavior.
+
+**Files changed**: `crm-api/Controllers/DocumentRequestController.php`,
+`crm-api/Controllers/PaymentTrackingController.php`, `crm-api/Controllers/AdminAgentController.php`,
+`crm-api/Routes/AdminRoutes.php`, `src/lib/api.ts`, `src/pages/admin/AdminDashboardPage.tsx`.
+
+### 2026-07-10 — Intake status label no longer shows "Closed" for "upcoming" intakes (F11 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live in the student portal on Level 4
+> Diploma in Business Management: 11 `upcoming` intakes now render a disabled "Upcoming" button (matching their
+> status badge), and the one `open` intake renders an enabled "Apply". Note on the "Closed" branch: the public
+> intake endpoint (`IntakeController::publicList`) only ever returns `upcoming`/`open` intakes, so a `closed`
+> intake never reaches this component — the else-branch label is effectively unreachable here, which is fine
+> (the fix's else-branch is unchanged). Cosmetic fix verified.
+
+`UniversityBrowse.tsx`'s Apply button labeled any non-`open` intake "Closed" — including intakes whose
+real status is `upcoming` (`intakes.status` is one of `upcoming` | `open` | `closed` per migration 016).
+Cosmetic only (the button was correctly disabled either way), but misleading right next to the status
+Badge above it, which already displayed the real status correctly.
+
+**Fix**: added `intakeClosedLabel(status)`, returning "Upcoming" for `status === 'upcoming'` and
+"Closed" otherwise, used in both the student-apply and agent-apply button label ternaries (previously
+both hardcoded the literal string `'Closed'`).
+
+**Verified live**: student portal, Malita International College → Level 4 Diploma in Business
+Management — every intake card previously reading "Closed" now correctly reads "Upcoming" (11 of 12
+intakes are `upcoming` in the local DB), while the one genuinely `open` intake ("June Intake (Copy)")
+still correctly shows "Apply". No `closed`-status intakes exist in the local DB to visually confirm
+that word still appears for that case, but the ternary's else-branch is unchanged from before.
+
+**Files changed**: `src/shared/components/catalog/UniversityBrowse.tsx`.

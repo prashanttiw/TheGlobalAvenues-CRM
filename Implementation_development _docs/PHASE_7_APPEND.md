@@ -1105,3 +1105,187 @@ rejected the whole catalog build.
   again returned "already started by the user" — a third instance of this pattern. A parallel spawned
   session is very likely also working this exact file; check for a duplicate branch on
   `AdminIntakesPage.tsx` before merging.
+
+### 2026-07-09 — Activity Log Coverage Audit: Registration Funnel, Admin Creation, Profile Self-Edits, Academic Records
+
+User flagged that the activity log "doesn't record everything" — specifically that pre-OTP-verification
+registration data entry wasn't captured — and asked for research/reasoning rather than blind adoption of
+an externally-sourced (ChatGPT) proposal to build a new `audit_logs` + `activity_feed` two-table system.
+
+**Finding: the proposed architecture already exists.** `security_events` (pre-auth/security trail) +
+`activity_logs` (business-friendly CRM timeline, human-readable via `ActivityLabelFormatter` — see the
+2026-07-02/07-03 entries above) is exactly the split being proposed, already wired into all three portals'
+own scoped views plus the dashboard widget. Building a parallel system would have created drift between
+two sources of truth. Instead, ran a systematic coverage audit: cross-referenced every `INSERT`/`UPDATE`
+across all 32 controllers against the ~85 existing `ActivityLogger::log()`/`SecurityEventLogger::log()`
+call sites. Found and fixed 5 real, concrete gaps:
+
+**1. Registration pre-verification was unidentifiable.** `sendRegistrationOtp()` fired
+`SecurityEventLogger::log('registration_initiated', ...)` with only an unreversible `email_hash` — an
+admin reviewing the Security page saw "Unidentified / not signed in" with no way to tell who attempted
+signup. Fixed by adding `role`, `full_name`, and a masked `phone_last4` (never the raw phone/email) to the
+event's `details` JSON — full names are already stored in plaintext elsewhere in this system
+(`activity_logs.target_display`), so this doesn't introduce a new PII-handling pattern. Also added a new
+`registration_otp_verified` security event (previously the funnel had no signal between "started" and
+"account created", so an abandoned-after-OTP signup was indistinguishable from "never tried"). Both
+`crm-api/Helpers/ActivityLabelFormatter.php`-adjacent frontend catalog (`AdminSecurityPage.tsx`
+`EVENT_CATALOG` + `describeDetails()`) updated to render these in plain English.
+
+**2. Real bug: registration's own `ActivityLogger::log()` calls always said "System".**
+`ActivityLogger::log()` resolves the actor's display name from the request's `Authorization` header JWT —
+but `completeStudentReg()`/`completeAgentReg()` call it *before* issuing the new account's token pair, so
+there is no Authorization header on that request to resolve identity from. `actor_user_id` was populated
+correctly but `actor_display_name` silently stayed `NULL`, and the `student.registered` special-case label
+fell back to `"System registered as a student"`. Fixed by adding an optional 7th param,
+`?string $actorUserTypeHint`, to `ActivityLogger::log()` — when JWT resolution finds nothing but the
+caller already knows who just acted (registration completion is the only such case in the codebase), it
+resolves the display name from that hint instead of giving up. Backward compatible — every other call site
+omits the new param and behaves identically. Live-verified via curl: before the fix this would insert
+`actor_display_name = NULL`; after, `"QA Activity Log Student"` resolved correctly.
+
+**3. Admin account creation had no audit trail at all.** `RegistrationController::registerAdmin()`
+(super-admin-only) never called `ActivityLogger::log()` — compare `AdminDashboardController::deleteAdmin()`
+which already logs `admin.deleted`. Creation was invisible; deletion wasn't. Added
+`ActivityLogger::log('admin.created', 'user', $userId, (int) $user['sub'], [], [...])` attributed to the
+acting super admin. Also fixed `SecurityEventLogger::log('registration_completed', ...)` in the same method
+to pass the actual `$userId` instead of a hardcoded `null` (the value was available in scope the whole
+time).
+
+**4. Self-service profile edits were unlogged in all three portals.** `StudentController::updateProfile()`
+(email/phone/name/DOB/nationality/passport — the most sensitive of the three), `AgentController::updateProfile()`
+(agency name/country), and `AdminController::updateProfile()` (own name) all mutated data with zero trail.
+Added `student.profile_updated` / `agent.profile_updated` / `admin.profile_updated` with before/after
+snapshots. For the student case specifically: email/phone changes are surfaced as `email_changed`/
+`phone_changed` booleans (comparing lookup hashes) rather than the raw values, since `ActivityLogger::sanitizeSnapshot()`
+already strips literal `email`/`phone` keys — passing the actual values would have just made them silently
+disappear from the log with no signal that anything changed at all.
+
+**5. `StudentAcademicController` had zero logging across all 4 mutating methods** — adding/removing
+academic records and test scores (data admissions decisions get made on) was completely invisible. Added
+`student_academic.created`/`.deleted` and `student_test_score.created`/`.deleted`, each resolving the
+student's current name via a new small `studentDisplayName()` helper so the target label reads correctly
+instead of falling back to the generic "a student" noun.
+
+**Also removed ~540 lines of dead code**: `RegistrationController::validateAgentCode()` /
+`initiateStudent()` / `verifyStudentOtp()` / `initiateAgent()` / `verifyAgentOtp()` — an older
+registration flow (email+full-form → OTP → account, all in one shot) that `RegistrationRoutes.php` no
+longer routes at all; the live flow is the "Simplified 3-step registration" section further down the same
+file (`send-otp` → `verify-otp` → `complete-student`/`complete-agent`). Confirmed via repo-wide grep that
+nothing else referenced these method names before deleting. Left the file's structure otherwise untouched;
+also cleaned up a mojibake section-header comment (garbled em-dash/arrow encoding) while in the area.
+
+**Files touched**: `crm-api/Services/ActivityLogger.php`, `crm-api/Controllers/RegistrationController.php`,
+`crm-api/Controllers/AdminController.php`, `crm-api/Controllers/AgentController.php`,
+`crm-api/Controllers/StudentController.php`, `crm-api/Controllers/StudentAcademicController.php`,
+`crm-api/Helpers/ActivityLabelFormatter.php`, `src/pages/admin/AdminSecurityPage.tsx`.
+
+**Verification**: `php -l` on all 6 touched PHP files — PASS. End-to-end curl-driven walkthrough against
+the local XAMPP+MySQL stack (real OTP codes recovered by brute-forcing the stored SHA-256 hash locally —
+6-digit space, instant, dev-DB-only): full student registration funnel (send-otp → verify-otp →
+complete-student), full agent registration funnel, admin creation via a throwaway super-admin test account,
+all three profile-update endpoints, and academic-record add/delete — each followed by a direct
+`activity_logs`/`security_events` query confirming the expected row, actor, and before/after values.
+Browser-verified via the admin dashboard's Recent Activity widget, the Super Activity Log page, the
+Security Events page (filtered to the new event types — `describeDetails()` correctly renders
+"Name entered: ... · Signing up as: ... · Phone ending ..."), and both the agent's and student's own
+Activity Log pages (`/?route=agent&action=activity-logs`, `/?route=student&action=activity-logs`) — every
+new label rendered correctly with the fixed actor attribution. Pre-existing, unrelated console errors
+(`notifications/unread-count`, `admin/activityFeed` "data cannot be undefined") were observed and are the
+same ones already documented in the 2026-07-02 entry above — not a regression from this pass.
+
+### 2026-07-13 — Admin dashboard follow-up cleanup: dead query, broken settings audit widget, duplicate React key, internal notes 500 (spawned from the 2026-07-13 notifications double-unwrap fix's live audit)
+
+Four related issues found while live-auditing `src/shared/hooks/useNotifications.ts`'s double-unwrap fix
+(that session's own console check surfaced sibling instances of the same `.data.data` bug pattern
+elsewhere on the admin dashboard). Flagged as a follow-up task (`task_7aeb5b57`), then executed this
+session. All four are now fixed and live-verified.
+
+**1. Dead `activityFeed` query removed.** `AdminDashboardPage.tsx` (previously lines 136-140) declared
+`const { data: activityFeed = [] } = useQuery({ queryKey: ['admin','activityFeed'], queryFn: () =>
+api.get('/admin/dashboard/activity-feed').then(res => res.data.data), ... })` — the same double-unwrap
+bug as the notifications hooks (backend `ActivityFeedController::getFeed()` replies via bare
+`Response::json(['data' => $formatted])`, one wrapper, not two). Confirmed via grep that `activityFeed`
+was referenced nowhere else in the file — fully dead code, zero functional impact (the two visible
+dashboard panels, "Recent stage movement" and "System Activity Feed", are powered by `dashboard` state
+and the separate `<ActivityFeedWidget>` component respectively, not this variable). Deleted the query
+outright rather than patching its unwrap, since nothing consumed it; also removed the now-unused
+`useQuery` and default `api` imports (both were solely for this dead query — confirmed via grep before
+removing).
+
+**2. `AdminSettingsPage.tsx`'s "Recent Configuration Changes" widget was completely broken (always
+empty), for a different reason than the double-unwrap pattern.** `/admin/logs?target_type=system_setting`
+was never a registered route — `RouteRegistry` has no `'logs'` action under `'admin'` (only
+`'activity-logs'`/`'super-activity-logs'`), confirmed live: the endpoint returned a genuine `404
+Endpoint 'GET /admin/logs' not found`, meaning this widget silently 404'd since it was built (see the
+2026-07-02 entry above, line ~131, which describes adding `target_type` filter support to
+`ActivityLogController` for exactly this widget — the filter support landed, but the frontend never
+called a route that actually has it). Fixed by pointing at `admin&action=activity-logs`
+(`ActivityLogController::adminList()` — self-scoped to the viewing admin's own actions, requires no
+permission beyond being an authenticated admin, matching the `system_settings.view` permission that
+already gates this whole page, so no new 403 risk). That endpoint uses the same bare `Response::json`
+wrapper, so also fixed the accompanying `.then(r => r.data.data)` to `.then(r => r.data)`.
+
+Separately, once real data started flowing, the widget's rendered text was still broken:
+`{log.actor_display_name} updated setting {log.target_display}` rendered as "Prashant Tiwari updated
+setting" with a blank/missing setting name, because `target_display` is `null` on every
+`system_setting.changed` log row (never populated by whatever writes these — a separate,
+unexplored gap). Fixed by using `log.label` instead — `ActivityLogController`'s own
+`ActivityLabelFormatter::label()` already computes a complete, human-readable description
+server-side (e.g. `"Prashant Tiwari changed the \"max active applications per student\" setting from 3
+to 1"`) that the widget was ignoring entirely in favor of manually reassembling a broken one.
+
+**3. React duplicate-key warning on `TGA-2026-000001` fixed — not a data-quality bug, a frontend key
+choice bug.** `AdminDashboardController::summary()`'s "recent stage movements" query
+(§3, ~line 57) reads `activity_logs` filtered to `action = 'application.status_changed'`, ORDER BY
+`created_at DESC LIMIT 5` — each row is a distinct status-**transition event**, not a per-application
+summary, so the same application legitimately appears multiple times in the 5-row window if it
+transitioned through several statuses recently (confirmed live: application `TGA-2026-000001`
+genuinely has 4 real transition events — draft→submitted, submitted→under_review, under_review→
+offer_received, offer_received→enrolled — all within the visible window). `AdminDashboardPage.tsx`'s
+render used `key={item.reference_number}`, which collides whenever one application has more than one
+recent transition. Fixed by adding `al.id`/`al.target_id AS application_id` to the backend SELECT (the
+`AdminDashboardStats.recentStageMovement` TypeScript type in `src/lib/api.ts` already declared `id:
+number`/`application_id: number` fields that the backend simply never populated — this fix makes the
+backend honor the type's existing contract) and switching the React key to `item.id` (the
+`activity_logs` row's own primary key — guaranteed unique per event).
+
+**4. Fixing `InternalNotesWidget.tsx`'s double-unwrap (`.data.data` → `.data`, same bug/backend-shape
+class as the other three above) exposed a genuine, previously-masked backend 500 underneath it.** Before
+the frontend fix, the query always resolved `undefined` and TanStack Query silently swallowed the
+rejection into an empty list — so the list endpoint's real 500 was never actually observed by anyone.
+Root cause: `InternalNoteModel::findVisibleNotes()` selected `u.first_name, u.last_name` from `users` —
+but `users` (migration `001_create_users_table.sql`) has no name columns at all (only encrypted
+`email`/`phone`; the exact same "assumed `users` has name fields" mistake already caught once before in
+this same phase, in `AdminDashboardController::getUsers()` — see this file's line ~328). Display names
+live on the profile tables instead: both `admins` and `agents` have their own `full_name VARCHAR(255)`
+column. Fixed the model's query to `LEFT JOIN admins`/`LEFT JOIN agents` on `user_id` (gated by
+`u.user_type` so only one side ever matches per row, since `internal_notes.author_type` is only ever
+`'admin'` or `'agent'` per `024_create_internal_notes_table.sql`) and `COALESCE()` the two `full_name`
+columns. Also simplified `InternalNotesController`'s response shape and the frontend `Note.author` type
+from a fake `{first_name, last_name}` split (which never matched how names are stored anywhere else in
+this codebase) to a single `full_name` string, matching the `students.full_name`/`agents.full_name`/
+`admins.full_name` convention used everywhere else.
+
+**Verified live end-to-end, not just code reading, for all four:**
+- Confirmed via a fresh, isolated browser tab (the original tab's console history persisted stale errors
+  across `window.location.reload()` calls — a real quirk of this browser-automation environment, not a
+  real bug; a brand-new tab was needed to get a trustworthy zero-errors read) that a clean admin dashboard
+  load produces **no** `activityFeed`, `notifications/unread-count`, or duplicate-key console errors.
+- "Recent stage movement" panel renders all 5 real events (including all 4 `TGA-2026-000001` transitions)
+  with no dropped/duplicated rows.
+- Settings page "Recent Configuration Changes" now shows real entries with full descriptive text
+  ("Prashant Tiwari changed the \"max active applications per student\" setting from 3 to 1", etc.) —
+  previously always "No recent changes found."
+- Internal Notes: created a real note as super admin on a real application via the actual API
+  (`POST admin&action=applications/{pid}/notes` → `201`), then listed it back (`200`, `author.full_name:
+  "Prashant Tiwari"`, `author.user_type: "admin"` — correctly resolved via the `admins` JOIN branch).
+  Repeated as a real Tier 2 agent (Sonia Sharma) on an application she legitimately owns — `201` then
+  `200` with `author.full_name: "Sonia Sharma"`, confirming the `agents` JOIN branch (the other half of
+  the `COALESCE`) also resolves correctly. The 403 seen on an unrelated application (not owned by that
+  agent) is `verifyModuleAccess()` correctly denying — not a regression.
+- `php -l` clean on all touched PHP files; `npx vite build` clean (bundle size dropped slightly after the
+  dead-code removal, confirming it was genuinely stripped).
+
+**Files changed**: `src/pages/admin/AdminDashboardPage.tsx`, `src/pages/admin/AdminSettingsPage.tsx`,
+`crm-api/Controllers/AdminDashboardController.php`, `crm-api/Models/InternalNoteModel.php`,
+`crm-api/Controllers/InternalNotesController.php`, `src/shared/components/ui/InternalNotesWidget.tsx`.

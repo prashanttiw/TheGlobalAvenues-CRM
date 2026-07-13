@@ -2490,4 +2490,64 @@ the three stale `.claude/worktrees/*` directories (all checked out at `0b69852`,
 changes) were found but not touched/deleted — that's a destructive action requiring explicit user
 confirmation.
 
+### 2026-07-10 — Tier 2 agent 500s fixed across 5 endpoints (F13 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live across all three tiers. Hit the
+> five affected endpoints (`dashboard/summary`, `students`, `team`, `applications`, plus search) as a Tier 1,
+> Tier 2, and Tier 3 agent — every call returned `200`, no duplicate-placeholder 500 anywhere. Verified the
+> five call sites in code all use the distinct `:my_agent_id2` placeholder bound to the same value. Also
+> confirmed the Tier 2 dashboard renders real subtree stats in the UI (4 network students, 25% conversion).
+> Grep confirms zero remaining `:my_agent_id ... :my_agent_id` duplicate-in-one-condition patterns. Solid.
+
+Every Tier 2 agent got a 500 on their dashboard, and (found while fixing — same root cause, not previously
+isolated in the audit) on their student list, student detail, sub-agent/team list, and application detail
+too. Root cause in `AgentController.php`: the Tier 2 subtree-scoping condition
+`"(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id)"` reuses the same named placeholder
+twice in one query. PDO's native (non-emulated) MySQL prepares reject duplicate named placeholders —
+Tier 1 (`root_agent_id` single condition) and Tier 3 (single `agent_id` condition) don't hit this because
+neither repeats a placeholder.
+
+**Fix**: same pattern in all 5 call sites — `dashboardSummary()` (~line 104), `listStudents()` (~line 241),
+`getStudent()` (~line 348), the Tier-2 branch of the sub-agent/team listing (~line 826), and
+`getApplication()` (~line 905). Each OR-branch's second occurrence renamed to a distinct placeholder
+(`:my_agent_id2`) bound to the same value, e.g.:
+```php
+$conditions[] = "(s.agent_id = :my_agent_id OR a.parent_agent_id = :my_agent_id2)";
+$params['my_agent_id'] = (int)$agent['id'];
+$params['my_agent_id2'] = (int)$agent['id'];
+```
+
+**Verified live**: logged in as `agent2@theglobalavenues.com` ("Sonia Sharma", confirmed Tier 2 sub-agent).
+Dashboard loaded with real subtree stats (4 network students, 1 enrolled, 25% conversion). Students Roster
+correctly showed all 4 students across her own direct roster **and** her Tier-3 sub-agent's roster (subtree
+union working). Opened a student detail page — loaded fully including that student's application. No 500s
+on any of these calls; the only 500 seen in the network log (`admin&action=get_dashboard_stats`) is the
+pre-existing, unrelated F3 finding below.
+
+**Files changed**: `crm-api/Controllers/AgentController.php`.
+
+### 2026-07-10 — "+ Add Student" entry point added to agent Students roster (F5 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live. Logged in as a Tier 2 agent,
+> opened the Students Roster — the "Add Student" button renders in the page header — clicked it and landed on
+> the existing `/portal/agent/students/new` form (Full Name / Email / Mobile / "Create Student Profile"). Entry
+> point works. Done.
+
+The full "create a new student profile" flow (`AgentCreateStudentPage.tsx`, route
+`/portal/agent/students/new`) already existed and worked correctly, but had no discoverable entry
+point — the only way to reach it was picking "New Student" mid-way through applying to a specific
+intake on the Universities page. The Students roster page itself (where an agent would naturally look
+first) had no add-student action at all.
+
+**Fix**: added an "Add Student" button (with `UserPlus` icon) to `AgentStudents.tsx`'s `PageHeader`
+`actions` slot, navigating to the existing `/portal/agent/students/new` route — no new page or backend
+work needed, purely wiring up a missing entry point to an already-working flow.
+
+**Verified live**: logged in as a Tier 2 agent, opened the Students roster page, confirmed the new
+"Add Student" button renders next to the page title, clicked it, and landed on the existing "New
+Student" form (Full Name / Email / Mobile / "Create Student Profile") exactly as before — same flow,
+now reachable directly.
+
+**Files changed**: `src/pages/agent/AgentStudents.tsx`.
+
 

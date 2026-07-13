@@ -1487,3 +1487,282 @@ exist yet at that point in the flow.
   animated step card on the right stayed stuck mid-exit. This is a known limitation of driving
   animated-transition UIs from a headless/unfocused preview tab, not a defect in the app.
 
+### 2026-07-08 — Admin Creation 500 Error: Wrong Columns on `users` INSERT
+
+User reported the admin-creation feature (super admin → Users page → New Admin) "not working properly."
+Reproduced live: submitting the form 500'd every time with `SQLSTATE[42S22]: Column not found: 1054
+Unknown column 'registered_by_type' in 'field list'`.
+
+**Root cause**: `RegistrationController::registerAdmin()`'s `INSERT INTO users` statement included
+`registered_by_type, registered_by_id` columns. Those columns only exist on the **`students`** table
+(migration `011_create_students_table.sql`) — `users` never had them, in any migration. Compared all 5
+`INSERT INTO users` call sites in this controller (student self-register, agent, student registration,
+sub-agent, admin) — only `registerAdmin()` had this pair; the other four were correct. Copy-paste bug, not
+a missing migration — `admins.created_by` (already set two lines later in the same method) already tracks
+who created the account, so the erroneous columns were redundant even if they'd existed.
+
+**Fix**: removed `registered_by_type, registered_by_id` (and the trailing `$user['sub']` bind param) from
+the INSERT.
+
+**Verified live end-to-end**: created a real admin via the UI with a Universities-read-only page grant,
+confirmed the DB row + `admins.created_by` + a correctly-queued `admin.created` welcome notification,
+logged in as the new admin and confirmed the sidebar showed only the granted page, and confirmed the
+dashboard correctly blocked the ungranted `applications` widget via a permission message instead of
+crashing. Test account soft-deleted after verification.
+
+**Separate, unrelated finding surfaced during this test** (not a bug in this flow): running
+`cron/send-notifications.php` once to confirm the welcome email would send hit a 49-email local backlog
+(local dev's cron scheduler never runs automatically — only cPanel triggers it every minute in production)
+and exceeded the 110s script time limit, leaving 5 rows stuck `processing`. Reset via SQL. See
+[[admin_creation_and_notification_queue_2026_07_08]] memory for detail — nothing to fix in application code,
+just a local-environment operational note.
+
+**Files changed**: `crm-api/Controllers/RegistrationController.php` (`registerAdmin()` INSERT statement).
+
+### 2026-07-09 — Profile Avatar Feature (all 3 portals) + New Admin Profile Page
+
+Built end-to-end: admin never had a profile page at all (`AdminController` was a dead stub); added one
+mirroring the existing student/agent profile pages, plus a shared avatar system (13 curated preset
+avatars + custom upload-with-crop) usable by all three roles and displayed everywhere identity shows up.
+
+**Architecture** (performance was the explicit design driver — avoid the classic "avatar tanks the list
+page" failure modes):
+- `users.avatar_type` (`preset`|`upload`, nullable) + `users.avatar_value` — migration `083_users_avatar.sql`.
+  Lives on `users`, not duplicated per role table.
+- Presets are static files bundled with the frontend (`public/avatar-presets/*.webp`) — zero backend
+  involvement to render, zero DB size cost beyond a short key string. 7 girl + 6 boy avatars generated via
+  ChatGPT/Gemini from a shared style prompt (see `AVATAR_GENERATION_PROMPT.md`), then batch-cropped to a
+  consistent full-bleed square with a one-off Python/Pillow script (not checked in — asset-prep only) and
+  exported as two sizes: 256px (`preset-N.webp`) and 64px (`preset-N_thumb.webp`).
+- Uploads: deliberately do **not** go through `FileUploadService`/the `files` table — avatars are
+  disposable/constantly-replaced cosmetic images, not audited documents, so they skip Drive backup sync,
+  versioning, and erasure workflows built for real files. New `Services/ImageProcessor.php` (GD, same
+  technique as `UniversityController::createThumbnail` but square-crop + WebP output) generates the same
+  two derivative sizes once at upload time, writes them to `uploads/public/avatars/`, and the original
+  upload is discarded. Old derivatives are deleted on every replace/remove — no orphan accumulation.
+- Avatars are served as **plain static file URLs** (same pattern as university logos: `{APP_URL}/uploads/
+  public/avatars/{uuid}.webp`), never through the authenticated chunked-fread `FileController::download()`
+  — no PHP execution or ACL check per view, full browser caching, filenames are UUID-based so cache-busting
+  on re-upload is automatic.
+- `Services/ImageProcessor::resolveAvatarUrls()` is the single shared helper (avoids duplicating the
+  preset-vs-upload URL logic across 6+ call sites) that turns `avatar_type`/`avatar_value` into ready-to-render
+  `avatar_url`/`avatar_thumb_url` — every consumer just renders the URL, never branches on type.
+- Avatar fields ride along in queries that already exist (student/agent/admin profile GETs, and every admin
+  list query that already `JOIN`s `users`) — zero N+1 requests. A list of 50 rows gets 50 avatar URLs in the
+  one existing API call.
+
+**New backend**: `Controllers/AvatarController.php` (role-agnostic — any authenticated student/agent/admin
+manages their own avatar via `AuthMiddleware::requireAuth()` only): `POST avatar&action=upload`,
+`POST avatar&action=select-preset`, `DELETE avatar&action=remove`. Registered once in `index.php` via new
+`Routes/AvatarRoutes.php` (not tripled per portal, since the logic is identical for all three roles).
+`Controllers/AdminController.php` gained real `getProfile()`/`updateProfile()` (full_name editable; email/phone
+read-only, matching the existing agent-profile "OTP required, deferred" pattern) replacing what was previously
+two disabled legacy stub methods (left untouched). `AuthController::buildUserResponse()`, `StudentController`,
+`AgentController::getProfile()`, `AdminStudentController::listAll()`, `AgentController::listStudents()`,
+`AdminAgentController::listAll()`, and `AdminDashboardController::getUsers()` all now return avatar URLs.
+
+**New frontend**: `react-easy-crop` dependency added. `shared/components/ui/AvatarPicker.tsx` (preset grid +
+upload/crop/save + remove, reused identically in all 3 profile pages) and `lib/avatarPresets.ts` (the preset
+manifest — girls listed first, then boys, per product decision). `pages/admin/AdminProfilePage.tsx` is
+genuinely new (no prior implementation to build on) + route (`/portal/admin/profile`) + sidebar nav entry
+(admin had zero profile entry point before this). `useAuth`'s `mapAuthUser()` now populates `User.avatar` from
+`/auth/me` (the field was declared in the type since some earlier phase but never populated) — lights up
+`Sidebar`'s pre-existing-but-dormant avatar slot with zero extra requests. `TopBar.tsx` had no identity
+indicator at all before this — added avatar + name linking to the user's own profile page. Wired real avatar
+images into `AdminStudentsPage`, `AdminAgentsPage` (All Agents tab), `AgentStudents`, and `AdminUsers` (which
+already rendered `UserAvatar` in 3 places but always with no `image` prop, i.e. initials-only).
+
+**Bug found + fixed during live audit**: `AdminController::getProfile()` initially exposed the raw
+`roles.name` value as `role_name`. Discovered live that for this admin it rendered as the literal string
+`page_access_01KW8FKAY3MTV7QZ9KSNKKBATJ` — turned out `roles.name` is now an internal auto-generated
+identifier from the page-access-grant permission system (see [[page_access_read_write_levels]]), never
+meant for direct display; the existing `AdminUsers.tsx` already knew this and deliberately never shows
+`role_name` raw, deriving a friendly badge from `is_super_admin` + `pages` instead. Fixed by dropping the
+`roles` JOIN entirely and computing `role_name` as `is_super_admin ? 'Super Admin' : 'Admin'`, matching that
+established pattern.
+
+**Tests run**:
+- `php -l` on all 12 touched/new PHP files: PASS.
+- `npx vite build`: PASS (0 errors), both before and after the role_name fix.
+- Live browser audit (Vite dev server + PHP built-in server), all three roles, via direct DB password resets
+  for stale local dev seed credentials (`agent1@theglobalavenues.com`, and a super admin account — both
+  reset to known Argon2id hashes matching the app's own cost params for testing only):
+  - **Student**: opened picker, selected a preset avatar → confirmed sidebar + topbar + profile page all
+    updated instantly (no reload) via network capture of the `select-preset` response; reloaded the page and
+    confirmed persistence from the backend. Uploaded a synthetic PNG via a programmatically-constructed
+    `File`/`DataTransfer` (real file inputs can't be scripted directly) → confirmed the crop UI rendered,
+    clicked Save, confirmed `POST avatar&action=upload` returned a real `uploads/public/avatars/{uuid}.webp`
+    URL and that URL 200'd as a plain static file. Verified on disk: exactly 2 files (`.webp` + `_thumb.webp`),
+    no orphaned original. Uploaded a second photo and confirmed the first pair was deleted from disk (no
+    accumulation). Clicked Remove and confirmed both files were deleted from disk and the DB row reset to
+    `avatar_type/avatar_value = NULL`.
+  - **Agent**: confirmed `agent&action=profile` returns avatar fields; selected a preset; confirmed it
+    appeared in the agent's own Students Roster list page (`AgentStudents.tsx`) for a student whose avatar
+    was set directly via SQL (initials fallback correctly renders for students without one).
+  - **Admin**: confirmed the new `AdminProfilePage` renders correctly (avatar picker, editable full name,
+    read-only email/phone, role badge, password change reusing the existing role-agnostic
+    `auth&action=change-password` endpoint). Selected a preset avatar and confirmed it appeared in
+    `AdminUsers.tsx` and `AdminAgentsPage.tsx` (All Agents tab) list rows for the same account.
+  - Confirmed via `img.getAttribute('src')` inspection (not screenshots — this preview tooling's
+    screenshot/animation-exit-detection has known unreliability in a backgrounded tab, consistent with
+    [[preview_testing_gotchas]]) that every surface renders the correct preset/upload image when set and
+    falls back to initials when not.
+  - Pre-existing, unrelated bug surfaced during admin testing: `admin&action=get_dashboard_stats` 500s with
+    "ENCRYPTION_KEY environment variable is missing or empty" inside `AdminDashboardController::summary()`
+    (line ~100, decrypting some value) — confirmed via `git diff` this method was never touched by this
+    session's changes. Not fixed (out of scope); flagged for a separate look.
+
+**Files changed**: `crm-api/Database/migrations/083_users_avatar.sql` (new), `crm-api/Database/setup_database.php`
+(applies 083), `crm-api/Services/ImageProcessor.php` (new), `crm-api/Controllers/AvatarController.php` (new),
+`crm-api/Routes/AvatarRoutes.php` (new), `crm-api/index.php` (registers AvatarRoutes), `crm-api/Controllers/
+AdminController.php` (real getProfile/updateProfile), `crm-api/Routes/AdminRoutes.php` (registers admin
+profile routes), `crm-api/Controllers/AuthController.php` (`buildUserResponse` avatar fields),
+`crm-api/Controllers/StudentController.php`, `crm-api/Controllers/AgentController.php` (profile + list),
+`crm-api/Controllers/AdminStudentController.php`, `crm-api/Controllers/AdminAgentController.php`,
+`crm-api/Controllers/AdminDashboardController.php` (list queries), `src/lib/avatarPresets.ts` (new),
+`src/shared/components/ui/AvatarPicker.tsx` (new), `src/pages/admin/AdminProfilePage.tsx` (new),
+`src/router/index.tsx`, `src/shared/components/layout/PortalWrapper.tsx` (admin profile nav entry),
+`src/shared/components/layout/TopBar.tsx` (avatar+name added), `src/shared/hooks/useAuth.ts` (avatar mapping
++ `updateAvatar` action), `src/pages/student/StudentProfile.tsx`, `src/pages/agent/AgentProfilePage.tsx`,
+`src/pages/admin/AdminStudentsPage.tsx`, `src/pages/admin/AdminAgentsPage.tsx`, `src/pages/agent/
+AgentStudents.tsx`, `src/pages/admin/AdminUsers.tsx`, `src/lib/api.ts` (avatar API functions + types),
+`public/avatar-presets/` (26 files, new).
+
+### 2026-07-10 — Admin 2FA UI built (F6 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed live end-to-end. Drove the real
+> Enable flow on `AdminProfilePage` as super admin (card renders, password-confirm reveals, `POST 2fa/toggle`
+> → 200, DB `users.two_factor_enabled` flipped to 1), then confirmed a fresh login now genuinely branches
+> into 2FA (`requires_2fa` + `pre_auth_token`, no access token issued). Also verified the security guard: a
+> wrong-password toggle is rejected (`INCORRECT_PASSWORD`, 400) and does not flip the flag. Ran the Disable
+> branch too and reset the account back to `two_factor_enabled = 0`. Works.
+
+`AuthController::toggle2FA()` (`POST ?route=auth&action=2fa/toggle`) was fully correct end-to-end
+(password re-verification, flag flip, security event + activity log) but had no frontend anywhere in
+`src/` calling it — a dead feature, not a broken one. Login-side enforcement already worked once the DB
+flag was set directly; this session added the missing UI to actually reach that endpoint.
+
+**Backend**: `AdminController::getProfile()` now also selects `u.two_factor_enabled` and returns it as
+`two_factor_enabled` in the profile response (previously not exposed to the admin portal at all).
+
+**Frontend**: new "Two-Factor Authentication" card on `AdminProfilePage.tsx`, placed below the existing
+Account Details/Account Settings grid. Shows current Enabled/Disabled state; clicking "Enable 2FA" /
+"Disable 2FA" reveals a password-confirmation field (reusing the existing `PasswordField` component from
+the Change Password flow) before calling the new `toggle2FA()` function in `src/lib/api.ts`. On success,
+updates local profile state and shows a toast, matching the existing Change Password UX pattern in the
+same file.
+
+**Verified live end-to-end**, not just the API call in isolation: as super admin, clicked "Enable 2FA",
+entered password, submitted — UI flipped to "Enabled" with a success toast, and the DB row's
+`two_factor_enabled` confirmed `1`. Then logged out and back in with the same credentials: the **real
+login flow correctly branched into 2FA verification** ("Enter the two-factor code sent to your admin
+email" + OTP input screen), proving this UI actually drives the existing (previously unreachable) 2FA
+enforcement rather than just flipping a flag nobody reads. Reset the test account back to
+`two_factor_enabled = 0` afterward so it doesn't complicate future test-session logins.
+
+**Files changed**: `crm-api/Controllers/AdminController.php`, `src/lib/api.ts`,
+`src/pages/admin/AdminProfilePage.tsx`.
+
+### 2026-07-10 — Dead `otp_code_preview` reference removed (F1 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed clean. A full-codebase grep for
+> `otp_code_preview` across `src/` and `crm-api/` returns zero occurrences (dead type field and misleading
+> comment both gone). The `RegistrationOtpResult` type removal is covered by the passing production build
+> (`npx vite build` succeeds), so nothing referenced the deleted field. Done.
+
+`OTPService.php` had a comment claiming dev-mode SMTP failures leave the OTP "so otp_code_preview can be
+used", and `api.ts`'s `RegistrationOtpResult` type declared an `otp_code_preview?: string` field — but
+no endpoint anywhere in the codebase ever actually populates this field, and no frontend component ever
+reads it (confirmed via a full-codebase grep, zero consumers). Not a doc contradiction — the client
+documentation never promises an on-screen OTP fallback — just misleading dead code pointing at a
+mechanism that was never built.
+
+**Fix**: removed the never-populated `otp_code_preview` field from `RegistrationOtpResult`, and rewrote
+the misleading comment in `OTPService::sendOtp()` to accurately describe what dev mode actually does
+(tolerates SMTP failure without deleting the stored OTP, so local testing isn't blocked by a
+flaky/unconfigured mailer) without referencing the nonexistent preview mechanism.
+
+**Files changed**: `crm-api/Services/OTPService.php`, `src/lib/api.ts`.
+
+### 2026-07-13 — Dashboards go blank / stale after ~15 min: no automatic access-token refresh (all 3 portals)
+
+**User report**: after working in any portal for a while, pages start going blank; clicking any nav
+link, button, or feature shows "token expired" instead of working; navigating away from a page and back
+sometimes doesn't show a just-created entry. Only a hard/manual browser refresh fixed it.
+
+**Root cause confirmed live, not assumed**: `src/lib/api.ts`'s `request()` — the single choke point every
+API call in the app goes through (`api.get/post/put/delete` all call it; only `AdminReportsPage.tsx`'s
+CSV/XLSX export button bypasses it with a raw `fetch()`, unaffected by this bug) — had no 401 handling
+at all. On a 401 it just threw a plain `Error`. `refreshAuthSession()` (which exchanges the httpOnly
+`refresh_token` cookie for a new access token) was only ever called once, by `AuthGuard`'s
+`restoreSession()`, and only while `status === 'loading'` — i.e. once at initial page load. There was no
+periodic/proactive refresh and no refresh-on-401 retry. Making it worse, `setUnauthorizedHandler()` —
+which `useAuth.ts` calls at module load to wire a 401 callback into `clearSession(true)` — was a literal
+no-op stub (`// Not fully implemented for interceptors, but placeholder to fix type`), so even a caught
+401 never cleared client auth state or surfaced anything to the user. `JWT_ACCESS_EXPIRY=900` (15 min)
+matches the "after some time" the user described exactly. Net effect: 15 minutes after login, every
+background TanStack Query refetch silently 401'd, `retry: 1` just repeated the same failing call, and the
+UI was left holding whatever data it had last successfully fetched (or nothing, if the first fetch on a
+page happened after expiry) with no error shown and no recovery path except a full reload (which re-runs
+`restoreSession()` from scratch). This fully explains both symptoms the user reported — blank pages and
+"an entry doesn't show until I refresh" are the same failure mode, not two separate bugs.
+
+**Fix** (`src/lib/api.ts`, centralized — nothing outside this file needed to change since every portal's
+data-fetching already funnels through it):
+- **Proactive refresh**: `setAccessToken()` now decodes the JWT's `exp` claim and schedules a
+  `setTimeout` to silently call `/auth/refresh` at ~75% of the token's remaining lifetime (floor 5s), so
+  an open tab renews its token before it ever actually expires. Each successful refresh reschedules the
+  next one — self-perpetuating for as long as the tab stays open.
+- **Reactive refresh-and-retry**: `request()` now inspects the failure `code` on a 401. Only
+  `AuthMiddleware`'s session/token codes (`AUTH_TOKEN_MISSING`, `AUTH_TOKEN_EXPIRED`, `AUTH_TOKEN_INVALID`,
+  `SESSION_REVOKED`, `ACCOUNT_INACTIVE`) trigger the recovery path — deliberately excludes business-logic
+  401s like login's `AUTH_FAILED` (wrong password) or `OTP_INVALID`/`OTP_EXPIRED`, so a wrong-password
+  attempt on the login page can never be misread as a dead session and force-logout an unrelated already
+  active tab. On a real session error: dedupe concurrent refresh attempts via a shared in-flight promise
+  (`refreshAccessTokenOnce()`, mirroring the existing `restorePromise` pattern in `useAuth.ts`), then
+  transparently retry the original request once with the new token. The retry is capped at one attempt
+  (`isRetry` flag) to avoid loops, and the refresh endpoint itself is excluded from retrying-itself.
+- **Real logout on unrecoverable failure**: `setUnauthorizedHandler()` now actually stores the handler
+  (previously a no-op). If a refresh attempt itself fails — whether triggered reactively or by the
+  proactive timer — `refreshAccessTokenOnce()` clears the in-memory access token and invokes the handler
+  immediately (`useAuth.clearSession(true)`), rather than waiting for the next user click to discover the
+  same thing. `AuthGuard` already redirected on `isAuthenticated === false`; added a `sessionExpired` →
+  toast wire-up (`acknowledgeSessionExpired()` action + a `useEffect` in `LoginPage.tsx` and
+  `AdminLoginPage.tsx`) so the user now sees "Your session has expired. Please sign in again." instead of
+  landing back on the login form with no explanation.
+- Incidentally fixed dead code: `ApiRequestError` (exported, imported by 3 login-flow pages for
+  `instanceof` checks) was never actually thrown — `request()` threw a plain `Error`. Now throws
+  `ApiRequestError` with `.code`/`.status`/`.data` populated, which is backward compatible (`extends
+  Error`, and no call site read `.code` before, confirmed by a full-codebase grep) and lets future code
+  branch on specific error codes.
+
+**Verified live end-to-end against the real local Apache/PHP/MySQL backend**, not just code reading —
+temporarily set `JWT_ACCESS_EXPIRY=3` (3 seconds) in `crm-api/.env` for the test, reverted after:
+- **Proactive path**: logged in as a real student; network log showed automatic background
+  `POST /auth&action=refresh → 200` calls firing on their own, no user action, no 401s ever reaching the
+  app during normal navigation (Overview → Applications) — token stayed continuously fresh.
+- **Reactive path**: monkey-patched the page's `window.fetch` to corrupt exactly one outgoing
+  `Authorization` header (simulating a truly expired/invalid token without waiting), then navigated to
+  Documents. Network log showed the exact sequence: `GET document-requests → 401` → automatic
+  `POST /auth&action=refresh → 200` → and the page rendered the correct **empty-state** UI ("No documents
+  requested yet.", confirmed via `StudentDocuments.tsx`'s `requestsQuery.isError` branch NOT firing) — not
+  the error state, proving the retried request actually succeeded silently.
+- **Unrecoverable session**: revoked the student's `user_sessions` row directly in MySQL (simulating a
+  dead refresh token / logged out elsewhere), corrupted the token again — app automatically redirected to
+  `/portal/login` and displayed "Your session has expired. Please sign in again." with zero manual
+  intervention.
+- Confirmed unaffected: normal login flow at the real `JWT_ACCESS_EXPIRY=900`, all three portals (student
+  `testuser456@example.com`, agent `agent1@theglobalavenues.com`, super admin `tprashant76640@gmail.com`)
+  — clean login, dashboards rendered real data, zero console errors.
+- `npx vite build` clean before and after.
+- **Local-dev-only discovery, not a bug**: found and worked around a local-environment-only artifact
+  while testing — `vite.config.ts`'s dev server binds `0.0.0.0:3000`, and accessing it via
+  `http://127.0.0.1:3000` while the backend responds from `http://localhost/crm-api` makes the browser
+  treat them as cross-site for the `refresh_token` cookie's `SameSite=Lax` (non-secure/local) policy, so
+  the cookie never reaches `/auth/refresh` and it 400s with "Refresh token missing". Switching the test
+  browser to `http://localhost:3000` (matching the backend's host) resolved it. Production is unaffected
+  — frontend and backend are already same-origin there (`apply.theglobalavenues.com`).
+
+**Files changed**: `src/lib/api.ts`, `src/shared/hooks/useAuth.ts`, `src/pages/LoginPage.tsx`,
+`src/pages/admin/AdminLoginPage.tsx`.
+

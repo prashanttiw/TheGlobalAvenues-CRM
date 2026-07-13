@@ -606,3 +606,41 @@ The route sits inside `AuthGuard` + `RoleGuard allowedRoles={['agent']}`, so it 
 
 **Tests Run**:
 - `npx vite build`: PASS (0 errors)
+
+### 2026-07-10 — File upload double-fired its network call in dev fixed (F9 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification, with a negative control):** Confirmed fixed by
+> counting server-side `files` rows per upload (browser-side fetch counting proved unreliable). Verified
+> `<StrictMode>` is still active in `src/main.tsx` (so the bug would still reproduce if unfixed). Two real
+> uploads through `StudentAdditionalInfoPage`'s "Signed Consent Form" field on the current code each created
+> **exactly one** `files` row. Negative control: temporarily reintroduced the original impure-updater pattern
+> (side effect inside `setUploadProgress`), and the same upload created **two** `files` rows in the same
+> second — proving the test can detect a double-fire and that the fix is what prevents it. Restored the file
+> (checksum-verified identical to pre-test) and re-ran: back to exactly one row. Solid.
+
+`FileUpload.tsx`'s `simulateUpload()` called `onFileSelect?.(selectedFile)` — which callers wire up to a
+real upload API call (e.g. `StudentAdditionalInfoPage.tsx`'s `uploadMutation.mutate(...)`) — from **inside**
+the `setUploadProgress((prev) => {...})` functional state updater. React 18 `<StrictMode>` (active in
+`src/main.tsx`) deliberately invokes state updater functions twice in development specifically to catch
+impure side effects hidden inside them, so every file upload fired its network call twice. Confirmed
+across 3 different upload flows (`StudentDocuments.tsx`, `StudentAdditionalInfoPage.tsx`, `DocumentSlot.tsx`)
+per the original audit. Unlikely to double-charge real users in production (a prod build doesn't
+re-invoke), but a real anti-pattern worth fixing regardless.
+
+**Fix**: kept the `setUploadProgress` updater itself pure (just increments the number, no side effects),
+and moved the "upload reached 100%" side effects (stop the interval, mark uploaded, fire `onFileSelect`)
+into a separate `useEffect` that reacts to the committed `uploadProgress` state instead. The interval ID
+now lives in a ref (`uploadIntervalRef`) so the effect can clear it.
+
+**Verified live**, not just by reading the diff: since a real drag-and-drop can't be triggered by
+browser automation reliably (confirmed — a synthetic `drop` event with a fabricated `DataTransfer` was
+not picked up by React's drop handler), used the native file-input `change` path instead (setting
+`input.files` via `DataTransfer` + dispatching a real `change` event, which React does observe) on the
+"Signed Consent Form" field in `StudentAdditionalInfoPage.tsx`. First attempt used a fake `.pdf` with
+plain-text content and correctly got rejected server-side (`FileUploadService::assertAllowedMimeType()`,
+500 "This file type is not allowed") — an unrelated, expected validation failure, not a regression.
+Second attempt used real PDF magic bytes (`%PDF-1.4...`) end to end: **exactly one**
+`POST ?route=student&action=custom-fields/file` fired, returning `201 Created` — no duplicate request,
+confirming the fix.
+
+**Files changed**: `src/shared/components/ui/FileUpload.tsx`.

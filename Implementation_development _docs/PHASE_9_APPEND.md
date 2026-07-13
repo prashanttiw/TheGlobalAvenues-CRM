@@ -1393,3 +1393,242 @@ actually work.
 `migrations_070_080.sql` / `real_catalog_seed.sql` / migration 081 to the map,
 `setup_database.php` re-described as the one-click install tool); Known Open Items #1 marked resolved,
 #3 marked fixed with the corrected regex range, added #9 (this fix) and #10 (the payment reminder gap).
+
+### 2026-07-10 — Safe Schema Reconciliation Tool (`reconcile.php`)
+
+**Why**: `setup_database.php` is the only existing "build the schema" tool, and it's destructive by
+design (`DROP TABLE IF EXISTS` on every table, `TRUNCATE` on 19 core tables, then reseed) — safe only
+for fresh/local installs, never for a database holding real leads/students/applications. There was no
+tool that could look at an existing database with an unknown subset of migrations applied and bring it
+up to date without touching existing rows. `run_all_migrations.php` (patches 060–089 individually) has
+no idempotency check and errors on anything already applied.
+
+**What was built**: `crm-api/Database/reconcile.php`, a CLI script. Default mode is dry-run (report
+only); `--apply` executes; `--resolve-duplicates` additionally allows duplicate-data cleanup. Never
+runs `DROP`/`TRUNCATE`/hard-delete.
+
+**Design** (revised once during build after directly verifying assumptions — see below): replays the
+real historical ledger directly rather than the "combined" convenience files. Verified that every
+migration from 038 onward — including 060–069, previously assumed to only exist inline in
+`setup_database.php` — already exists as an individual file in `migrations/`; `all_migrations_combined.sql`
+and `migrations_070_080.sql` are just deployment-shortcut bundles of those same files, not a separate
+source of truth. So the unit list is: `schema.sql` split into 37 units on each `CREATE TABLE` boundary,
+plus every file in `migrations/*.sql` sorted by filename (one unit per file; the 048–052 gap is simply
+absent). Units execute via a single `$pdo->exec()` call each — not a custom statement splitter — since
+migration 057's trigger body has internal semicolons that a naive splitter would break on, and PDO
+already runs multi-statement files correctly (proven by `setup_database.php`'s own use of `schema.sql`).
+
+Outcomes are classified by MySQL/MariaDB error code, not pre-checked via introspection: success →
+mark applied; a narrow allowlist of "already exists" codes (1050 table exists, 1060 duplicate column,
+1061 duplicate key name, 1091 can't-drop-absent-field, 1359 trigger exists, 1826 duplicate constraint
+name) → mark applied as "detected already-applied"; anything else → halt immediately, nothing further
+attempted. Introspection-based pre-checking (parse `ADD COLUMN`/`DROP COLUMN` out of each file, check
+`INFORMATION_SCHEMA` before running) was the original plan but proven wrong during research: migration
+084 (2026-07-10, same day) deliberately *removes* columns 065/069 added, so "does column X exist" is
+not a reliable proxy for "was migration Y applied" once later migrations can undo earlier ones —
+replaying in filename order and trusting each file's own outcome sidesteps the whole problem.
+
+A `schema_migrations (migration_name, applied_at, note)` tracking table is created (even in dry-run —
+the one write dry-run is allowed to make) and is authoritative once a migration is recorded in it, so a
+later migration legitimately reversing an earlier one's column (084 undoing 065) is never re-flagged as
+"not yet applied" on subsequent runs.
+
+**Duplicate detection**: before any unit containing `UNIQUE`, a best-effort text scan (not a full SQL
+parser) extracts the target table/column(s) and runs a `GROUP BY ... HAVING COUNT(*) > 1` check first.
+With `--resolve-duplicates`: keeps the oldest row (lowest id), and on the rest sets `deleted_at = NOW()`
+**and nulls the conflicting column(s)** — soft-deleting alone was tried first and found insufficient
+during testing, since MySQL's `UNIQUE` index still sees the value on soft-deleted rows and the `ALTER`
+still fails; nulling matches this codebase's own established pattern (migration 039 made
+`agents.referral_code` nullable specifically so non-active rows could avoid `UNIQUE` collisions via
+`NULL`, since MySQL treats multiple `NULL`s as distinct). Only proceeds when every target column is
+nullable; refuses (halts, requires manual resolution) otherwise rather than hard-deleting. Every
+resolution is logged via `ActivityLogger::log('migration.duplicate_resolved', ...)`.
+
+**Also fixed during testing** (found running against the real local dev DB and a synthetic
+partially-migrated one, both cleaned up after): `038_seeds.sql` uses a plain `INSERT` (no `IGNORE`) for
+permissions/settings/SLA-rules/cron_health reference data that's *also* seeded by `schema.sql`'s own
+tail-end seed block (a third copy of the same reference data, alongside `setup_database.php`'s inline
+array) — collides with error 1062, which is deliberately **not** on the general safe-skip list (a
+duplicate-key error on an arbitrary `INSERT` can mean a real data problem). Added a narrow, separate
+exception: 1062 is only treated as safe when every table the failing unit inserts into is one of a
+small known reference/lookup-table allowlist (`permissions`, `system_settings`, `sla_rules`,
+`cron_health`, `notification_templates`, `roles`, `role_permissions`) — never for tables holding real
+user/business data.
+
+**Verified**: dry-run and `--apply` against the real local dev DB (found and applied ~20 units it was
+actually missing — not a no-op — then converged to a schema matching the post-084 expected state
+exactly: `reminders` table absent, `files` table has no `drive_sync_status`/`sync_attempts`); a
+synthetic database seeded with only `schema.sql` + migrations through 040 (`--apply` cleanly brought it
+all the way to 084 with zero halts, since migrations run in their natural chronological order there —
+confirming the one halt seen against the real DB was an artifact of that DB's specific history, not a
+tool flaw); the full duplicate-detection-and-resolution path end-to-end against an isolated throwaway
+table (dry-run reports without touching data, `--apply` alone halts requiring `--resolve-duplicates`,
+`--apply --resolve-duplicates` correctly keeps the oldest row and nulls+soft-deletes the rest, confirmed
+via the `UNIQUE` index landing cleanly and two `activity_logs` rows). All test tables, tracking rows,
+temporary migration files, and the temporary `.env` `DB_NAME` override used to point at a throwaway
+database were removed after.
+
+**Files**: new `crm-api/Database/reconcile.php`; new `crm-api/Database/migrations_060_069.sql` (the
+inline 060–069 PHP block in `setup_database.php` extracted verbatim into its own file so both scripts
+read one shared source instead of it living only in PHP string literals — `setup_database.php` now
+`file_get_contents()`s it instead of ~68 lines of inline `exec()` calls; note `reconcile.php` itself
+doesn't read this file, since the real individual 060–069 files in `migrations/` are more complete);
+`setup_database.php` gained a `DESTRUCTIVE — LOCAL/DEV ONLY` warning banner; `run_all_migrations.php`
+gained a header comment noting it's superseded by `reconcile.php` (not deleted).
+
+**Not yet done**: has not been run against production. Per the deferred restructure plan
+(2026-07-10, earlier the same day), production's actual migration state was unconfirmed — this tool
+is exactly what resolves that unknown (dry-run discovers it rather than requiring it upfront), but
+running it there is a separate, explicit next step, not part of this session.
+
+### 2026-07-10 — Global Search cross-tenant agent-tier leak fixed (F12 from full live QA audit, real data disclosure)
+
+> **Double-checked 2026-07-10 (independent re-verification, both leak directions + regression):** Confirmed
+> fixed live against known cross-tenant students. Tier 2 (Sonia) searching "Amit" (owned by her *parent* Tier 1
+> agent) → **empty**; Tier 3 (Arjun) searching "Karan" (owned by his *parent* Tier 2 agent) → **empty** — both
+> previous leaks closed. Legitimate access still works: Tier 3 finds his own student, Tier 2 finds her
+> sub-agent's student, Tier 1 finds students deep in its subtree. Verified `resolveAgentSearchScope()`'s
+> per-tier SQL matches `AgentController`'s scoping (Tier 3 = own, Tier 2 = own+children, Tier 1 = root subtree)
+> and is applied to both the students and applications UNION branches. Real disclosure closed.
+
+`SearchController::search()` scoped every agent's student and application search results by
+`root_agent_id` alone, regardless of the searcher's own tier. Tier 2 and Tier 3 agents could search up
+and see students belonging to siblings or their parent tier1 agent within the same root subtree —
+separate agent businesses on one platform, so this was a real cross-tenant data disclosure, not a
+cosmetic bug. `AgentController` already had the correct tier-aware scoping rule (Tier 3: own students
+only; Tier 2: own + direct sub-agents' students; Tier 1: entire root subtree) used by Team/hierarchy and
+the activity log — `SearchController`'s own inline queries were the one place that never got it.
+
+**Fix**: added `SearchController::resolveAgentSearchScope(int $userId)`, returning the same tier-scoped
+SQL fragment + bind params AgentController uses, and applied it to both the students and applications
+UNION branches (previously each just inlined a bare `a.root_agent_id = ?`).
+
+**Verified live, both directions of the leak plus a regression check**:
+- Logged in as a confirmed Tier 2 agent (`agent2@theglobalavenues.com`, "Sonia Sharma", root subtree
+  id 1). Searched for "Amit Kumar" — a student assigned directly to the Tier 1 root agent of that same
+  subtree, previously visible under the old `root_agent_id`-only scoping. **Result: empty** (`{"data":
+  []}`) — leak closed.
+- Logged in as a confirmed Tier 3 agent (`agent_test_3@theglobalavenues.com`, "Arjun Test Agent 3",
+  Sonia's direct sub-agent). Searched for "Prashant Tiwari" — a student assigned directly to Sonia
+  (his own parent, not to him). **Result: empty** — confirms Tier 3's tighter restriction also holds.
+- Regression check: as Sonia, searched "Anjali Test" (a student legitimately under her Tier 3 sub-agent
+  Arjun) — correctly still returned. Subtree access for legitimately-related agents is unaffected.
+
+**Files changed**: `crm-api/Controllers/SearchController.php`.
+
+### 2026-07-10 — Concurrent-upload folder-creation 500 fixed (F2 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification, with a positive control):** Confirmed fixed by
+> replicating `index.php`'s exact global warning→exception handler, then calling `FileHelper::ensureDirectory()`
+> on an already-existing directory (the state the losing side of a real race hits) — it returned cleanly, **no
+> exception**. Positive control in the same run: a raw un-`@`-suppressed `mkdir()` on an existing path still
+> threw `ErrorException: mkdir(): File exists` under that handler, proving the handler was genuinely active and
+> the `@` is what fixes it. Negative-safety check: `ensureDirectory()` on a genuinely impossible path (`Z:/…`)
+> still throws its own `RuntimeException`, so real failures are not swallowed. Solid.
+
+`FileHelper::ensureDirectory()` uses the standard race-tolerant idiom
+`!is_dir($path) && !mkdir(...) && !is_dir($path)` — if a concurrent request creates the same
+brand-new folder between this request's `is_dir()` check and its own `mkdir()` call, the recheck at
+the end is supposed to see the directory now exists and swallow the failure. But `crm-api/index.php`
+line 73 installs a global `set_error_handler` that promotes **every** PHP warning (including the
+E_WARNING `mkdir()` emits on "File exists") into a thrown `ErrorException` — which fires and propagates
+immediately from inside the `mkdir()` call itself, before the `&&` chain ever reaches the final
+`is_dir()` recheck. Confirmed live in the original audit on a real 3-file agent onboarding upload (2 of
+3 succeeded, 1 threw).
+
+**Fix**: one-character change — `mkdir($path, 0775, true)` → `@mkdir($path, 0775, true)`. The `@`
+operator sets `error_reporting()` to 0 for the duration of the call, and index.php's own handler already
+special-cases exactly that (`if (!(error_reporting() & $level)) { return false; }`), so this restores
+the fallthrough-to-recheck behavior the code was written to have, without weakening the handler for
+anything else. A genuine directory-creation failure (e.g. real permissions error) is still caught —
+the final `is_dir($path)` recheck would still be `false`, so `ensureDirectory()` still throws its own
+clear `RuntimeException`.
+
+**Verified deterministically** (the actual race is inherently timing-dependent — confirmed flaky to
+force via real concurrency even under 8–10 parallel PHP processes hammering the same new directory in
+this sandbox, consistent with it being an intermittent bug in production too). Instead isolated the
+exact failure mechanism directly: pre-created a directory, then called `mkdir()` on that already-existing
+path — precisely the situation the losing side of a real race finds itself in — under the identical
+global error handler from `index.php`:
+- **Before the fix**: `THROWN - ErrorException - mkdir(): File exists`
+- **After the fix**: `mkdir() returned false`, no exception — matching the intended fallthrough.
+
+**Files changed**: `crm-api/Helpers/FileHelper.php`.
+
+### 2026-07-10 — Admin dashboard intermittent 500 fixed (F3 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification, two ways):** (1) Mechanism test: replicated
+> `index.php`'s global handler, then blanked the process env table (`putenv('ENCRYPTION_KEY')` — exactly what
+> a concurrent Apache thread can transiently do) and confirmed `EncryptionService::encrypt/decrypt` still round-
+> trips, proving the service now reads via request-scoped `Environment::get()` and no longer depends on the
+> shared `getenv()` table. (2) Live burst: fired 60 concurrent `get_dashboard_stats` requests (a path that
+> calls `decrypt()`) against the running backend — **60/60 returned 200**, zero "ENCRYPTION_KEY … missing"
+> failures. Grep confirms this was the last raw `getenv()` in app code. Solid.
+
+`EncryptionService::loadKey()` read `ENCRYPTION_KEY` via raw `getenv()` — the **only** place left in the
+entire codebase still doing this (every other config read already goes through
+`Environment::get()`, confirmed by grepping all `getenv(`/`Environment::get(` call sites). `getenv()`
+reads the process-wide C environment table that `Environment::load()` populates via `putenv()`; under
+Apache's Windows threaded MPM that table is shared across concurrent worker threads and isn't safe for
+concurrent read/write, unlike `Environment::get()`'s request-scoped `$_ENV`/`$_SERVER` superglobal
+lookup. This is also the same bug independently caught live mid-session while testing F13: a fresh
+admin login's burst of concurrent dashboard calls (`dashboard/activity-feed`, `get_dashboard_stats`,
+`agents`, `get_document_queue`, `get_payment_queue` firing together) produced a real
+`get_dashboard_stats` 500 that self-recovered on the very next identical request.
+
+**Fix**: `loadKey()` now calls `\TGA\CRM\Config\Environment::get('ENCRYPTION_KEY')` instead of
+`getenv('ENCRYPTION_KEY')`.
+
+**Verified live with a before/after burst test**, not just code reading — fired 100 concurrent
+`fetchAdminDashboardStats()` calls (an endpoint whose query path calls `EncryptionService::decrypt()`)
+directly against the running Apache/PHP backend from the browser console:
+- **Before the fix** (raw `getenv()`): 2 of 100 concurrent requests failed with the exact error
+  `"ENCRYPTION_KEY environment variable is missing or empty."` — a clean, live reproduction of the
+  intermittent race, not a guess.
+- **After the fix** (`Environment::get()`): 0 failures across 116 total concurrent requests run in
+  several batches (25, 96, 20), including mixed-endpoint bursts replicating the original login-page
+  pattern. The one non-zero result seen was an unrelated `"Too many requests"` rate-limit response from
+  hammering the same endpoint this hard, not a recurrence of the encryption bug.
+
+**Files changed**: `crm-api/Services/EncryptionService.php`.
+
+### 2026-07-13 — File download authorization fixed: owner's own files 403'd (found during F1-F14 double-check on 2026-07-10, fixed this session)
+
+`FileController::download()`'s "did the caller upload this themselves" fast-path compared
+`files.uploaded_by_id` against `students.id`/`agents.id` — but `uploaded_by_id` stores the **uploader's
+`users.id`** (every `FileUploadService::upload()` call site for students passes `(int) $user['id']`, e.g.
+`StudentCustomFieldController.php:385`, `DocumentRequestController.php:191`), never a `students.id`. The
+comparison could therefore never match for a student's own upload, and risked a cross-id-space false
+match if a `uploaded_by_id` value happened to collide with an unrelated student's own `students.id`.
+Confirmed pre-existing (identical in committed `HEAD`, last touched by an unrelated commit `ac75d2f`, not
+a regression from the 2026-07-10 fix session). Only bit files NOT also linked via
+`application_updates.file_id`/`document_requests.submitted_file_id` — e.g. a student's custom-field
+self-upload on the Additional Info page — because that fallback linkage query masked the bug for the
+common case (files attached to an application).
+
+**Fix**: switched the ownership check to `owner_type`/`owner_id` — the canonical "whose file is this"
+column, confirmed via `FileUploadService::fetchOwnerPublicId()` and every `->upload()` call site to
+consistently hold the **profile id** (`students.id`/`agents.id`), matching exactly what `download()`
+already resolves from the authenticated user. For agents, kept `uploaded_by_id` as an additional OR
+condition (both `owner_id` and `uploaded_by_id` are `agents.id` for agent uploads — same id-space, safe
+to compare) so a parent agent who uploads an onboarding document *for* a sub-agent
+(`SubAgentController::uploadDocument()`, which sets `owner_id` = the sub-agent's id but
+`uploaded_by_id` = the parent's id) keeps their own access to what they uploaded, in addition to the
+sub-agent's new access to their own file.
+
+**Verified live end-to-end**, not just code reading:
+- Reset a real test student's password, logged in as the owner of a genuinely pre-existing
+  custom-field self-upload (`01KX5ZS4C5CRNW37JBSNGCEPDF`, `owner_type=student owner_id=8`,
+  `uploaded_by_id=17`=their own `users.id`) that 403'd before the fix — now returns **200** with correct
+  PDF bytes.
+- Negative control: a **different**, properly authenticated student requesting the same file still gets
+  **403 FORBIDDEN** — the fix did not broaden access beyond the true owner.
+- Admin access unaffected — still unconditional **200**.
+- Agent branch: used the real `POST sub-agents/:pid/documents` endpoint (temporarily flipping a test
+  sub-agent's status to `pending` to satisfy the endpoint's editable-status guard, restored immediately
+  after) to have Sonia (agent_id=2, Tier 2) upload a document *for* her direct sub-agent Arjun (agent_id=3,
+  Tier 3) — confirmed DB row `owner_id=3, uploaded_by_id=2`. Then verified: **owner** (Arjun) → 200,
+  **uploader/parent** (Sonia) → 200, an **unrelated** agent → 403 FORBIDDEN.
+- `php -l` clean; `npx vite build` unaffected (backend-only change).
+
+**Files changed**: `crm-api/Controllers/FileController.php`.

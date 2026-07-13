@@ -17,9 +17,11 @@ The system serves three distinct user types: students track applications and doc
 manage their student rosters and commission ledgers; admin staff control all operations including leads,
 applications, reporting, and system configuration.
 
-Split architecture: React SPA on Vercel (`portal.theglobalavenues.com`); PHP/MySQL backend on Bluehost
-India shared hosting (Apache, no Node runtime). All 9 build phases are complete. System is
-production-ready as of 2026-06-26.
+Single-server deployment: React SPA build + PHP/MySQL backend both live on the same Bluehost India
+shared hosting account (Apache, no Node runtime), served under `apply.theglobalavenues.com` (cPanel
+user `lidglcmy`). All 9 build phases are complete. System is production-ready as of 2026-06-26.
+(Corrected 2026-07-08 — previously described a Vercel+Bluehost split that does not match the actual
+deployment; see `crm-api/.env.example`'s `APP_FRONTEND_URL`/`CORS_ALLOWED_ORIGINS` values.)
 
 ---
 
@@ -78,10 +80,10 @@ RBAC: `roles` + `permissions` + `role_permissions` tables; checks in `AuthMiddle
 ### Hosting
 | Layer | Where |
 |-------|-------|
-| Frontend | Vercel — pure SPA, no SSR |
-| Backend | Bluehost India shared hosting, Apache, PHP 8.2 |
+| Frontend | Same Bluehost account as backend — static SPA build served from the `apply.theglobalavenues.com` document root |
+| Backend | Bluehost India shared hosting, Apache, PHP 8.2 — `apply.theglobalavenues.com/crm-api`, cPanel user `lidglcmy` |
 | File storage | Local disk (`uploads/public/`, `storage/private/`) + async Drive backup |
-| Cron | `cron/scheduler.php` — cPanel runs it every minute |
+| Cron | `cron/scheduler.php` — real cPanel Cron Jobs GUI available (Terminal/SSH is NOT available, but that's a separate permission from cPanel's Cron Jobs feature) |
 
 ---
 
@@ -594,9 +596,9 @@ UPLOAD_PATH=uploads
 UPLOAD_ALLOWED_TYPES=application/pdf,image/jpeg,image/png,image/webp
 RATE_LIMIT_AUTH_REQUESTS=5, RATE_LIMIT_AUTH_WINDOW=60
 RATE_LIMIT_OTP_REQUESTS=3, RATE_LIMIT_OTP_WINDOW=600
-CORS_ALLOWED_ORIGINS=http://localhost:5173,https://portal.theglobalavenues.com
+CORS_ALLOWED_ORIGINS=http://localhost:5173,https://apply.theglobalavenues.com
 LOG_PATH=logs, LOG_LEVEL=debug
-DRIVE_SERVICE_ACCOUNT_JSON=/home/tga/crm-api/config/drive-credentials.json
+DRIVE_SERVICE_ACCOUNT_JSON=/home2/lidglcmy/<path-to-app>/crm-api/config/drive-credentials.json
 DRIVE_BACKUP_FOLDER_ID=your_google_drive_folder_id
 ```
 
@@ -666,17 +668,13 @@ php cron/process-reminders.php
    `check-sla-breaches.php` and `monitor-disk.php` always fired these event keys with no matching
    template, silently no-op'ing. Now seeded.
 
-10. **Payment reminders never actually notify anyone — confirmed, not yet fixed.**
+10. **Payment reminders never actually notify anyone — intentionally deferred, not a bug to fix.**
     `PaymentTrackingController` is the *only* caller of `ReminderService::schedule()` anywhere in the
     codebase, and it hardcodes reminder types `payment_upcoming` / `payment_urgent`. But
-    `ReminderEngine::$eventKeys` has no entries for those two strings (it has `payment_overdue`,
-    `deadline_3days`, `deadline_1day`, `overdue`, `commission_pending`, `intake_deadline` instead —
-    none of which any caller actually produces). So `ReminderEngine::getEventKey()` always returns
-    `null` for every reminder that's actually ever created, `cron/process-reminders.php` silently
-    skips firing a notification, and the reminder row still gets marked `sent`. Needs a decision on
-    which naming to canonicalize (rename `ReminderEngine`'s keys to match `PaymentTrackingController`,
-    or vice versa) plus new notification_templates rows — not fixed yet, flagged for explicit
-    sign-off rather than guessed at.
+    `ReminderEngine::$eventKeys` has no entries for those two strings, so `getEventKey()` always
+    returns `null` and the reminder silently no-ops (row still gets marked `sent`). **Decision
+    (2026-07-08): the payment feature itself is not active in production yet, so this is deferred —
+    do not build the missing event keys/templates until payment tracking actually goes live.**
 
 4. **`react-dnd`, `axios`, `@mui/material` in `package.json` but unused.** None are imported anywhere
    in `src/`. Consider removing to reduce bundle size and clarify intent. Not urgent.

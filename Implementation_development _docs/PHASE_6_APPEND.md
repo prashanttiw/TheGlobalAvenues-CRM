@@ -871,7 +871,7 @@ The method expected a `file_pid` (ULID of an already-uploaded file in the `files
 **Tests Run**:
 - `php -l crm-api/Services/FileUploadService.php`: PASS
 
-## Section 6.22 � Activity Log Creation & Visibility Audit (Date: 2026-06-28)
+## Section 6.22 � Activity Log Creation & Visibility Audit (Date: 2026-06-28)
 
 ### PROBLEM STATEMENT & SOLUTION
 The "Activity log creation end to end" and "Activity log visibility by admin end to end" flow was severely broken. The frontend application failed to compile because the "fetchAdminActivityLogs" function (and other related auth exports) had been accidentally removed or not exported from "src/lib/api.ts". Furthermore, a bug in "ActivityLogger::log()" caused "actor_display_name" and "actor_user_type" to remain "null" whenever a controller explicitly passed the "\" parameter.
@@ -880,3 +880,153 @@ To resolve this:
 1. **Frontend Compilation Fix**: Restored missing exports ("fetchAdminActivityLogs", "logoutRequest", "refreshAuthSession", "verifyStudentRegistrationOtp", "verifyAgentRegistrationOtp", "verifyTwoFactorLogin", "AuthLoginResult") to "src/lib/api.ts" and corrected routing structures, enabling successful production Vite builds.
 2. **ActivityLogger Name Resolution**: Fixed "ActivityLogger::log()" to correctly fallback and infer the actor's display name and user type from the "AuthMiddleware" session even when the "\" is passed manually.
 3. **Agent Hierarchy Visibility Verification**: Audited "ActivityLogController::agentList()" and verified that Tier 1 agents correctly fetch nested activity logs via dynamically bound sub-agent IDs without cross-portal leakage. 
+
+## Section 6.23 — Login OTP Emails Not Delivering (Date: 2026-07-08)
+
+### PROBLEM STATEMENT & SOLUTION
+User reported: requesting a login OTP showed "sent" in the frontend and created a row in `otp_verifications`, but no email ever arrived. Root cause was two-layered:
+
+1. **`crm-api/.env` had malformed mail credentials**: `MAIL_FROM_EMAIL=noreply.theglobalavenues.com` (missing `@`, not a valid address) and `MAIL_USERNAME=noreply` (not a full address). PHPMailer's `setFrom()` throws `Invalid address` on any send attempt, caught by `MailService::sendNow()` and logged as `smtp_send_failure` in `security_events`, then swallowed.
+2. **`OTPService::generateAndSend()` tolerates SMTP failure when `APP_ENV=development`** (by design, so `otp_code_preview` remains usable when SMTP is genuinely unavailable in dev) — the OTP row still gets written and the controller still returns `success: true`. This is exactly why the symptom looked like "DB entry made, email never sent, but UI says sent."
+
+Fix: corrected `.env` to the real mailbox (`noreply.theglobalavenues@gmail.com`, a dedicated Gmail account with 2-Step Verification + App Password — confirmed with user after an initial wrong guess at `noreply@theglobalavenues.com`, a Google Workspace address, failed with "Could not authenticate"). Verified via a direct `MailService::createMailer()` send (no debug output — SMTPDebug echoes base64 credentials, blocked by the sandbox) and via the full UI flow: OTP request → DB row created → zero `smtp_send_failure` events logged → email received. Applies to all synchronous OTP paths (login, admin 2FA, password reset, registration) since they all share `MailService::sendNow()`.
+
+**Tests Run**:
+- Direct SMTP send test via `MailService::createMailer()`: PASS (after credential fix)
+- Live UI OTP request (student portal, OTP Secure Login) → real email delivery confirmed by user: PASS
+
+## Section 6.24 — Cron Deployment Prep + Notification Coverage Audit (Date: 2026-07-08)
+
+### PROBLEM STATEMENT & SOLUTION
+User wanted the cron/email system production-ready before wiring up the real cPanel Cron Jobs GUI (confirmed available via screenshot — cPanel v110, user `lidglcmy`; only Terminal/SSH is missing, which is a separate permission from cPanel's Cron Jobs feature). Also corrected a standing documentation error: `CLAUDE.md` described a Vercel+Bluehost split architecture, but both frontend and backend are actually deployed together on one Bluehost account under `apply.theglobalavenues.com` (confirmed via `.env.example` values and user). `CLAUDE.md`'s architecture/hosting sections and this project's memory files were corrected to match.
+
+**Cron infrastructure bugs found and fixed:**
+1. `cron/generate-snapshots.php` was the only one of 10 cron scripts missing the `PHP_SAPI !== 'cli'` guard — added for consistency.
+2. `cron/.htaccess` used legacy Apache 2.2 syntax (`Order deny,allow`), unreliable on Apache 2.4/EA4 without `mod_access_compat` — switched to `Require all denied` (matching `crm-api/.htaccess`) with a 2.2 fallback.
+3. `ReminderEngine::buildCommissionVars()` read `$_ENV['FRONTEND_URL']` (wrong key, always empty) instead of `Environment::get('APP_FRONTEND_URL', '')` — fixed.
+4. **`cron/scheduler.php` never called `Environment::load()` itself** — found by running it locally end-to-end. `CronHealth::checkStuckJobs()` runs in-process (not via `exec()`) and needs DB env vars; since scheduler.php relied on each spawned job script to load its own `.env`, the stuck-job-recovery safety net has silently failed every single run since it was written. Fixed by loading `.env` at the top of `scheduler.php` itself.
+5. **`archive-old-logs.php` removed from the scheduler's job list entirely** (product decision — `activity_logs` must never be deleted, full stop; not worth building a separate DB credential just to keep this cron alive).
+6. **Payment reminders (`payment_upcoming`/`payment_urgent` in `ReminderEngine`) — confirmed still broken, left unfixed on purpose.** Payment tracking isn't live in production yet; building templates for a dead feature was explicitly declined. `CLAUDE.md` Known Open Item #10 updated to say "deferred," not "needs fix."
+
+**Notification coverage audit** (spawned an Explore agent to map every `NotificationService::fire()` call site against every seeded `notification_templates` row): found agent registration sent no welcome email at all (only student registration did — the old agent flow that would have was dead, unrouted code), no notification of any kind existed for a successful login for any of the 3 roles, new sub-agents were never notified of their own account (only the parent who created them was), all 4 `document_request` lifecycle event keys had been firing since the feature was built with zero matching templates (always silent no-op), and two live bugs were emailing literal unrendered `{{placeholder}}` text (`application.status_changed` via `StateManager::transition()`, and the lead→student conversion welcome email via `LeadsController::convertToStudent()`).
+
+Fixes (new migration `082_notification_gaps_fix.sql`, wired into `setup_database.php` as step 7d same as migration 081; picked up automatically by `run_all_migrations.php`'s existing 060-089 regex for already-deployed DBs):
+- Added `agent.registered` template (email+in_app) — fired from `RegistrationController::completeAgentReg()` (new) and `SubAgentController::invite()` (new, in addition to the existing `subagent.created` fire to the parent).
+- Added `auth.login_success` template (**in_app only, no email** — explicit product decision to avoid SMTP volume from agents/admins logging in many times a day) — fired from all 4 of `AuthController`'s completed-login paths (`login()`, `verify2fa()`, `verifyAdminOtpLogin()`, `verifyOtpLogin()`) via a new shared `fireLoginNotification()` helper.
+- Added `document.requested` / `document.submitted` / `document.reviewed` / `document.cancelled` templates matching the vars each call site already passes — no controller changes needed for these four.
+- `StateManager::transition()`'s `application.status_changed` fire split into two separate calls (one to student, one to agent) so `recipient_name` can actually be personalized — `fire()` renders subject/body once before fanning out to all recipients, so a single shared call can't have per-person text. Now also passes `reference_number` and a role-correct `portal_url`.
+- `LeadsController::convertToStudent()` now passes `student_name` (was `name` only — template placeholders on `{{student_name}}`).
+- `AdminAgentController::approve()/reject()/suspend()` now select and pass `full_name` (was missing, template placeholders on `{{full_name}}`).
+
+**Incidental finding, not fixed (out of agreed scope):** `agent.reassignment_requested` notifications have always gone out with a literal unrendered `{{admin_url}}` in the email's action button — `ReassignmentController::studentRequest()` doesn't pass that var. Flagged for a separate follow-up.
+
+**Tests Run**:
+- `php -l` on all 10 touched PHP files: PASS
+- Local `php cron/scheduler.php` full run: PASS (after the `Environment::load()` fix — `checkStuckJobs()` confirmed no longer throwing)
+- Migration `082_notification_gaps_fix.sql` applied to local DB directly: all 6 rows inserted correctly
+- Fired all 4 new/changed event keys (`agent.registered`, `auth.login_success`, `document.requested`, `application.status_changed`) directly against local DB with realistic vars, inspected the resulting `notifications` rows: no unrendered `{{...}}` left in any subject/body, then deleted the test rows
+- Did NOT run a live send-notifications.php pass against the pre-existing local backlog (~56 queued emails accumulated because cron never runs locally) — would have sent real emails for no reason; local Windows `mysqldump`/SMTP environment differences vs production Linux are expected and untouched
+
+**Still pending (needs the user to run the real cPanel Cron Jobs entry):**
+`/usr/local/bin/ea-php82 /home2/lidglcmy/apply.theglobalavenues.com/cron/scheduler.php` — confirmed document root (`/home2/lidglcmy/apply.theglobalavenues.com`) and PHP version (`ea-php82`) directly from the user's cPanel.
+
+### 2026-07-10 — Notification cron permanently losing queued emails on SMTP timeout fixed (F8 from full live QA audit)
+
+> **Double-checked 2026-07-10 (independent re-verification):** Confirmed fixed via a seeded truth-table test
+> that runs the **exact sweep SQL extracted verbatim** from `cron/send-notifications.php` (not retyped). All
+> five cases passed: stale `processing` email rows at attempts 0/1 recovered to `queued` (attempts+1); a stale
+> row at attempts 2 correctly went to `failed` (3-attempt cap, no infinite loop); a **fresh** (1-min-old)
+> `processing` row was left untouched (5-min staleness threshold protects genuinely in-progress sends); and a
+> stale `in_app` row was left untouched (sweep is correctly email-only). Also confirmed the scope is right:
+> `send-notifications.php` is the only writer of `status='processing'` and only for `channel='email'`, and
+> `in_app` goes `queued→sent` directly so it can never get stuck. `php -l` clean. Solid.
+
+`cron/send-notifications.php` batch-marks a page of rows `status='processing'` in one transaction, then
+sends each individually in a loop. If any single send hangs (slow/bad SMTP connection), PHP's own
+`set_time_limit(110)` fires as an **uncatchable fatal error** — not a `\Throwable`, so the surrounding
+`try/catch` never runs — killing the process mid-batch. Every row already marked `processing` for that
+batch is then permanently invisible: the only SELECT in the script filters on `status = 'queued'`, so
+those rows are never picked up again by any future run.
+
+**Reproduced live, not just read**: ran the (pre-fix) script directly — it genuinely hung inside
+`phpmailer/SMTP.php` and hit the fatal timeout: `PHP Fatal error: Maximum execution time of 110 seconds
+exceeded in .../SMTP.php on line 1299`. Confirmed 22 real rows left stuck in `processing` afterward,
+and `cron_health.send_notifications` left stuck at `last_run_status = 'running'` forever (would only
+self-heal after 15 min via `scheduler.php`'s `CronHealth::checkStuckJobs(15)`).
+
+**Fix**: added a stale-processing sweep at the top of the script, before the main `SELECT ... WHERE
+status = 'queued'`, mirroring `CronHealth::checkStuckJobs()`'s pattern of using an elapsed-time threshold
+to detect an abandoned run:
+```php
+UPDATE notifications
+SET status = IF(attempts + 1 >= 3, 'failed', 'queued'),
+    attempts = attempts + 1,
+    error_message = 'Recovered from stuck processing state (previous run likely timed out)'
+WHERE channel = 'email' AND status = 'processing'
+  AND last_attempt_at < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+```
+Reuses the exact same "3 attempts = give up" cap the send loop's own catch block already enforces, so a
+row that keeps hitting a permanently-hanging recipient still eventually stops retrying instead of looping
+forever. Also had to start setting `last_attempt_at = NOW()` at the moment a row is marked `processing`
+(previously only set on completion) so the sweep has a timestamp to measure staleness against. 5-minute
+threshold is comfortably longer than the script's own 110s hard cap, so it never mistakes a genuinely
+in-progress run for a stuck one under normal conditions.
+
+**Verified live against the real crash, not a synthetic one**: backdated the 22 real stuck rows'
+`last_attempt_at` by 10 minutes and ran the new sweep query directly — all 22 correctly flipped back to
+`queued` (attempts incremented from 0 to 1, none yet at the 3-attempt cap). Separately verified the
+attempts-cap branch of the same query against two seeded rows at attempts 1 and 2: the attempts-1 row
+recovered to `queued` (attempts→2), the attempts-2 row correctly went to `failed` (attempts→3, cap
+reached) instead of looping forever. `php -l` clean.
+
+**Files changed**: `cron/send-notifications.php`.
+
+### 2026-07-13 — Notifications unread-count and list queries always resolved undefined (found during F1-F14 double-check on 2026-07-10, fixed this session)
+
+`src/shared/hooks/useNotifications.ts`'s `useUnreadCount()` and `useNotifications()` both double-unwrapped
+their API responses (`.then((response) => response.data.data)`), but their backend endpoints
+(`NotificationController::unreadCount()` and `::index()`) both reply via the bare
+`Response::json(['data' => ...])` pattern — one wrapper level, already exactly matching
+`request()`'s (`src/lib/api.ts`) `ApiSuccess<T>.data`. The extra `.data` reached past the actual payload
+(a `{count, by_category}` object, or a notification array) into a property that doesn't exist on either
+shape, resolving to `undefined` — which TanStack Query v5 rejects with "Query data cannot be undefined,"
+silently breaking the notification bell badge on every 60-second poll and the notification panel's list
+on every open. The root cause: the local `NotificationUnreadEnvelope`/`NotificationListEnvelope` types
+each modeled an *already-wrapped* `{data: T}` shape and were passed as the generic parameter to a
+function (`request<T>`) that wraps its own generic parameter in `{data: T}` again — double-wrapping the
+same envelope conceptually, not just in code.
+
+**Fix**: removed both now-incorrect envelope types, changed the generic type params to the actual bare
+payload types (`NotificationUnreadSummary`, `NotificationRecord[]`), and changed both `.then()` callbacks
+to a single `response.data` unwrap — matching the pattern the codebase already gets right in the
+majority of its ~100+ other `api.get()` call sites. Confirmed via both consumers
+(`NotificationCenter.tsx`, `StudentOverviewPage.tsx`) that neither reads the list endpoint's `meta`
+(pagination) field, so dropping the wrapper type loses nothing.
+
+Note: this exact `.then(r => r.data.data)` double-unwrap bug pattern was also found live (via console
+error) in two *unrelated* files during this fix's live audit — `AdminDashboardPage.tsx`'s dead
+`activityFeed` query (confirmed fully unused, zero functional impact) and possibly
+`AdminSettingsPage.tsx`/`InternalNotesWidget.tsx` (not investigated). Flagged as a separate follow-up
+(spawned task `task_7aeb5b57`), not fixed here — out of scope for the notifications feature specifically.
+
+**Verified live end-to-end**, not just code reading:
+- Logged in as super admin (33 real unread notifications in the DB) via the actual login form. Console
+  showed **zero** `["notifications","unread-count"]` "Query data cannot be undefined" errors on a hard,
+  fresh page reload (previously the dominant repeating error — 374 occurrences logged in the prior
+  session's audit).
+- The bell badge rendered a real, non-zero count (**34** — one higher than the DB snapshot because the
+  fresh login itself generates a `login.otp`-adjacent "New Login to Your TGA Account" notification,
+  proof this is live data, not stale/cached).
+- Clicked the bell: the notification panel (a real `role="dialog"` overlay) opened showing "34 unread,"
+  a correct per-category breakdown (Approvals 10, System 4, etc.), and genuine notification content
+  including that same fresh "New Login" item with today's real timestamp.
+- Clicked "Mark all read": badge cleared to empty, dialog header changed to "Up to date" — and confirmed
+  against the DB directly (`SELECT COUNT(*) ... WHERE read_at IS NULL` → **0**), proving the mutation's
+  optimistic update round-tripped through a real, successful server mutation rather than just updating
+  client state.
+- Second consumer check: logged in as a real student (12 real unread notices) and confirmed the
+  `StudentOverviewPage.tsx` "Unread Notices" stat card rendered a real number (13, same fresh-login
+  effect as above) with zero related console errors.
+- `npx vite build` clean (no stale references to the removed envelope types anywhere in `src/`).
+
+**Files changed**: `src/shared/hooks/useNotifications.ts`.

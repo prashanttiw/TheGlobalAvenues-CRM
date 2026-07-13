@@ -1,1 +1,1 @@
-{"otp_expiry_minutes":"10","upload_max_size_mb":"10","disk_warn_threshold_pct":"80","disk_critical_threshold_pct":"95","session_max_per_user":"5","backup_retain_daily":"7","backup_retain_weekly":"4","backup_retain_monthly":"6","jwt_min_iat":"0","max_active_applications_per_student":"3"}
+{"otp_expiry_minutes":"10","upload_max_size_mb":"10","disk_warn_threshold_pct":"80","disk_critical_threshold_pct":"95","session_max_per_user":"5","jwt_min_iat":"0","max_active_applications_per_student":"3"}

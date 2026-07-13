@@ -58,6 +58,21 @@ crm-api/uploads/*
 !crm-api/uploads/.gitkeep
 !crm-api/uploads/.htaccess
 
+# User-uploaded avatars (runtime data, not source)
+uploads/public/avatars/*
+!uploads/public/avatars/.gitkeep
+
+# Private student/agent document storage (personal data — never commit)
+storage/private/
+storage/cache/
+
+# QA / test artifact files (generated during testing, not source)
+public/qa-test-doc.pdf
+public/qa-test-photo.jpg
+
+# Codex toolkit audit output (local tooling)
+.codex-toolkit-audit/
+
 # Local test scripts
 test_*.php
 *.pyc
