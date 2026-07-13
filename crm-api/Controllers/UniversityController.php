@@ -36,23 +36,60 @@ class UniversityController
         $perPage = isset($_GET['per_page']) ? max(1, (int)$_GET['per_page']) : 20;
         $offset = ($page - 1) * $perPage;
         $q = trim((string) ($_GET['q'] ?? ''));
+        $partnershipType = $_GET['partnership_type'] ?? '';
+        if (!in_array($partnershipType, ['exclusive', 'non_exclusive'], true)) {
+            $partnershipType = '';
+        }
+        // Grouped view collapses sibling campus rows (same campus_group_id) into one card per
+        // institution — used by the Universities management list. Left OFF by default because
+        // the course/intake "university" picker dropdowns (AdminCoursesPage, AdminIntakesPage)
+        // need every individual campus row to stay selectable, not a collapsed institution.
+        $grouped = ($_GET['view'] ?? '') === 'grouped';
 
-        $whereClauses = ['u.deleted_at IS NULL'];
+        // Group key: campus siblings share campus_group_id; a university with no siblings is
+        // its own singleton group keyed by its own id so it never needs special-casing below.
+        $groupKey = "COALESCE(u.campus_group_id, CONCAT('u-', u.id))";
+
         $params = [];
+        $whereClauses = ['u.deleted_at IS NULL'];
+
+        if ($grouped) {
+            // Only the earliest (lowest id) non-deleted row in each group represents the card.
+            $whereClauses[] = "u.id = (SELECT MIN(u4.id) FROM universities u4 WHERE COALESCE(u4.campus_group_id, CONCAT('u-', u4.id)) = {$groupKey} AND u4.deleted_at IS NULL)";
+        }
+
         if ($q !== '') {
-            // EXISTS (not a JOIN) so a university with N matching courses/intakes still
-            // contributes exactly one row — a JOIN would duplicate the university per match and
-            // corrupt both the count and the pagination.
-            $whereClauses[] = '(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?
-                OR EXISTS (SELECT 1 FROM courses c WHERE c.university_id = u.id AND c.deleted_at IS NULL AND c.name LIKE ?)
-                OR EXISTS (SELECT 1 FROM courses c2 JOIN intakes i ON i.course_id = c2.id WHERE c2.university_id = u.id AND c2.deleted_at IS NULL AND i.name LIKE ?)
-            )';
             $like = '%' . $q . '%';
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
-            $params[] = $like;
+            if ($grouped) {
+                // Match if ANY campus row in the group has a matching name/location/course/intake —
+                // not just the representative row picked above.
+                $whereClauses[] = "EXISTS (
+                    SELECT 1 FROM universities u7
+                    WHERE COALESCE(u7.campus_group_id, CONCAT('u-', u7.id)) = {$groupKey} AND u7.deleted_at IS NULL
+                      AND (u7.name LIKE ? OR u7.country LIKE ? OR u7.city LIKE ?
+                        OR EXISTS (SELECT 1 FROM courses c7 WHERE c7.university_id = u7.id AND c7.deleted_at IS NULL AND c7.name LIKE ?)
+                        OR EXISTS (SELECT 1 FROM courses c8 JOIN intakes i7 ON i7.course_id = c8.id WHERE c8.university_id = u7.id AND c8.deleted_at IS NULL AND i7.name LIKE ?)
+                      )
+                )";
+                $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
+            } else {
+                // EXISTS (not a JOIN) so a university with N matching courses/intakes still
+                // contributes exactly one row — a JOIN would duplicate the university per match and
+                // corrupt both the count and the pagination.
+                $whereClauses[] = '(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?
+                    OR EXISTS (SELECT 1 FROM courses c WHERE c.university_id = u.id AND c.deleted_at IS NULL AND c.name LIKE ?)
+                    OR EXISTS (SELECT 1 FROM courses c2 JOIN intakes i ON i.course_id = c2.id WHERE c2.university_id = u.id AND c2.deleted_at IS NULL AND i.name LIKE ?)
+                )';
+                $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like; $params[] = $like;
+            }
+        }
+
+        if ($partnershipType !== '') {
+            // u.partnership_type is set per-row; in grouped mode the representative row (picked by
+            // the MIN(id) subquery above) is what's filtered — sibling campuses share the same
+            // partnership type at the same institution, so this stays consistent with the card shown.
+            $whereClauses[] = 'u.partnership_type = ?';
+            $params[] = $partnershipType;
         }
         $where = implode(' AND ', $whereClauses);
 
@@ -60,18 +97,36 @@ class UniversityController
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
-        // course_count/sibling_count are computed here (not fetched per-row by the frontend) so
-        // listing universities never triggers N follow-up requests just to show a count.
-        $stmt = $this->pdo->prepare("
-            SELECT u.*,
-                   (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.deleted_at IS NULL) as course_count,
-                   (SELECT COUNT(*) FROM universities u2 WHERE u2.campus_group_id = u.campus_group_id
-                      AND u2.campus_group_id IS NOT NULL AND u2.id != u.id AND u2.deleted_at IS NULL) as sibling_count
-            FROM universities u
-            WHERE {$where}
-            ORDER BY u.created_at DESC
-            LIMIT ? OFFSET ?
-        ");
+        // course_count/sibling_count (or campus_count in grouped mode) are computed here (not
+        // fetched per-row by the frontend) so listing universities never triggers N follow-up
+        // requests just to show a count.
+        if ($grouped) {
+            $stmt = $this->pdo->prepare("
+                SELECT u.*,
+                       (SELECT COUNT(*) FROM courses c5
+                          JOIN universities u5 ON u5.id = c5.university_id
+                          WHERE COALESCE(u5.campus_group_id, CONCAT('u-', u5.id)) = {$groupKey} AND u5.deleted_at IS NULL AND c5.deleted_at IS NULL
+                       ) as course_count,
+                       (SELECT COUNT(*) FROM universities u6
+                          WHERE COALESCE(u6.campus_group_id, CONCAT('u-', u6.id)) = {$groupKey} AND u6.deleted_at IS NULL
+                       ) as campus_count
+                FROM universities u
+                WHERE {$where}
+                ORDER BY u.name ASC
+                LIMIT ? OFFSET ?
+            ");
+        } else {
+            $stmt = $this->pdo->prepare("
+                SELECT u.*,
+                       (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.deleted_at IS NULL) as course_count,
+                       (SELECT COUNT(*) FROM universities u2 WHERE u2.campus_group_id = u.campus_group_id
+                          AND u2.campus_group_id IS NOT NULL AND u2.id != u.id AND u2.deleted_at IS NULL) as sibling_count
+                FROM universities u
+                WHERE {$where}
+                ORDER BY u.created_at DESC
+                LIMIT ? OFFSET ?
+            ");
+        }
         foreach ($params as $i => $value) {
             $stmt->bindValue($i + 1, $value);
         }
@@ -318,17 +373,30 @@ class UniversityController
         $q = trim((string) ($_GET['q'] ?? ''));
         $country = trim((string) ($_GET['country'] ?? ''));
 
-        $whereClauses = ["u.status = 'active'", 'u.deleted_at IS NULL'];
+        // Student/agent browse is always grouped: one card per real-world institution, not one
+        // per campus row. campus_group_id links sibling campus rows together; a university with
+        // no siblings is its own singleton group keyed by its own id.
+        $groupKey = "COALESCE(u.campus_group_id, CONCAT('u-', u.id))";
+
+        $whereClauses = [
+            "u.status = 'active'",
+            'u.deleted_at IS NULL',
+            // Only the earliest active campus row in each group represents the card.
+            "u.id = (SELECT MIN(u4.id) FROM universities u4 WHERE COALESCE(u4.campus_group_id, CONCAT('u-', u4.id)) = {$groupKey} AND u4.deleted_at IS NULL AND u4.status = 'active')",
+        ];
         $params = [];
 
         if ($q !== '') {
-            // Same EXISTS pattern as adminList() — a university with N matching
-            // courses/intakes must still contribute exactly one row, or pagination breaks.
-            // Restricted to active courses/intakes since this is the public/portal browse
-            // endpoint (agent + student), which only ever displays active catalog entries.
-            $whereClauses[] = "(u.name LIKE ? OR u.country LIKE ? OR u.city LIKE ?
-                OR EXISTS (SELECT 1 FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL AND c.name LIKE ?)
-                OR EXISTS (SELECT 1 FROM courses c2 JOIN intakes i ON i.course_id = c2.id WHERE c2.university_id = u.id AND c2.status = 'active' AND c2.deleted_at IS NULL AND i.name LIKE ?)
+            // Match if ANY active campus row in the group has a matching name/location/course/
+            // intake — not just the representative row picked above. Restricted to active
+            // courses/intakes since this is the public/portal browse endpoint.
+            $whereClauses[] = "EXISTS (
+                SELECT 1 FROM universities u7
+                WHERE COALESCE(u7.campus_group_id, CONCAT('u-', u7.id)) = {$groupKey} AND u7.deleted_at IS NULL AND u7.status = 'active'
+                  AND (u7.name LIKE ? OR u7.country LIKE ? OR u7.city LIKE ?
+                    OR EXISTS (SELECT 1 FROM courses c7 WHERE c7.university_id = u7.id AND c7.status = 'active' AND c7.deleted_at IS NULL AND c7.name LIKE ?)
+                    OR EXISTS (SELECT 1 FROM courses c8 JOIN intakes i7 ON i7.course_id = c8.id WHERE c8.university_id = u7.id AND c8.status = 'active' AND c8.deleted_at IS NULL AND i7.name LIKE ?)
+                  )
             )";
             $like = '%' . $q . '%';
             $params[] = $like;
@@ -339,7 +407,8 @@ class UniversityController
         }
 
         if ($country !== '') {
-            $whereClauses[] = 'u.country = ?';
+            // Match if ANY active campus row in the group is in that country.
+            $whereClauses[] = "EXISTS (SELECT 1 FROM universities u8 WHERE COALESCE(u8.campus_group_id, CONCAT('u-', u8.id)) = {$groupKey} AND u8.deleted_at IS NULL AND u8.status = 'active' AND u8.country = ?)";
             $params[] = $country;
         }
 
@@ -347,9 +416,16 @@ class UniversityController
 
         $stmt = $this->pdo->prepare("
             SELECT u.*,
-                   (SELECT COUNT(*) FROM courses c WHERE c.university_id = u.id AND c.status = 'active' AND c.deleted_at IS NULL) as course_count,
-                   (SELECT COUNT(*) FROM universities u2 WHERE u2.campus_group_id = u.campus_group_id
-                      AND u2.campus_group_id IS NOT NULL AND u2.id != u.id AND u2.deleted_at IS NULL) as sibling_count
+                   (SELECT COUNT(*) FROM courses c5
+                      JOIN universities u5 ON u5.id = c5.university_id
+                      WHERE COALESCE(u5.campus_group_id, CONCAT('u-', u5.id)) = {$groupKey}
+                        AND u5.deleted_at IS NULL AND u5.status = 'active'
+                        AND c5.status = 'active' AND c5.deleted_at IS NULL
+                   ) as course_count,
+                   (SELECT COUNT(*) FROM universities u6
+                      WHERE COALESCE(u6.campus_group_id, CONCAT('u-', u6.id)) = {$groupKey}
+                        AND u6.deleted_at IS NULL AND u6.status = 'active'
+                   ) as campus_count
             FROM universities u
             WHERE {$where}
             ORDER BY u.name ASC
@@ -381,6 +457,56 @@ class UniversityController
                 'total_pages' => ceil($total / $perPage)
             ]
         ]);
+    }
+
+    /**
+     * All campus rows for the institution that $pid belongs to (including $pid itself) — the
+     * student/agent "pick a campus" step shown after selecting an institution card. A university
+     * with no siblings still returns as a single-item list, so the frontend never special-cases
+     * "no group" — the campus step always renders, per the intended university -> campus ->
+     * course -> intake flow.
+     */
+    public function publicCampuses(string $pid): void
+    {
+        $uni = $this->model->findByPublicId($pid);
+        if (!$uni || $uni['status'] !== 'active') {
+            Response::error('University not found', 'NOT_FOUND', 404);
+        }
+
+        $members = $this->model->findGroupMembers($uni['id']);
+
+        $appUrl = Environment::get('APP_URL') ?: 'http://localhost';
+        foreach ($members as &$member) {
+            $this->formatLogo($member, $appUrl);
+        }
+
+        Response::json(['campuses' => $members]);
+    }
+
+    /**
+     * Admin equivalent of publicCampuses() — used by the Courses/Intakes catalog filters and
+     * create-forms to resolve a picked institution down to a specific campus row. Unlike the
+     * public version, this is not restricted to status='active' (an inactive campus's courses
+     * still need to be findable/manageable by admin) and doesn't require the university itself
+     * to be active either.
+     */
+    public function adminCampuses(string $pid): void
+    {
+        RBACMiddleware::requirePermission('universities', 'view');
+
+        $uni = $this->model->findByPublicId($pid);
+        if (!$uni) {
+            Response::error('University not found', 'NOT_FOUND', 404);
+        }
+
+        $members = $this->model->findGroupMembers($uni['id'], false);
+
+        $appUrl = Environment::get('APP_URL') ?: 'http://localhost';
+        foreach ($members as &$member) {
+            $this->formatLogo($member, $appUrl);
+        }
+
+        Response::json(['campuses' => $members]);
     }
 
     public function publicGet(string $pid): void

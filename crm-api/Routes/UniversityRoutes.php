@@ -21,6 +21,7 @@ final class UniversityRoutes
         RouteRegistry::put('admin', 'universities/:pid', [$controller, 'update']);
         RouteRegistry::delete('admin', 'universities/:pid', [$controller, 'delete']);
         RouteRegistry::post('admin', 'universities/:pid/logo', [$controller, 'uploadLogo']);
+        RouteRegistry::get('admin', 'universities/:pid/campuses', [$controller, 'adminCampuses']);
 
         $courseController = new CourseController();
         RouteRegistry::get('admin', 'courses', [$courseController, 'adminListAll']);
@@ -46,6 +47,7 @@ final class UniversityRoutes
         RouteRegistry::get('university', 'list', [$controller, 'publicList']);
         RouteRegistry::get('university', 'search', [$controller, 'search']);
         RouteRegistry::get('universities', ':pid', [$controller, 'publicGet']);
+        RouteRegistry::get('universities', ':pid/campuses', [$controller, 'publicCampuses']);
         RouteRegistry::get('universities', ':pid/courses', [$courseController, 'publicList']);
         RouteRegistry::get('courses', ':pid/intakes', [$intakeController, 'publicList']);
     }
