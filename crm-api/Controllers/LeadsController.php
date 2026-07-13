@@ -478,24 +478,29 @@ class LeadsController
             $adminStmt->execute([$user['id']]);
             $adminId = $adminStmt->fetchColumn();
 
+            // users has no first_name/last_name columns — the person's name lives only on the
+            // students profile table as a single full_name field, same as every other
+            // registration path in this codebase (RegistrationController::completeStudentReg(),
+            // StudentController::agentCreateStudent()).
             $stmtUser = $this->pdo->prepare("
                 INSERT INTO users (
-                    public_id, first_name, last_name, email, email_lookup_hash, phone, 
+                    public_id, email, email_lookup_hash, email_prefix4_hash, email_prefix6_hash, email_prefix8_hash,
+                    phone, phone_lookup_hash, phone_prefix4_hash, phone_prefix6_hash,
                     password_hash, user_type, status, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'student', 'active', NOW(), NOW())
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'student', 'active', NOW(), NOW())
             ");
-            
-            $parts = explode(' ', $lead['full_name'], 2);
-            $firstName = $parts[0] ?? '';
-            $lastName = $parts[1] ?? '';
-            
+
             $stmtUser->execute([
-                $userPid, 
-                EncryptionService::encrypt($firstName), 
-                EncryptionService::encrypt($lastName), 
-                EncryptionService::encrypt($emailRaw), 
+                $userPid,
+                EncryptionService::encrypt($emailRaw),
                 EncryptionService::hash($emailRaw),
+                EncryptionService::hashPrefix($emailRaw, 4),
+                EncryptionService::hashPrefix($emailRaw, 6),
+                EncryptionService::hashPrefix($emailRaw, 8),
                 $phoneRaw ? EncryptionService::encrypt($phoneRaw) : null,
+                $phoneRaw ? EncryptionService::hash($phoneRaw) : null,
+                $phoneRaw ? EncryptionService::hashPhonePrefix($phoneRaw, 4) : null,
+                $phoneRaw ? EncryptionService::hashPhonePrefix($phoneRaw, 6) : null,
                 $hash
             ]);
             $userId = (int) $this->pdo->lastInsertId();
@@ -504,15 +509,17 @@ class LeadsController
             $studentPid = UlidGenerator::generate();
             $stmtStudent = $this->pdo->prepare("
                 INSERT INTO students (
-                    public_id, user_id, agent_id, lead_source, registered_by_type, 
+                    public_id, user_id, agent_id, full_name, phone_in_profile, lead_source, registered_by_type,
                     registered_by_id, nationality, date_of_birth, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'admin', ?, ?, ?, NOW(), NOW())
+                ) VALUES (?, ?, ?, ?, ?, ?, 'admin', ?, ?, ?, NOW(), NOW())
             ");
             $stmtStudent->execute([
-                $studentPid, 
-                $userId, 
-                $agentId, 
-                $lead['source'], 
+                $studentPid,
+                $userId,
+                $agentId,
+                $lead['full_name'],
+                $phoneRaw ? EncryptionService::encrypt($phoneRaw) : null,
+                $lead['source'],
                 $adminId,
                 $input['nationality'] ?? null,
                 $input['date_of_birth'] ?? null
