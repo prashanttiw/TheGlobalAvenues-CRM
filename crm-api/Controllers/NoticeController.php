@@ -14,6 +14,7 @@ use TGA\CRM\Models\NoticeModel;
 use TGA\CRM\Services\ActivityLogger;
 use TGA\CRM\Services\NotificationService;
 use TGA\CRM\Services\FileUploadService;
+use TGA\CRM\Services\HtmlSanitizer;
 
 class NoticeController
 {
@@ -113,8 +114,7 @@ class NoticeController
         }
 
         // Strip dangerous HTML while preserving safe rich-text tags from TipTap
-        $allowedTags = '<p><br><strong><em><u><s><h1><h2><h3><h4><ul><ol><li><blockquote><a><code><pre>';
-        $content = strip_tags($content, $allowedTags);
+        $content = HtmlSanitizer::clean($content);
 
         $pid = UlidGenerator::generate();
         $id = $this->model->insert([
@@ -151,14 +151,13 @@ class NoticeController
         $input = json_decode(file_get_contents('php://input'), true) ?? [];
         $updateData = [];
 
-        $allowedTags = '<p><br><strong><em><u><s><h1><h2><h3><h4><ul><ol><li><blockquote><a><code><pre>';
         $fields = ['title', 'content', 'event_date', 'event_location', 'expires_at'];
         foreach ($fields as $field) {
             if (isset($input[$field])) {
                 if ($field === 'title') {
                     $updateData[$field] = trim(strip_tags($input[$field]));
                 } elseif ($field === 'content') {
-                    $updateData[$field] = strip_tags($input[$field], $allowedTags);
+                    $updateData[$field] = HtmlSanitizer::clean($input[$field]);
                 } else {
                     $updateData[$field] = $input[$field];
                 }
@@ -194,7 +193,7 @@ class NoticeController
             Response::error('Notice not found', 'NOT_FOUND', 404);
         }
 
-        $this->model->softDeleteWithCascade($notice['id']);
+        $this->model->softDelete($notice['id']);
         ActivityLogger::log('notice.deleted', 'notice', $notice['id'], (int)$user['id']);
 
         Response::json(['success' => true, 'message' => 'Notice deleted']);

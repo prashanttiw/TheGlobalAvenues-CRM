@@ -147,6 +147,11 @@ class DocumentRequestController
             Response::error('Access denied', 'FORBIDDEN', 403);
         }
 
+        // Same guard as studentSubmit(): once approved, no silent resubmission.
+        if ($docRequest['status'] === 'approved') {
+            Response::error('This document has already been approved and cannot be resubmitted.', 'ALREADY_APPROVED', 409);
+        }
+
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
             Response::error('No file uploaded or upload error', 'VALIDATION_ERROR', 400);
         }
@@ -343,7 +348,7 @@ class DocumentRequestController
             }
 
             if (!empty($userIds)) {
-                NotificationService::fire('document.reviewed', ['doc_label' => $docRequest['doc_label'], 'status' => $status], $userIds);
+                NotificationService::fire('document.reviewed', ['doc_label' => $docRequest['doc_label'], 'status' => ucfirst($status)], $userIds);
             }
 
             $updatedDoc = $this->docModel->findById($docRequest['id']);
@@ -500,6 +505,17 @@ class DocumentRequestController
 
         if (!$student || $docRequest['student_id'] !== $student['id']) {
             Response::error('Access denied', 'FORBIDDEN', 403);
+        }
+
+        // Once admin has approved a submission, the review is done — without this guard a
+        // student could silently swap the approved file for a different one at any later time
+        // (status flips back to 'submitted' with no new request ever issued), and nothing
+        // would prompt an admin to notice the file behind an already-approved document had
+        // changed. 'requested' and 'rejected' both legitimately need a submission; resubmitting
+        // while already 'submitted' (i.e. before the admin has looked at it) is still allowed —
+        // that's just the student correcting a mistake before review, not bypassing one.
+        if ($docRequest['status'] === 'approved') {
+            Response::error('This document has already been approved and cannot be resubmitted.', 'ALREADY_APPROVED', 409);
         }
 
         if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
