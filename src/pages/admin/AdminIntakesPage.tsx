@@ -11,6 +11,7 @@ import {
   updateAdminIntakeLive,
   updateAdminIntakeStatus,
 } from '../../lib/api'
+import { useCampusPicker } from '../../shared/hooks/useCampusPicker'
 import { usePermission } from '../../hooks/usePermission'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
@@ -32,6 +33,7 @@ const PER_PAGE = 20
 interface UniversityRow {
   public_id: string
   name: string
+  city?: string | null
   logo_thumb_url?: string | null
 }
 
@@ -65,6 +67,7 @@ interface IntakeRow {
 
 interface IntakeFormState {
   universityPublicId: string
+  campusPublicId: string
   coursePublicId: string
   name: string
   intakeMonth: string
@@ -79,6 +82,7 @@ interface IntakeFormState {
 
 const INITIAL_FORM: IntakeFormState = {
   universityPublicId: '',
+  campusPublicId: '',
   coursePublicId: '',
   name: 'Fall Intake',
   intakeMonth: '9',
@@ -119,6 +123,7 @@ function validNextStatuses(status: string): string[] {
 export default function AdminIntakesPage() {
   const queryClient = useQueryClient()
   const [universityFilter, setUniversityFilter] = React.useState('')
+  const [campusFilter, setCampusFilter] = React.useState('')
   const [courseFilter, setCourseFilter] = React.useState('')
   const [statusFilter, setStatusFilter] = React.useState('')
   const [search, setSearch] = React.useState('')
@@ -146,48 +151,55 @@ export default function AdminIntakesPage() {
   const canDelete = usePermission('intakes', 'delete')
 
   const [page, setPage] = React.useState(1)
-  React.useEffect(() => { setPage(1) }, [universityFilter, courseFilter, statusFilter, debouncedSearch])
+  React.useEffect(() => { setPage(1) }, [universityFilter, campusFilter, courseFilter, statusFilter, debouncedSearch])
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
     return () => clearTimeout(t)
   }, [search])
 
-  // Lightweight, single request -- just for the "All Universities" filter and the Create
-  // Intake form's university picker. Never fans out per-university/per-course requests (that
-  // pattern, used here previously -- one request per university, then ANOTHER per course on
-  // top of that -- is what overloaded the backend once the catalog held 2,600+ courses).
+  // Institution-level (grouped) picker — one option per institution, not per campus row. Also
+  // fixes a real bug: the old flat picker capped at per_page=250 while the catalog holds 313+
+  // individual campus rows, so ~60 campuses were silently unselectable in this dropdown.
   const universitiesQuery = useQuery({
-    queryKey: ['admin', 'universities', 'picker'],
-    queryFn: async () => (await fetchAdminUniversitiesLive({ perPage: 250 })).universities ?? [],
+    queryKey: ['admin', 'universities', 'picker', 'grouped'],
+    queryFn: async () => (await fetchAdminUniversitiesLive({ perPage: 1000, view: 'grouped' })).universities ?? [],
     staleTime: 60_000,
   })
 
-  // Courses for the currently-selected filter university, fetched only when one is chosen --
-  // scoped to a single university this stays a cheap single request either way.
+  // Resolves the picked institution down to one specific campus row — an intake's course always
+  // belongs to exactly one campus, never a whole institution. Filter and Create-Intake-form get
+  // independent instances since a user can have different selections open in each at once.
+  const filterCampusPicker = useCampusPicker(universityFilter)
+  const formCampusPicker = useCampusPicker(form.universityPublicId)
+  const effectiveFilterUniversityId = filterCampusPicker.resolveEffectiveCampusId(campusFilter)
+  const effectiveFormUniversityId = formCampusPicker.resolveEffectiveCampusId(form.campusPublicId)
+
+  // Courses for the currently-resolved filter campus, fetched only once one is fully resolved --
+  // scoped to a single campus this stays a cheap single request either way.
   const filterCoursesQuery = useQuery({
-    queryKey: ['admin', 'university-courses', universityFilter],
-    queryFn: () => fetchAdminUniversityCourses(universityFilter),
-    enabled: !!universityFilter,
+    queryKey: ['admin', 'university-courses', effectiveFilterUniversityId],
+    queryFn: () => fetchAdminUniversityCourses(effectiveFilterUniversityId),
+    enabled: !!effectiveFilterUniversityId,
     staleTime: 30_000,
   })
 
-  // Same idea, scoped to whichever university is chosen inside the Create Intake form --
+  // Same idea, scoped to whichever campus is resolved inside the Create Intake form --
   // independent from the filter above since the two can differ at the same time.
   const formCoursesQuery = useQuery({
-    queryKey: ['admin', 'university-courses', form.universityPublicId],
-    queryFn: () => fetchAdminUniversityCourses(form.universityPublicId),
-    enabled: !!form.universityPublicId,
+    queryKey: ['admin', 'university-courses', effectiveFormUniversityId],
+    queryFn: () => fetchAdminUniversityCourses(effectiveFormUniversityId),
+    enabled: !!effectiveFormUniversityId,
     staleTime: 30_000,
   })
 
   const catalogQuery = useQuery({
-    queryKey: ['admin', 'catalog', 'intakes', page, universityFilter, courseFilter, statusFilter, debouncedSearch],
+    queryKey: ['admin', 'catalog', 'intakes', page, effectiveFilterUniversityId, courseFilter, statusFilter, debouncedSearch],
     queryFn: async () => {
       const result = await fetchAdminIntakesAll({
         page,
         perPage: PER_PAGE,
-        universityId: universityFilter || undefined,
+        universityId: effectiveFilterUniversityId || undefined,
         courseId: courseFilter || undefined,
         status: statusFilter || undefined,
         q: debouncedSearch || undefined,
@@ -247,6 +259,17 @@ export default function AdminIntakesPage() {
   })
 
   const universities = (universitiesQuery.data ?? []) as UniversityRow[]
+
+  // Institution-level options (one per university, not per campus row). City suffix still helps
+  // disambiguate same-name institutions in different cities/countries.
+  function universityOptionLabel(university: UniversityRow) {
+    return university.city ? `${university.name} — ${university.city}` : university.name
+  }
+
+  // Campus dropdown options — only rendered when the picked institution has more than one campus.
+  function campusOptionLabel(campus: any) {
+    return campus.city ? `${campus.city}, ${campus.country}` : (campus.country ?? campus.name)
+  }
   const intakes = (catalogQuery.data?.intakes ?? []) as IntakeRow[]
   const meta = catalogQuery.data?.meta
 
@@ -396,7 +419,7 @@ export default function AdminIntakesPage() {
         }
       />
 
-      <div className="flex flex-col lg:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center">
+      <div className="flex flex-col lg:flex-row lg:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center">
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -408,15 +431,29 @@ export default function AdminIntakesPage() {
           value={universityFilter}
           onChange={(e) => {
             setUniversityFilter(e.target.value)
+            setCampusFilter('')
             setCourseFilter('')
           }}
           className="w-full lg:w-64 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
         >
           <option value="">All Universities</option>
           {universities.map((university) => (
-            <option key={university.public_id} value={university.public_id}>{university.name}</option>
+            <option key={university.public_id} value={university.public_id}>{universityOptionLabel(university)}</option>
           ))}
         </select>
+
+        {filterCampusPicker.needsCampusStep && (
+          <select
+            value={campusFilter}
+            onChange={(e) => { setCampusFilter(e.target.value); setCourseFilter('') }}
+            className="w-full lg:w-56 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+          >
+            <option value="">Select campus…</option>
+            {filterCampusPicker.campuses.map((campus) => (
+              <option key={campus.public_id} value={campus.public_id}>{campusOptionLabel(campus)}</option>
+            ))}
+          </select>
+        )}
 
         <select
           value={courseFilter}
@@ -469,15 +506,32 @@ export default function AdminIntakesPage() {
               <select
                 required
                 value={form.universityPublicId}
-                onChange={(e) => setForm((current) => ({ ...current, universityPublicId: e.target.value, coursePublicId: '' }))}
+                onChange={(e) => setForm((current) => ({ ...current, universityPublicId: e.target.value, campusPublicId: '', coursePublicId: '' }))}
                 className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
               >
                 <option value="">Select university</option>
                 {universities.map((university) => (
-                  <option key={university.public_id} value={university.public_id}>{university.name}</option>
+                  <option key={university.public_id} value={university.public_id}>{universityOptionLabel(university)}</option>
                 ))}
               </select>
             </div>
+
+            {formCampusPicker.needsCampusStep && (
+              <div>
+                <label className="text-xs font-semibold text-brand-navy block mb-1">Campus</label>
+                <select
+                  required
+                  value={form.campusPublicId}
+                  onChange={(e) => setForm((current) => ({ ...current, campusPublicId: e.target.value, coursePublicId: '' }))}
+                  className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+                >
+                  <option value="">Select campus</option>
+                  {formCampusPicker.campuses.map((campus) => (
+                    <option key={campus.public_id} value={campus.public_id}>{campusOptionLabel(campus)}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div>
               <label className="text-xs font-semibold text-brand-navy block mb-1">Associated Course</label>

@@ -285,10 +285,22 @@ export type CatalogUniversity = {
   partnershipType: 'exclusive' | 'non_exclusive';
   isExclusive: boolean;
   programCount: number;
-  siblingCount: number;
+  /** Total campuses in this institution's group, including this one (always >= 1). */
+  campusCount: number;
   startingTuition: number | null;
   startingTuitionCurrency: string | null;
   startingTuitionLabel: string | null;
+  logoUrl: string | null;
+  logoThumbUrl: string | null;
+};
+
+export type CatalogCampus = {
+  id: string;
+  public_id: string;
+  name: string;
+  city: string | null;
+  country: string;
+  programCount: number;
   logoUrl: string | null;
   logoThumbUrl: string | null;
 };
@@ -926,7 +938,7 @@ export async function fetchUniversities(params: {
       partnershipType: row.partnership_type,
       isExclusive: row.partnership_type === 'exclusive',
       programCount: row.course_count ?? 0,
-      siblingCount: row.sibling_count ?? 0,
+      campusCount: row.campus_count ?? 1,
       startingTuition: null,
       startingTuitionCurrency: null,
       startingTuitionLabel: null,
@@ -935,6 +947,26 @@ export async function fetchUniversities(params: {
     })),
     meta: response.meta as PaginationMeta,
   };
+}
+
+// Campus-picker step: every campus row belonging to the same institution as universityPublicId
+// (including itself). Always returns at least one item — a university with no sibling campuses
+// still returns as a single-item list so the campus step never has to special-case "no group".
+export async function fetchUniversityCampuses(universityPublicId: string): Promise<CatalogCampus[]> {
+  const response = await request<{ campuses: any[] }>(
+    `/?route=universities&action=${encodeURIComponent(universityPublicId)}/campuses`
+  );
+  const rows = response.data.campuses ?? [];
+  return rows.map((row) => ({
+    id: row.public_id,
+    public_id: row.public_id,
+    name: row.name,
+    city: row.city,
+    country: row.country,
+    programCount: row.course_count ?? 0,
+    logoUrl: row.logo_url ?? null,
+    logoThumbUrl: row.logo_thumb_url ?? null,
+  }));
 }
 
 export type UniversityDetailCourse = {
@@ -2387,9 +2419,14 @@ export async function fetchAdminUniversitiesLive(params: {
   perPage?: number;
   status?: string;
   q?: string;
+  /** 'exclusive' | 'non_exclusive' — omit for both. */
+  partnershipType?: string;
+  /** 'grouped' collapses sibling campus rows into one card per institution (management list).
+   *  Omit for pickers/filters that need every individual campus row selectable. */
+  view?: 'grouped';
 } = {}): Promise<{ universities: any[]; meta: PaginationMeta }> {
   const response = await api.get<any[]>('admin/universities', {
-    params: { page: params.page, per_page: params.perPage, status: params.status, q: params.q },
+    params: { page: params.page, per_page: params.perPage, status: params.status, q: params.q, partnership_type: params.partnershipType, view: params.view },
   });
   return { universities: Array.isArray(response.data) ? response.data : [], meta: response.meta as PaginationMeta };
 }
@@ -2461,6 +2498,11 @@ export async function uploadUniversityLogo(publicId: string, file: File): Promis
     body: formData,
   });
   return response.data.university;
+}
+
+export async function fetchAdminUniversityCampuses(universityPublicId: string): Promise<any[]> {
+  const response = await api.get<{ campuses: any[] }>(`admin/universities/${encodeURIComponent(universityPublicId)}/campuses`);
+  return response.data.campuses ?? [];
 }
 
 export async function fetchAdminUniversityCourses(universityPublicId: string): Promise<any[]> {

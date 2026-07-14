@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { ExternalLink, Plus, Search, Trash } from 'lucide-react'
 import { createAdminUniversityCourse, deleteAdminCourseLive, fetchAdminCoursesAll, fetchAdminUniversitiesLive, updateAdminCourseLive } from '../../lib/api'
+import { useCampusPicker } from '../../shared/hooks/useCampusPicker'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Badge } from '../../shared/components/ui/Badge'
@@ -44,11 +45,12 @@ export default function AdminCoursesPage() {
   const queryClient = useQueryClient()
   const canWrite = usePermission('courses', 'edit')
   const [universityFilter, setUniversityFilter] = React.useState('')
+  const [campusFilter, setCampusFilter] = React.useState('')
   const [searchQuery, setSearchQuery] = React.useState('')
   const [debouncedSearch, setDebouncedSearch] = React.useState('')
   const [page, setPage] = React.useState(1)
   const [isAddOpen, setIsAddOpen] = React.useState(false)
-  const [form, setForm] = React.useState({ universityPublicId: '', name: '', degree_level: 'masters', duration_months: 24, language: 'English' })
+  const [form, setForm] = React.useState({ universityPublicId: '', campusPublicId: '', name: '', degree_level: 'masters', duration_months: 24, language: 'English' })
   const [deleteTarget, setDeleteTarget] = React.useState<CourseRow | null>(null)
 
   React.useEffect(() => {
@@ -56,25 +58,33 @@ export default function AdminCoursesPage() {
     return () => clearTimeout(t)
   }, [searchQuery])
 
-  React.useEffect(() => { setPage(1) }, [universityFilter])
+  React.useEffect(() => { setPage(1) }, [universityFilter, campusFilter])
 
-  // Lightweight, single request -- just for the "All Universities" filter dropdown and the
-  // Add Course university picker. Never fans out per-university course lookups (that pattern,
-  // used here previously, is what overloaded the backend once the catalog held 2,600+ courses).
+  // Institution-level (grouped) picker — one option per institution, not per campus row. Also
+  // fixes a real bug: the old flat picker capped at per_page=250 while the catalog holds 313+
+  // individual campus rows, so ~60 campuses were silently unselectable. per_page=1000 here is
+  // generous headroom against further catalog growth, same pattern as fetchAdminUniversityCourses.
   const universitiesQuery = useQuery({
-    queryKey: ['admin', 'universities', 'picker'],
-    queryFn: async () => (await fetchAdminUniversitiesLive({ perPage: 250 })).universities ?? [],
+    queryKey: ['admin', 'universities', 'picker', 'grouped'],
+    queryFn: async () => (await fetchAdminUniversitiesLive({ perPage: 1000, view: 'grouped' })).universities ?? [],
     staleTime: 60_000,
   })
 
+  // Resolves the picked institution down to one specific campus row — a course always belongs to
+  // exactly one campus, never a whole institution. Filter and Add-Course-form get independent
+  // instances since a user can have different selections open in each at the same time.
+  const filterCampusPicker = useCampusPicker(universityFilter)
+  const formCampusPicker = useCampusPicker(form.universityPublicId)
+  const effectiveUniversityId = filterCampusPicker.resolveEffectiveCampusId(campusFilter)
+
   const catalogQuery = useQuery({
-    queryKey: ['admin', 'catalog', 'courses', page, debouncedSearch, universityFilter],
+    queryKey: ['admin', 'catalog', 'courses', page, debouncedSearch, effectiveUniversityId],
     queryFn: async () => {
       const result = await fetchAdminCoursesAll({
         page,
         perPage: PER_PAGE,
         q: debouncedSearch || undefined,
-        universityId: universityFilter || undefined,
+        universityId: effectiveUniversityId || undefined,
       })
       const courses = result.courses.map((course: any) => ({
         ...course,
@@ -111,6 +121,17 @@ export default function AdminCoursesPage() {
   })
 
   const universities = (universitiesQuery.data ?? []) as any[]
+
+  // Institution-level options (one per university, not per campus row). City suffix still helps
+  // disambiguate same-name institutions in different cities/countries.
+  function universityOptionLabel(u: any) {
+    return u.city ? `${u.name} — ${u.city}` : u.name
+  }
+
+  // Campus dropdown options — only rendered when the picked institution has more than one campus.
+  function campusOptionLabel(c: any) {
+    return c.city ? `${c.city}, ${c.country}` : (c.country ?? c.name)
+  }
   const courses = (catalogQuery.data?.courses ?? []) as CourseRow[]
   const meta = catalogQuery.data?.meta
 
@@ -214,12 +235,18 @@ export default function AdminCoursesPage() {
     <PageWrapper className="space-y-6">
       <PageHeader title="Courses Catalog" subtitle="Manage live program offerings across university partners." actions={canWrite ? <Button variant="primary" onClick={() => setIsAddOpen(true)}><Plus className="mr-2 h-4 w-4" />Add Course</Button> : undefined} />
 
-      <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center justify-between">
         <div className="flex gap-2 flex-wrap w-full sm:w-auto">
-          <select value={universityFilter} onChange={(e) => setUniversityFilter(e.target.value)} className="w-full sm:w-64 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">
+          <select value={universityFilter} onChange={(e) => { setUniversityFilter(e.target.value); setCampusFilter('') }} className="w-full sm:w-64 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">
             <option value="">All Universities</option>
-            {universities.map((u) => <option key={u.public_id} value={u.public_id}>{u.name}</option>)}
+            {universities.map((u) => <option key={u.public_id} value={u.public_id}>{universityOptionLabel(u)}</option>)}
           </select>
+          {filterCampusPicker.needsCampusStep && (
+            <select value={campusFilter} onChange={(e) => setCampusFilter(e.target.value)} className="w-full sm:w-56 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">
+              <option value="">Select campus…</option>
+              {filterCampusPicker.campuses.map((c) => <option key={c.public_id} value={c.public_id}>{campusOptionLabel(c)}</option>)}
+            </select>
+          )}
         </div>
         <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><input type="text" placeholder="Search courses..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" /></div>
       </div>
@@ -236,10 +263,21 @@ export default function AdminCoursesPage() {
       )}
 
       <SlideOverPanel title="Add New Course" open={isAddOpen} onOpenChange={setIsAddOpen}>
-        <form onSubmit={(e) => { e.preventDefault(); createMutation.mutate({ universityPublicId: form.universityPublicId, payload: { name: form.name, degree_level: form.degree_level, duration_months: form.duration_months, language: form.language } }) }} className="space-y-6">
+        <form onSubmit={(e) => {
+          e.preventDefault()
+          const effectiveId = formCampusPicker.resolveEffectiveCampusId(form.campusPublicId)
+          if (!effectiveId) {
+            toast.error(formCampusPicker.needsCampusStep ? 'Select a campus for this university.' : 'Select a university.')
+            return
+          }
+          createMutation.mutate({ universityPublicId: effectiveId, payload: { name: form.name, degree_level: form.degree_level, duration_months: form.duration_months, language: form.language } })
+        }} className="space-y-6">
           <div className="space-y-4">
             <div><label className="text-xs font-semibold text-brand-navy block mb-1">Course Name</label><input type="text" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" /></div>
-            <div><label className="text-xs font-semibold text-brand-navy block mb-1">University</label><select required value={form.universityPublicId} onChange={(e) => setForm({ ...form, universityPublicId: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"><option value="">Select university</option>{universities.map((u) => <option key={u.public_id} value={u.public_id}>{u.name}</option>)}</select></div>
+            <div><label className="text-xs font-semibold text-brand-navy block mb-1">University</label><select required value={form.universityPublicId} onChange={(e) => setForm({ ...form, universityPublicId: e.target.value, campusPublicId: '' })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"><option value="">Select university</option>{universities.map((u) => <option key={u.public_id} value={u.public_id}>{universityOptionLabel(u)}</option>)}</select></div>
+            {formCampusPicker.needsCampusStep && (
+              <div><label className="text-xs font-semibold text-brand-navy block mb-1">Campus</label><select required value={form.campusPublicId} onChange={(e) => setForm({ ...form, campusPublicId: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"><option value="">Select campus</option>{formCampusPicker.campuses.map((c) => <option key={c.public_id} value={c.public_id}>{campusOptionLabel(c)}</option>)}</select></div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div><label className="text-xs font-semibold text-brand-navy block mb-1">Degree Level</label><select value={form.degree_level} onChange={(e) => setForm({ ...form, degree_level: e.target.value })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">{DEGREE_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}</select></div>
               <div><label className="text-xs font-semibold text-brand-navy block mb-1">Duration (months)</label><input type="number" min={1} value={form.duration_months} onChange={(e) => setForm({ ...form, duration_months: Number(e.target.value) })} className="w-full px-3.5 py-2.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" /></div>
