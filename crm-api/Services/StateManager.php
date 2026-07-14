@@ -141,11 +141,16 @@ class StateManager
 
             $portalUrl = Environment::get('APP_FRONTEND_URL', '');
             $referenceNumber = $appData['reference_number'] ?? '';
+            // Same 'snake_case' -> 'Title Case' transform every portal page already applies to
+            // this exact status value (see formatStatusLabel() in StudentApplications.tsx /
+            // AgentApplicationsPage.tsx / applicationStatusBadge.tsx) — without it the email
+            // shows the raw DB value, e.g. "offer_received" instead of "Offer Received".
+            $newStatusLabel = ucwords(str_replace('_', ' ', $newStatus));
 
             if (!empty($appData['student_user_id'])) {
                 NotificationService::fire('application.status_changed', [
                     'application_id'   => $applicationId,
-                    'new_status'       => $newStatus,
+                    'new_status'       => $newStatusLabel,
                     'reference_number' => $referenceNumber,
                     'recipient_name'   => $appData['student_name'] ?? 'there',
                     'portal_url'       => $portalUrl . '/portal/student/',
@@ -159,7 +164,7 @@ class StateManager
                 if (!empty($agentRow['user_id'])) {
                     NotificationService::fire('application.status_changed', [
                         'application_id'   => $applicationId,
-                        'new_status'       => $newStatus,
+                        'new_status'       => $newStatusLabel,
                         'reference_number' => $referenceNumber,
                         'recipient_name'   => $agentRow['full_name'] ?? 'there',
                         'portal_url'       => $portalUrl . '/portal/agent/',

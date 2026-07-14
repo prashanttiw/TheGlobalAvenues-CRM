@@ -29,12 +29,8 @@ class MailService
             $mail->addAddress($toEmail);
             $mail->Subject = $subject;
             $mail->isHTML(true);
-            $mail->Body    = self::wrapInEmailLayout($subject, $rawBody);
-            $mail->AltBody = $plainBody ?? strip_tags(str_replace(
-                ['<br>', '<br/>', '<br />', '</p>', '</tr>'],
-                "\n",
-                $rawBody
-            ));
+            $mail->Body    = self::wrapInEmailLayout($subject, self::toHtmlFragment($rawBody));
+            $mail->AltBody = $plainBody ?? self::toPlainText($rawBody);
             $mail->send();
             return true;
         } catch (\Throwable $e) {
@@ -136,12 +132,39 @@ HTML;
     }
 
     /**
-     * @deprecated Body fragments from DB templates are already safe HTML.
-     * Kept for backwards compatibility with any direct callers.
+     * Turn a queued notification_templates.body_template (already variable-substituted)
+     * into the final HTML sent by cron/send-notifications.php — wrapped in the same
+     * branded layout sendNow() uses, so queued mail (welcome, commission, reassignment,
+     * document requests, etc.) doesn't go out as a bare, unbranded fragment.
      */
-    public static function buildHtmlBody(string $rawBody): string
+    public static function buildHtmlBody(string $subject, string $rawBody): string
     {
-        return $rawBody;
+        return self::wrapInEmailLayout($subject, self::toHtmlFragment($rawBody));
+    }
+
+    /**
+     * Some templates (e.g. application.status_changed, document.*) are stored as plain
+     * text with \n line breaks rather than HTML markup. Sent as-is inside an isHTML(true)
+     * message, \n has no visual effect and the whole body collapses into one run-on line —
+     * so plain bodies are escaped and nl2br'd here; bodies that already contain HTML markup
+     * pass through untouched.
+     */
+    private static function toHtmlFragment(string $rawBody): string
+    {
+        $looksLikeHtml = preg_match('/<[a-z][\s\S]*>/i', $rawBody) === 1;
+        return $looksLikeHtml ? $rawBody : nl2br(htmlspecialchars($rawBody, ENT_QUOTES, 'UTF-8'));
+    }
+
+    /**
+     * Plain-text fallback (PHPMailer AltBody) for clients that can't render HTML.
+     */
+    public static function toPlainText(string $rawBody): string
+    {
+        return strip_tags(str_replace(
+            ['<br>', '<br/>', '<br />', '</p>', '</tr>'],
+            "\n",
+            $rawBody
+        ));
     }
 
     /**
