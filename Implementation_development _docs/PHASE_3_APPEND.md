@@ -644,3 +644,38 @@ Second attempt used real PDF magic bytes (`%PDF-1.4...`) end to end: **exactly o
 confirming the fix.
 
 **Files changed**: `src/shared/components/ui/FileUpload.tsx`.
+
+### 2026-07-14 — Full deployment-readiness audit: document reject→re-upload loop confirmed, but found and fixed a silent post-approval resubmission bug
+
+Full-system audit, student portal / documents vault area. Live-walked the full lifecycle on a real
+document request: admin requests a document → student submits (real PDF) → admin rejects with a reason →
+confirmed the loop-back and that the student's resubmission is accepted → admin approves.
+
+**Bug found**: neither `DocumentRequestController::studentSubmit()` nor `::agentSubmit()` checked the
+request's current `status` before accepting a new file. Concretely reproduced: approved a document
+request, then submitted an entirely different file against that same `already-approved` request as the
+owning student — it succeeded (`200`), silently flipping `status` back to `submitted` and replacing
+`submitted_file_id`, with no new document request ever issued and nothing to prompt an admin to notice the
+file behind an approved document had changed. This breaks the integrity the whole request→submit→review
+cycle exists for — a student (or an agent acting on their behalf, same missing guard in `agentSubmit()`)
+could swap out an already-approved document (passport, visa paperwork, financial proof, etc.) at any
+later time with no review.
+
+**Fix**: added a guard at the top of both `studentSubmit()` and `agentSubmit()` — if
+`$docRequest['status'] === 'approved'`, reject with `409 ALREADY_APPROVED "This document has already been
+approved and cannot be resubmitted."` Deliberately did **not** block resubmission while status is still
+`submitted` (pending review) — that's a student legitimately fixing a mistake before an admin has looked
+at it, not a bypass, and blocking it wasn't asked for.
+
+**Verified live, both directions**: re-ran the exact same post-approval resubmission attempt — now cleanly
+`409 ALREADY_APPROVED`, file unchanged. Then re-ran the legitimate reject→resubmit loop end to end again
+(reject with reason → student resubmits) to confirm the fix didn't regress the flow it's supposed to keep
+working — succeeded normally, `200`, new file version stored.
+
+**Minor doc note, not fixed**: CLAUDE.md's Document Request Status state-machine table describes rejection
+as `submitted → requested (loops back)`; the real implementation loops back to a distinct `rejected`
+status instead (functionally equivalent — student can still resubmit from either — just a different state
+name than documented). Left as a very minor, non-functional inaccuracy; not worth a doc edit on its own,
+noting here for the record.
+
+**Files changed**: `crm-api/Controllers/DocumentRequestController.php`.

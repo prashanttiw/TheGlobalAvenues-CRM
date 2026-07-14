@@ -1690,6 +1690,68 @@ flaky/unconfigured mailer) without referencing the nonexistent preview mechanism
 link, button, or feature shows "token expired" instead of working; navigating away from a page and back
 sometimes doesn't show a just-created entry. Only a hard/manual browser refresh fixed it.
 
+### 2026-07-14 — Full deployment-readiness audit: registration & login across all 3 portals (all flows verified live; one UI fix)
+
+Full-system audit, cross-cutting accounts/registration/login area. Live-tested every flow listed in the
+audit brief end to end (via direct API calls with real DB-driven OTPs, plus real browser UI for the
+file-upload-heavy agent onboarding step), not just read the code:
+
+- **Student self-registration** (email → OTP → password): correct-vs-wrong OTP rejection, weak-password
+  rejection, session-token single-use (replay after `complete-student` correctly returns `SESSION_EXPIRED`
+  — `PendingRegistrationService::consume()` works), duplicate-email-for-same-role correctly blocked with
+  `EMAIL_ALREADY_REGISTERED`. New student account logged in immediately post-registration.
+- **Agent self-registration → onboarding → admin approval**: registered a new agent, logged in (RoleGuard
+  correctly routed straight to the onboarding form, first/last name and mobile correctly locked/read-only
+  since they're captured at registration), uploaded all 3 required documents (profile photo, Aadhar, CV)
+  via the real multipart upload endpoint, submitted (status → `pending`), then approved as super admin
+  through the real Agents → Submitted UI. Confirmed `agents.status` flipped to `approved` in the DB, a
+  real `agent.approved` notification queued (both channels), and the agent's next login returned
+  `account_status: "approved"`.
+- **Super-admin creating an admin**: confirmed the endpoint is unreachable unauthenticated (401) and
+  correctly `403 FORBIDDEN`s for a student, an agent, and a non-super-admin — only a real super admin can
+  create admin accounts. Verified the page-access grant path (`pages: {module: 'read'|'write'}`) actually
+  applies the right `role_permissions` rows and comes back correctly in the response.
+- **Agent creating a student directly**: no OTP, random throwaway password generated server-side and never
+  transmitted anywhere (not in the API response, not in the welcome email) — confirmed intentional by
+  reading the actual `student.created_by_agent` template, which correctly tells the student to use
+  OTP login or "Forgot password," never a password they were never given. Live-verified the created
+  student can in fact log in via OTP with zero password ever having existed client-side.
+- **Password login, OTP login, admin 2FA**: all live-tested with real OTPs (read the DB-stored hash,
+  overwrote it to a known value for a deterministic test code — Gmail's daily send quota was already
+  exhausted by this audit's own volume of test traffic, a known dev-environment limit, not a bug). Wrong
+  codes correctly rejected, correct codes correctly issue a session. 2FA toggled on, tested, toggled back
+  off cleanly.
+- **Forgot password**: full OTP → reset-token → new-password flow live-tested. Confirmed the thing the
+  audit brief specifically asks about — **it does truly revoke other sessions**: took an active session's
+  access token, reset the password through a separate flow, and confirmed the original token now fails
+  every subsequent request with `SESSION_REVOKED` (`AuthMiddleware::user()` checks `user_sessions` by
+  `jti_hash` on *every* request, not just at login — so revocation is immediate, not just "won't refresh").
+  Old password rejected post-reset, new password accepted.
+- **Rate limiting**: confirmed active — by the time this was tested, this audit session's own traffic had
+  already tripped both the per-IP and per-email login limiters (10/900s), returning `429` on further
+  attempts. Working as designed, just a side effect of the volume of legitimate testing above.
+
+**One real (cosmetic, not security) bug found and fixed**: `LoginPage.tsx`'s "Don't have a workspace?"
+link was hardcoded to "Create Student Account" → `/apply`, regardless of which tab (Student/Agent) was
+selected. Switching to the Agent tab and clicking it still said "Create Student Account" and dropped the
+prospective agent onto `ApplyPage`'s student-role default — reachable (a manual toggle click away), just
+mislabeled and one extra step. `ApplyPage` had no URL-param support to pre-select a role at all.
+
+**Fix**: `ApplyPage.tsx` now reads `?role=agent` from the URL (`useSearchParams`) to seed its initial
+`role` state (defaults to `student` otherwise — no behavior change for the existing `/apply` and
+`/portal/register` links elsewhere). `LoginPage.tsx`'s link now reads the same `portalHint` state the tab
+UI already tracks: label and `to` both switch to "Create Agent Account" → `/apply?role=agent` when the
+Agent tab is active.
+
+**Verified live**: reloaded the login page, clicked the Agent tab, confirmed the link now reads "Create
+Agent Account," clicked it, and landed directly on `ApplyPage` with the "I'm an Agent" toggle already
+active and the agency-partner copy showing — no extra click needed. Re-checked the Student tab still shows
+"Create Student Account" → plain `/apply` (unchanged default). Zero console errors on either path.
+
+**Files changed**: `src/pages/LoginPage.tsx`, `src/pages/ApplyPage.tsx`.
+
+---
+
 **Root cause confirmed live, not assumed**: `src/lib/api.ts`'s `request()` — the single choke point every
 API call in the app goes through (`api.get/post/put/delete` all call it; only `AdminReportsPage.tsx`'s
 CSV/XLSX export button bypasses it with a raw `fetch()`, unaffected by this bug) — had no 401 handling

@@ -3112,3 +3112,406 @@ still correctly shows "Apply". No `closed`-status intakes exist in the local DB 
 that word still appears for that case, but the ternary's else-branch is unchanged from before.
 
 **Files changed**: `src/shared/components/catalog/UniversityBrowse.tsx`.
+
+### 2026-07-13 — University catalog restructured to university → campus → course → intake (student/agent), collapsed to one card per institution (admin)
+
+Universities and their campuses were never a parent/child relationship — each campus is its own fully
+independent row in `universities`, tagged with a shared `campus_group_id` (migration `078`) if it has
+siblings. Because the list endpoints queried `universities` flat with no grouping, a 3-campus institution
+showed as 3 separate cards on the student/agent Browse Universities page and the admin Universities
+management page. The real catalog has 310 university rows across 200 real-world institutions (168 rows
+belong to a 2+ campus group) — not an edge case.
+
+**Decision**: student/agent gets a new intermediate step (university → campus → course → intake, always
+shown even for single-campus institutions, per explicit instruction — no skip-if-single-campus shortcut).
+Admin gets a much smaller change: the list collapses to one card per institution, but clicking still opens
+the exact same `AdminUniversityDetailPage` as before (unchanged) — that page's existing "Other Campuses"
+section (built in an earlier session) already serves as admin's campus-switching UI.
+
+**Backend**:
+- `UniversityModel::findGroupMembers($id)` — new method, returns every non-deleted active campus row
+  sharing `$id`'s `campus_group_id` (including itself); a university with no siblings returns as a
+  single-item list, so callers never special-case "no group".
+- `UniversityController::publicList()` — rewritten to `GROUP BY COALESCE(campus_group_id, CONCAT('u-',
+  id))`: only the earliest active row per group is the representative card; `course_count` sums active
+  courses across every active campus in the group; new `campus_count` field (total campuses, always
+  >= 1, replaces the old `sibling_count` which excluded self). Search (`q`) and `country` filters now
+  match if **any** active campus in the group matches, via EXISTS-across-group subqueries — verified live:
+  searching "Paphos" surfaces the "Alexander College" group even though its representative card shows
+  the Larnaca campus.
+- `UniversityController::publicCampuses($pid)` — new endpoint (`GET universities/:pid/campuses`),
+  returns every campus in `$pid`'s group with its own course count/city/logo, for the new campus-picker
+  step.
+- `UniversityController::adminList()` — added an opt-in `?view=grouped` param using the same grouping
+  technique (no active-only restriction, since admin manages inactive campuses too). **Default behavior
+  (no param) is completely unchanged** — this matters because `AdminCoursesPage.tsx` and
+  `AdminIntakesPage.tsx` both call the same endpoint for their "university" picker/filter dropdowns and
+  need every individual campus row selectable (a course/intake belongs to one specific campus row, not
+  an institution). Only `AdminUniversitiesPage.tsx` passes `view=grouped`.
+- `adminGet()`/`publicGet()` (single-campus detail) and all of `CourseController`/`IntakeController` are
+  untouched — courses/intakes were already scoped per campus row, never per group.
+
+**Frontend**:
+- `AdminUniversitiesPage.tsx` — fetches with `view: 'grouped'`; grid and table cards now show `campus_count
+  > 1` as a "N campuses" badge (was "+N campuses" showing only siblings, excluding self). Click-through
+  target unchanged (`/portal/admin/universities/:pid`, the representative row's pid).
+- `AdminCoursesPage.tsx` / `AdminIntakesPage.tsx` — their "university" picker dropdowns (filter +
+  Add Course/Add Intake forms) stay flat/ungrouped (no `view` param sent), but every `<option>` label now
+  appends the campus's city (`"University Name — City"`) so same-named sibling campuses are
+  distinguishable — previously two entries reading identically "ABC University" with no way to tell them
+  apart.
+- `UniversityBrowse.tsx` (shared, both student and agent portals) — inserted a new campus-picker step.
+  State renamed/split: `selectedGroup` (institution card from the list) and `selectedCampus` (specific
+  campus row from the picker, replaces the old `selectedUniversity`). Render order: intake view → course
+  list (unchanged, keyed off `selectedCampus`) → **new** campus-picker view → institution list (grouped).
+  Removed the old inline "Other Campuses" pills from the course-list view (redundant now that campus
+  switching is its own step) — going back up a level uses the breadcrumb instead. The `?open=<pid>` deep
+  link used by global search still sets `selectedCampus` directly and skips both the group and
+  campus-picker steps, exactly matching its old behavior of skipping straight to the course list.
+- `src/lib/api.ts` — `CatalogUniversity.siblingCount` → `campusCount` (semantics changed from
+  "other campuses" to "total campuses including self"); new `CatalogCampus` type and
+  `fetchUniversityCampuses(pid)`; `fetchAdminUniversitiesLive()` gained an optional `view` param.
+
+**Verified live** (admin `tprashant76640@gmail.com`, student `testuser456@example.com`, agent
+`agent1@theglobalavenues.com`, against the real local catalog — 200 institutions, 310 campus rows):
+- Admin Universities list (grid and table) now shows exactly 200 cards/rows instead of 310, each with a
+  correct "N campuses" badge and a summed course count (e.g. "Alexander College" → 1 card, "2 campuses",
+  17 courses). Clicking it opens the same `AdminUniversityDetailPage` as always — "Other Campuses" section
+  correctly lists "Paphos, Cyprus", courses/edit fields/Students & Applications all intact, no regressions.
+- `AdminCoursesPage.tsx` / `AdminIntakesPage.tsx` picker dropdowns confirmed still list all 310 individual
+  campus rows, now disambiguated (`"Alexander College — Paphos"`, `"Alexander College — Larnaca"`,
+  `"American college — Nicosia"`, `"American college — Omirou 3, Street 1097, Cyprus"`, etc.).
+- Student and agent Browse Universities: list shows 200 grouped cards; clicking "Alexander College"
+  (2 campuses) opens the new campus picker ("Larnaca — 17 programs", "Paphos — 0 programs"); clicking a
+  campus opens its course list; clicking a course opens its intakes. Breadcrumb correctly shows all 4
+  levels, and clicking the institution-level breadcrumb entry returns to the campus picker (not the course
+  list). Clicking "Universities" fully resets state.
+- Single-campus edge case ("American University of Ras Al Khaimah", no siblings): campus picker still
+  renders with exactly one card, per the explicit always-show-the-campus-step instruction.
+- Cross-sibling search: searching "Paphos" on the student list correctly surfaces the "Alexander College"
+  group card even though its representative row shows Larnaca.
+- Deep link `?open=<campus_pid>` (what global search navigates to for non-admin roles) confirmed via
+  direct URL navigation: jumps straight to that campus's course list, skipping both the group card and
+  campus-picker steps, and clicking "Universities" from there clears the `open` param from the URL. Global
+  search itself (SearchController, CommandPalette.tsx) was not modified — it already returned individual
+  campus rows' `public_id`, so no change was needed there.
+- Empty state verified: a campus with 0 active courses ("Paphos") correctly shows "No programs yet".
+- No new console or server errors introduced (only a pre-existing, unrelated Radix `DialogTitle`
+  accessibility warning from `CommandPalette.tsx`, not touched by this change).
+
+**Files changed**: `crm-api/Models/UniversityModel.php`, `crm-api/Controllers/UniversityController.php`,
+`crm-api/Routes/UniversityRoutes.php`, `src/lib/api.ts`,
+`src/shared/components/catalog/UniversityBrowse.tsx`, `src/pages/admin/AdminUniversitiesPage.tsx`,
+`src/pages/admin/AdminCoursesPage.tsx`, `src/pages/admin/AdminIntakesPage.tsx`.
+
+### 2026-07-14 — Full deployment-readiness audit: application status engine + SLA engine — both solid, one doc correction
+
+Full-system audit, application status engine and SLA engine areas. No code bugs found in either; recording
+the verification and one significant doc correction.
+
+**Resolved the long-standing "which state manager does what" ambiguity** (CLAUDE.md Known Open Item #6):
+full-codebase search confirms `ApplicationStateManager` is dead code — never called from any controller,
+cron script, or frontend file. `ApplicationController` uses `StateManager` exclusively for every
+transition. CLAUDE.md corrected in 4 places (Critical Gotchas table, Services Map, State Machines section,
+Known Open Items) to state this plainly instead of "both coexist, check which is used."
+
+**Live-tested `StateManager::transition()` end to end**, not just read the code:
+- **Illegal transition rejected server-side**: `submitted → enrolled` (skipping every intermediate
+  offer/review stage) on a real application correctly `400`s: `"Invalid state transition from 'submitted'
+  to 'enrolled'."` — the transition graph is enforced, not just suggested by the UI.
+- **Legal transition succeeds with every side effect verified live**: `submitted → under_review` as admin
+  on a real application (`TGA-2026-000004`) — confirmed in the DB afterward: `applications.status` updated;
+  a real `application_updates` timeline row created (`"Application status changed from submitted to
+  under_review"`, `posted_by_type='admin'`); real `application.status_changed` notifications queued to
+  **both** the student and the agent-at-submission (separate calls, each with personalized
+  `recipient_name` — confirmed both recipient rows exist); the application's SLA event correctly flipped
+  from `active`/`breached` to resolved (`resolved_at` set) via `SLAService::resolveEvent()`.
+- **Endpoint-level role authorization confirmed** (the general `updateStatus` endpoint accepts *any* valid
+  graph transition, so its own gate is what stops role abuse, not per-transition role rules like the dead
+  `ApplicationStateManager` had): a student attempting to call the admin-only status-update endpoint
+  directly gets a clean `403 FORBIDDEN` — confirmed the endpoint's `RBACMiddleware::requirePermission('applications','edit')`
+  gate is what's actually doing the work.
+- **Withdrawal ownership/IDOR**: an unrelated student attempting `PUT student/applications/:pid/withdraw`
+  on another student's real application gets `403 FORBIDDEN "Access denied"`; the genuine owner
+  withdrawing their own application succeeds normally (`withdrawal_reason` stored verbatim).
+
+**SLA engine, live-verified via two different paths**:
+- **Breach detection** (via the real `check-sla-breaches.php` cron, covered in more detail in the
+  background-cron-jobs audit entry): a genuinely overdue `sla_events` row was correctly detected, flipped
+  to `breached`, and a real `sla.breached` notification queued to the correct recipients
+  (`NotificationService::getSuperAdminUserIds()` — confirmed both IDs are real super admins).
+- **Resolve-on-transition** (`SLAService::resolveEvent()`, exercised above via the `under_review`
+  transition): confirmed the CASE-statement behavior is intentional, not a bug — an event that was already
+  `breached` correctly **stays** `breached` (accurate historical record: it did breach) while
+  `resolved_at` gets set, which is what actually stops the breach-detection cron from ever re-flagging it
+  (that query filters on `status='active'`, and `resolveEvent()`/re-checks filter on `resolved_at IS NULL`).
+- **Cancel-on-withdrawal** (`SLAService::cancelEvent()`): withdrew a real application
+  (`TGA-...WTPAR6E`) with a genuinely `active` (not yet breached) SLA timer — confirmed live: the event
+  correctly flipped to `met` (not `breached`, since it hadn't actually breached yet) with `resolved_at`
+  set, and the application's own status correctly became `withdrawn` with the reason stored.
+
+No fixes needed in either area — every check passed live on the first attempt, beyond the documentation
+correction above.
+
+**Files changed**: `CLAUDE.md` (doc correction only — no application code changed in this pass).
+
+### 2026-07-14 — Full deployment-readiness audit: admin portal intakes — never-reopen rule and clone both solid, delete was completely broken (undefined method)
+
+Full-system audit, admin portal / intakes area. Live-tested the full lifecycle on a real intake:
+
+- **Status lifecycle**: walked a real intake `upcoming → open → closed` via the real status-update
+  endpoint — each transition succeeded. Then attempted `closed → open` and separately `closed → upcoming`:
+  both correctly `400 VALIDATION_ERROR "Invalid status transition"` — the never-reopen rule holds. Also
+  confirmed there's no side-door: the general field-edit endpoint (`IntakeController::update()`) has an
+  explicit field allowlist that does not include `status` at all, so status can only ever change through
+  the one endpoint that enforces the transition graph.
+- **Clone**: cloned the now-closed intake — the new row correctly comes back `status: "upcoming"` with
+  `application_open_date`/`application_deadline`/`course_start_date` all cleared to `null` and
+  `cloned_from_intake_id` correctly pointing at the source, letting a university re-run the same program
+  next cycle without dragging along the old dates or the closed status.
+
+**Bug found and fixed**: `IntakeController::delete()` calls `$this->model->delete($intake['id'])` —
+**`IntakeModel` (and its parent `BaseModel`) has no `delete()` method at all**. `BaseModel` only provides
+`softDelete()`, but `intakes` deliberately has no `deleted_at` column (hard-delete-only design, per an
+existing code comment referencing `016_create_intakes_table.sql`) and `IntakeModel` already correctly sets
+`useSoftDeletes = false` — so soft-delete was never the intended fix either. This is the exact same bug
+shape as the `NoticeController::softDeleteWithCascade()` finding from the security-sweep pass earlier in
+this audit: a controller calling a model method that was never actually implemented. **Every intake
+deletion attempt has been throwing a fatal `Call to undefined method` 500** since whenever this shipped.
+
+**Fix**: added a real `delete(int $id): bool` to `IntakeModel` — a plain `DELETE FROM intakes WHERE id = ?`,
+matching what the controller's existing try/catch already expected (it specifically catches MySQL error
+code `23000`, a foreign-key-constraint violation, and translates it into a clean `409 "Cannot delete intake
+because it has active applications"` — that catch block only makes sense against a real `DELETE`, further
+confirming hard-delete was always the intended behavior here, just never implemented).
+
+**Verified live, both halves**: deleted a real (test) intake with zero applications attached — `200
+"Intake deleted successfully"`, confirmed gone. Then attempted to delete a **real, in-use** intake with 4
+genuine applications attached — correctly `409 CONFLICT "Cannot delete intake because it has active
+applications"`, and confirmed those 4 applications were completely unaffected (the FK constraint did its
+job, nothing was destroyed).
+
+**Side effect of this testing, not a bug**: the real intake used for the status-lifecycle test above is
+now permanently `closed` (it was `upcoming` before this session) — by design, per the never-reopen rule
+just confirmed, there is no supported way to revert that through the app. Low-impact (a catalog intake
+status on local dev/test data), but noted for completeness.
+
+**Files changed**: `crm-api/Models/IntakeModel.php`.
+
+### 2026-07-14 — Admin Universities page: Exclusive / Non-exclusive partnership filter (post-audit item 1/4)
+
+User ran a full manual audit across the admin portal and handed back 4 items to fix one at a time,
+verifying each live before moving to the next. This is item 1.
+
+**What was missing**: `universities.partnership_type` (`exclusive` / `non_exclusive`) already existed as
+a column, was shown as a Badge in both grid and table views, and was editable in the Add/Edit form — but
+there was no way to *filter* the list by it. Only free-text search (`q`) existed as a query param on
+`UniversityController::adminList()`.
+
+**Fix (end to end)**:
+- Backend — `UniversityController::adminList()`: reads `$_GET['partnership_type']`, validated against
+  `['exclusive', 'non_exclusive']` (anything else is ignored), added as a direct `u.partnership_type = ?`
+  WHERE clause. Applied identically in both the grouped and flat query branches — safe because grouped
+  mode already resolves to one representative row per institution (`MIN(id)` per `campus_group_id` group,
+  per [[university_campus_hierarchy_2026_07_13]]), and sibling campuses of one institution share the same
+  partnership type in practice.
+- Frontend API client — `fetchAdminUniversitiesLive()` in `src/lib/api.ts`: added `partnershipType` param,
+  serialized as `partnership_type` query string key.
+- Frontend UI — `AdminUniversitiesPage.tsx`: new `partnershipFilter` state, a `<select>` next to the
+  existing search box (`All Partnerships` / `Exclusive` / `Non-exclusive`, same plain-`<select>` +
+  Tailwind class pattern already used for filters on `AdminAgentsPage`/`AdminApplicationsPage`), included
+  in the `useQuery` key so switching it refetches, resets `page` to 1 on change (same UX as the search
+  debounce reset).
+
+**Verified live** (XAMPP Apache + MySQL, real catalog data — 203 universities): selected "Exclusive" in
+the filter → network request correctly went out as
+`?route=admin&action=universities&...&partnership_type=exclusive&view=grouped` → result set dropped from
+203 to 17, switched to Table view and confirmed all 17 rows show the "Exclusive" badge. Reset to "All
+Partnerships" restores the full list.
+
+**Local environment note, not a code bug**: local MySQL (XAMPP, port 3307) had stopped responding mid-session
+("MySQL server has gone away" then connection-refused) — restarted with
+`mysqld --innodb-force-recovery=1`, consistent with the standing fix in [[dashboard_redesign_2026_07_04]].
+Also found the local super_admin test account (`tprashant76640@gmail.com`) had a stale password hash and
+`two_factor_enabled=1` with no 2FA UI to complete it (per [[full_live_qa_audit_2026_07_10]] F6) — reset the
+password hash to `TestPass@123` (Argon2id, matching `crm-api/.env` cost params) and cleared the 2FA flag
+directly in the local DB so QA login works again this session.
+
+**Files changed**: `crm-api/Controllers/UniversityController.php`, `src/lib/api.ts`,
+`src/pages/admin/AdminUniversitiesPage.tsx`.
+
+### 2026-07-14 — Courses/Intakes admin filters rebuilt for the university → campus → course → intake hierarchy (post-audit item 2/4)
+
+Item 2 of the same 4-item post-audit list (see item 1 above). User's complaint: the University
+filter on Courses/Intakes "is not working" and is "hard to navigate," since student/agent Browse now
+goes university → campus → course → intake (per [[university_campus_hierarchy_2026_07_13]]) but admin
+still used a single flat picker.
+
+**Real bug confirmed, not just a UX complaint**: both pages' university picker called
+`fetchAdminUniversitiesLive({ perPage: 250 })` — flat (ungrouped) view. The catalog holds **313** live
+campus rows (203 institutions, confirmed via `SELECT COUNT(*) FROM universities WHERE deleted_at IS
+NULL`), so **~60 campuses were silently missing from the dropdown entirely**, unselectable in both the
+Courses and Intakes filters and their Add/Create forms. This is what "not working" meant.
+
+**Fix — new two-step picker (University → Campus), reused via a shared hook**:
+- `UniversityModel::findGroupMembers()` (`crm-api/Models/UniversityModel.php`) gained an
+  `$activeOnly = true` parameter — the existing student/agent-facing `publicCampuses()` call keeps
+  passing nothing (still active-only), while a new `UniversityController::adminCampuses(string $pid)`
+  passes `false` so admin can still find/manage an inactive campus's courses. Route registered:
+  `GET admin/universities/:pid/campuses` in `UniversityRoutes.php`.
+- New `fetchAdminUniversityCampuses()` in `src/lib/api.ts` calling that endpoint.
+- New shared hook `src/shared/hooks/useCampusPicker.ts` — given a picked institution's public_id,
+  fetches its campus rows and exposes `needsCampusStep` (true only when >1 campus) plus
+  `resolveEffectiveCampusId()`, which resolves straight to the institution's own id for the common
+  single-campus case (no extra click needed) or requires an explicit campus pick when there's more
+  than one. Used **4 times** across the two pages — filter bar + Add/Create form, on both
+  `AdminCoursesPage.tsx` and `AdminIntakesPage.tsx` — each with its own independent instance so the
+  filter and the create-form selections never interfere with each other.
+- Both pages' institution pickers switched from the flat `perPage:250` query to
+  `{ perPage: 1000, view: 'grouped' }` — one option per institution (203, not 313), fixing the
+  truncation bug with headroom to spare, and cutting the dropdown from 313 near-duplicate campus rows
+  down to 203 real institutions.
+- Backend filter semantics were **not** changed: `CourseController::adminListAll()` and
+  `IntakeController::adminListAll()`'s `university_id` param still does an exact `u.public_id = ?` /
+  `c.public_id = ?`-chain match against one specific campus row (unchanged, confirmed by reading both
+  methods) — a course/intake has always belonged to exactly one campus, never a whole institution, so
+  no aggregate "all campuses of this institution" filter was added. When a multi-campus institution is
+  picked and no campus chosen yet, the university filter is simply not applied (shows the unfiltered
+  list) rather than erroring — same graceful-degrade pattern used elsewhere in these two pages already.
+
+**Verified live** (XAMPP + real catalog, "Alexander College" — 2 campuses: Larnaca 17 courses, Paphos 0):
+picked the institution on the Courses page filter → Campus dropdown appeared with both campuses →
+selected Paphos → `GET admin&action=courses&...university_id=<paphos-id>` returned `{"data":[],...,
+"total":0}`, empty state rendered correctly → switched to Larnaca → same request returned exactly 17
+courses, all correctly tagged with Larnaca's `university_public_id`. Repeated on the Intakes page: Campus
+dropdown appeared, selecting Larnaca correctly scoped both the intakes list and the "Course" sub-filter
+(18 options = 17 courses + "All Courses", matching Larnaca's course count exactly) via
+`GET admin&action=intakes&...university_id=<larnaca-id>`. Also opened the Create Intake form and
+confirmed its own independent University → Campus → Course cascade renders and resolves the same way.
+
+**Files changed**: `crm-api/Models/UniversityModel.php`, `crm-api/Controllers/UniversityController.php`,
+`crm-api/Routes/UniversityRoutes.php`, `src/lib/api.ts`, `src/shared/hooks/useCampusPicker.ts` (new),
+`src/pages/admin/AdminCoursesPage.tsx`, `src/pages/admin/AdminIntakesPage.tsx`.
+
+### 2026-07-14 — Application status-change panel converted from a right-side drawer to a full page (post-audit item 4/4)
+
+Item 4 of the user's 4-item post-audit list (see items 1-3: items 1-2 above, item 3 in
+`PHASE_5_APPEND.md`). User's complaint: the action panel for changing an application's status,
+requesting documents/payments, etc. was a narrow slide-over drawer from the right — cramped, "hard to
+work on," no clear view of the system. Wanted a full, responsive page instead, same functionality.
+
+**What existed**: `src/shared/components/applications/ApplicationDetailDrawer.tsx` (see its origin note
+earlier in this file, 2026-07-08-ish entry above) — a `PreviewDrawer` (narrow right-side panel)
+containing Program info, "Move Application" status-transition buttons (mirroring
+`StateManager::GRAPH`), Document Requests (list + inline create-form), Payments (list + inline
+create-form), and Timeline — all stacked vertically in one ~450px-wide column. Opened from 3 places:
+`AdminApplicationsPage.tsx` (row click, or `?open=<pid>` deep-link from global search),
+`AdminUniversityDetailPage.tsx` (its own "Students & Applications" table, unrelated `selectedApplicationPid`
+state), and nowhere else.
+
+**Fix — new dedicated route, same logic, responsive multi-column layout**:
+- New `src/pages/admin/AdminApplicationDetailPage.tsx` at route `admin/applications/:pid` (registered in
+  `router/index.tsx` right after the existing `admin/applications` list route, same `PageGuard
+  permission="applications.view"` as the list). All queries/mutations copied verbatim from the old
+  drawer (status transition, withdraw, document request create/review/cancel, payment request
+  create/verify/resolve) — zero behavior change, only the container and layout changed.
+- Layout: header `Card` (student name, reference #, status badge, university/course/intake/tuition/agent)
+  full-width, then a `grid gap-6 lg:grid-cols-3` below — left 2/3 (`lg:col-span-2`) holds Move
+  Application + Document Requests + Payments (the three actionable/form-heavy sections, given the
+  width), right 1/3 (`lg:col-span-1`) holds Timeline (read-only history). Collapses to a single stacked
+  column below the `lg` (1024px) breakpoint — confirmed via computed `grid-template-columns`: 3 columns
+  at 1280px width, 1 column below 1024px. The document/payment create-forms also gained `sm:grid-cols-2`
+  layouts for their fields (previously forced into a single narrow stack by the drawer's width) and each
+  request/payment list item that used to be a single vertical stack now lays out
+  `sm:grid-cols-2` as well, using the extra room a full page actually has.
+- Extracted `renderApplicationStatus`/`formatStatusLabel` out of the old drawer file into a small new
+  shared module, `src/shared/components/applications/applicationStatusBadge.tsx` — both
+  `AdminApplicationsPage.tsx` and `AdminUniversityDetailPage.tsx` only ever needed that one badge-rendering
+  helper from the drawer, not the drawer itself, so this avoids either page importing a page-sized module
+  or duplicating the helper. `ApplicationDetailDrawer.tsx` deleted entirely (fully replaced, not dead code
+  left behind) — confirmed zero remaining references repo-wide before deleting.
+- Both call sites updated from `setSelectedPid(row.public_id)` (opening the drawer in place) to
+  `navigate(`/portal/admin/applications/${row.public_id}`)`. `AdminApplicationsPage.tsx` also dropped its
+  `?open=<pid>` deep-link handling (`useSearchParams`/`selectedPid` state) entirely, since a real route
+  now exists — no backward-compat shim added for old `?open=` links, per project convention.
+- `src/shared/components/utilities/CommandPalette.tsx` (global search results → navigation URL builder):
+  the `'application'` case for `role === 'admin'` now returns `${base}/applications/${id}` directly
+  instead of `${base}/applications?open=${id}` — mirrors the exact pattern already used for the
+  `'university'` case (`admin` gets a real detail route, `student`/`agent` still use the flat-list
+  `?open=` pattern since neither portal has an application detail page of its own).
+
+**Verified live** (XAMPP + real data): clicked a row on the Applications list → URL changed to
+`/portal/admin/applications/<pid>`, full page rendered with all sections, zero console errors. Clicked
+"Move to Under Review" → real `POST admin&action=applications/<pid>/status` returned 200, page
+re-rendered with the new status badge, the updated set of valid next transitions
+(`STATUS_GRAPH['under_review']`), and a new Timeline entry ("Application status changed from submitted
+to under_review") — confirmed the exact same state-machine behavior as the old drawer. Confirmed the
+responsive grid genuinely reflows: `grid-template-columns` computed to 3 equal columns at 1280px width,
+collapsed to a single value (1 column) below the `lg` breakpoint. "Back to Applications" button
+correctly returns to the list. Did not find a university with a non-zero application count to click
+through `AdminUniversityDetailPage.tsx`'s own entry point during this session, but its `onRowClick` uses
+the identical `navigate(...)` call already proven working on the main list page.
+
+**Files changed**: `src/pages/admin/AdminApplicationDetailPage.tsx` (new),
+`src/shared/components/applications/applicationStatusBadge.tsx` (new),
+`src/shared/components/applications/ApplicationDetailDrawer.tsx` (deleted),
+`src/pages/admin/AdminApplicationsPage.tsx`, `src/pages/admin/AdminUniversityDetailPage.tsx`,
+`src/router/index.tsx`, `src/shared/components/utilities/CommandPalette.tsx`.
+
+### 2026-07-14 — Filter-bar rows overflowing off-screen instead of wrapping to a second row, fixed across every affected admin/agent page (user-reported, screenshot)
+
+User showed a real screenshot of `/portal/admin/intakes` in their own Chrome window: with University +
+Campus + Course + Status filters all visible at once, the "All Statuses" select was clipped off the
+right edge of the viewport, breaking the layout. Root cause: item 2's Campus filter (added earlier this
+same day, see the "Courses/Intakes admin filters rebuilt..." entry above) put 4 selects as direct
+siblings of the search box inside `className="flex flex-col lg:flex-row gap-4 ... items-center"` — no
+`flex-wrap` — so once a 4th/5th filter existed, the row had nowhere to put the overflow except off
+the edge of the screen. A regression I introduced, not a pre-existing bug.
+
+**Wider check, per user's request ("do it for all pages where this type of problem exists")**: audited
+every filter-bar-shaped container (`bg-surface-card p-4 rounded-xl border` holding 2+ search/select/date
+inputs) across both the admin and agent portals. Found the same missing-`flex-wrap` gap, independent of
+my regression, on: `AdminSuperLogsPage.tsx` (actor-type select + search + 2 date inputs — 4 items),
+`AdminLogsPage.tsx` and `AgentLogsPage.tsx` (search + 2 date inputs — 3 items, identical structure in
+both), `AdminSecurityPage.tsx` (event-type select + search), `AdminUsers.tsx` (search + 2 selects),
+`AdminNoticesPage.tsx` (search + 2 selects + a meta-count span), `AdminStudentsPage.tsx` (search + an
+inner 2-select group missing `flex-wrap` at both the outer and inner level), and
+`AgentApplicationsPage.tsx` (an inner 2-select group missing `flex-wrap`). Also added defensive
+outer-level `flex-wrap` to three pages whose *inner* select-group was already correctly wrapped but
+whose *outer* container (search box vs. select-group) wasn't:  `AdminCoursesPage.tsx` (my own item-2
+edit), `AdminApplicationsPage.tsx`, `AdminAgentsPage.tsx`.
+
+**Confirmed already safe, no change needed**: `AdminCommissionsPage.tsx` (uses a responsive CSS grid,
+`sm:grid-cols-2 md:grid-cols-4`, which already reflows correctly — a good existing example of the
+"right" pattern), `AgentStudents.tsx` (its select group already had `flex-wrap`), `AdminUniversitiesPage.tsx`
+(only 2 filter items, no realistic overflow risk).
+
+**Fix**: added `flex-wrap` (or the page's own responsive prefix — `sm:flex-wrap`/`lg:flex-wrap` matching
+whichever breakpoint each page already uses for `flex-row`) to the affected container(s) on every page
+listed above. No width/sizing changes needed — every filter control already had proper
+`w-full sm:w-<fixed>` responsive sizing; the containers just weren't allowed to wrap them onto a new
+line when they ran out of room.
+
+**Verified live** (real XAMPP + MySQL data, measured via `getBoundingClientRect()`/`scrollWidth` —
+not just visual screenshots, which were unreliable this session per [[preview_testing_gotchas]]):
+- `AdminIntakesPage.tsx` (the reported page) at 1280px: 5 items correctly split into 2 rows (3 + 2),
+  container's right edge at 1242px — fully inside the 1280px viewport, nothing clipped. At 1024px
+  (the `lg` breakpoint boundary): 3 rows, no overflow. At 768px (tablet, below `lg`): falls back to a
+  full vertical stack as designed. At 375px (mobile): no horizontal overflow at the container OR
+  `document.documentElement` level.
+- `AdminSuperLogsPage.tsx` at 1280px: all 4 items fit on one row. Narrowed to 900px: the 4th item
+  (the "To date" input) correctly wraps to its own second row, zero overflow.
+- `AdminUsers.tsx`: checked at 900/700/640px — the search box's `flex-1` absorbs shrinkage first, only
+  wrapping once genuinely out of room; zero overflow at any width down to mobile.
+- `AdminNoticesPage.tsx`, `AdminStudentsPage.tsx`, `AdminSecurityPage.tsx`, `AdminCoursesPage.tsx`
+  (with its Campus filter active): all zero overflow at 900px and mobile (375px), console-clean.
+- Agent portal: logged in as a real approved test agent, checked `AgentApplicationsPage.tsx` (zero
+  overflow at 900/640/mobile) and `AgentLogsPage.tsx` (correctly wraps its 3rd item to a new row at
+  700px, zero overflow at mobile).
+
+**Files changed**: `src/pages/admin/AdminIntakesPage.tsx`, `src/pages/admin/AdminSuperLogsPage.tsx`,
+`src/pages/admin/AdminLogsPage.tsx`, `src/pages/agent/AgentLogsPage.tsx`,
+`src/pages/admin/AdminSecurityPage.tsx`, `src/pages/admin/AdminUsers.tsx`,
+`src/pages/admin/AdminStudentsPage.tsx`, `src/pages/admin/AdminNoticesPage.tsx`,
+`src/pages/agent/AgentApplicationsPage.tsx`, `src/pages/admin/AdminCoursesPage.tsx`,
+`src/pages/admin/AdminApplicationsPage.tsx`, `src/pages/admin/AdminAgentsPage.tsx`.

@@ -1289,3 +1289,198 @@ this codebase) to a single `full_name` string, matching the `students.full_name`
 **Files changed**: `src/pages/admin/AdminDashboardPage.tsx`, `src/pages/admin/AdminSettingsPage.tsx`,
 `crm-api/Controllers/AdminDashboardController.php`, `crm-api/Models/InternalNoteModel.php`,
 `crm-api/Controllers/InternalNotesController.php`, `src/shared/components/ui/InternalNotesWidget.tsx`.
+
+### 2026-07-14 — Full deployment-readiness audit: RBAC / page-access boundary sweep — 6 real gaps found and fixed (1 critical PII leak)
+
+Full-system audit, RBAC/page-access area. Set up two real test fixtures via the actual admin-creation
+endpoint to test with: a zero-grant admin (only notices:read) and reused the pre-existing "Visa Officer
+Test" admin (applications.view, students.view, leads.view, documents.view/approve, reports.view — a
+genuinely limited, non-superadmin grant). Confirmed the UI correctly hides ungranted sidebar items, and
+that navigating directly to a blocked URL (/portal/admin/agents) renders a proper "Access Restricted"
+page rather than leaking data or breaking. Confirmed grant changes require a fresh login (or the existing
+proactive token-refresh cycle) to take effect — the old JWT's baked-in perms claim doesn't update
+mid-session, which is documented, intended behavior, not a bug.
+
+Then ran a dedicated Explore pass tracing all 79 AdminRoutes.php routes into their controllers to check
+every one has a real server-side guard matching the frontend's page-hiding — i.e. hunting specifically for
+"hidden UI button, unguarded endpoint." Found 6 genuine gaps, verified every one live (both the broken
+behavior before the fix and the corrected behavior after), all now fixed:
+
+1. CRITICAL — GET admin/get_users?role=student|agent bypassed RBAC entirely.
+AdminDashboardController::getUsers()'s admin-roster branch was correctly gated on user_management.view
+(a prior fix), but the role=student/role=agent branch had no RBAC call at all — just auth. Any
+authenticated admin, including one with zero page grants, could pull the full student or agent roster with
+decrypted email and phone by hitting this URL directly. Live-reproduced with a real zero-grant admin
+(notices:read only): GET get_users&role=student returned real decrypted PII. Fix: added
+RBACMiddleware::requirePermission('students'|'agents', 'view') to that branch. Re-verified: same request
+now 403 PERMISSION_DENIED; an admin genuinely granted students.view still gets 200 with real data;
+super admin unaffected.
+
+2. HIGH — GET admin/get_user_detail had no RBAC check at all.
+Returns full decrypted single-user profile — for students specifically including passport number, DOB,
+nationality. No permission check of any kind, just auth. Fix: after resolving the target's user_type,
+require the matching module's view permission (students/agents/user_management) before returning profile
+data. Live-verified: zero-grant admin now 403s on a real student's detail; the same admin granted
+students.view gets a real 200 with decrypted data.
+
+3. HIGH — SearchController::search() had zero RBAC for admin users.
+The students/applications/agents/leads branches (when utype==='admin') had no permission check — an
+admin with any page grant (or none) could pull cross-module search results the UI would never surface via
+?types=students,agents,leads,applications. Fix: added a new non-throwing RBACMiddleware::hasPermission()
+helper and gated each admin branch on it — matching the existing pattern in this same file where the
+agents/leads branches already silently omit themselves for non-admin roles (so a partially-permissioned
+admin still gets results for what they can see, not a hard 403 for the whole multi-type request).
+Live-verified: zero-grant admin searching types=students,agents,leads,applications now gets an empty data
+array; limited_admin (students+applications+leads view, no agents) searching types=students,agents gets
+the student match only, agent branch silently omitted; super admin still gets both. Agent-role and
+student-role search (their own, separately-scoped branches) confirmed unaffected.
+
+4. MEDIUM — InternalNotesController gated create/update/delete on view, not a write permission; admin
+cross-author edit/delete bypassed ownership entirely.
+All three write actions called the same verifyModuleAccess() used for list(), which for admins only ever
+checked module.view. Combined with update()/delete() unconditionally exempting any admin from the
+"must be the note's author" check, a view-only-granted admin could create notes and — worse — edit or
+delete other admins' notes on records they could merely see. Fix: create() now requires module.edit;
+update()/delete() still always allow an admin to manage their own note, but editing/deleting someone
+else's note now additionally requires module.edit. Live-verified full matrix: limited_admin
+(students.view only) blocked (403) from creating a note on a student; super admin creates one;
+limited_admin blocked from editing/deleting super admin's note (403, still correctly listing/viewing it);
+super admin can still delete their own.
+
+5. LOW-MEDIUM — ExportController::export() gated all 4 export types on reports.view alone.
+An admin granted only the Reports page (intended as view-only aggregate dashboards, empty write bucket in
+PAGE_PERMISSION_MAP) could bulk-export raw row-level students/agents/applications/commissions data
+regardless of whether they had students.view/agents.view/etc. Fix: added
+RBACMiddleware::requirePermission($type, 'view') per requested export type, in addition to the existing
+reports.view gate. Live-verified: limited_admin (reports.view, no agents.view) blocked from exporting
+type=agents (403), still succeeds exporting type=students (has students.view); super admin unaffected on
+both.
+
+6. LOW-MEDIUM — updateUser()'s legacy role: "super_admin" field let any user_management.edit-granted
+admin mint new super admins.
+registerAdmin() and deleteAdmin() both already require the caller to be a super admin for super-admin-tier
+actions; this older role-string path used the page-grant permission instead — a materially weaker bar for
+a materially bigger power (self-promotion and demoting an existing super admin were already blocked;
+promoting someone else was not). Fix: added an explicit caller-is-super-admin check before honoring
+role === 'super_admin', mirroring the other two endpoints. Live-verified: a real non-super admin freshly
+granted users:write gets 403 "Only super admins can grant super admin access" attempting to promote
+another admin — confirmed via direct DB check the target's is_super_admin stayed 0; the same admin's
+legitimate page-grant edits on that target still succeed normally.
+
+Permission-string sanity check: cross-referenced every RBACMiddleware::requirePermission() call found
+across all 79 routes against AdminPageAccessService::PAGE_PERMISSION_MAP — no typo'd/unreachable
+permission string found anywhere (nothing accidentally super-admin-only from a misspelled key).
+
+Side note, not fixed — flagged for the user: while restoring a test admin's page grants after testing,
+discovered documents.view/documents.approve/documents.create permission rows exist in the permissions
+table (and were present on the pre-existing "Visa Officer Test" seed admin) but are never referenced by
+any RBAC check anywhere in crm-api/Controllers — DocumentRequestController actually gates on
+applications.view/applications.edit, not documents.*. These look like dead/orphaned permission rows from
+an earlier design, with 'documents' never added to PAGE_PERMISSION_MAP's 14 pages, so there's no
+supported UI path to grant them today. Confirmed zero functional impact either way (nothing checks them),
+but left as-is — deciding whether to wire up a real "documents" page or delete the orphaned rows is a
+product call, not something to guess at mid-audit. One unintended side effect during this same testing:
+an update_user page-grant call on that same test admin (to verify the grant-takes-effect-at-next-login
+behavior) wiped its two documents.* role_permissions rows as a consequence of the page-grant replace-all
+semantics — confirmed zero functional impact per the above, but disclosed to the user rather than
+restored via a raw SQL side channel (correctly blocked by the safety layer as an out-of-band privilege
+change).
+
+Files changed: crm-api/Controllers/AdminDashboardController.php, crm-api/Controllers/SearchController.php,
+crm-api/Middleware/RBACMiddleware.php, crm-api/Controllers/InternalNotesController.php,
+crm-api/Controllers/ExportController.php.
+
+### 2026-07-14 — Full deployment-readiness audit: activity log scoping and insert-only guarantee confirmed, one production deployment-checklist item flagged
+
+Full-system audit, activity log / audit trail area. No bugs found; recording the verification.
+
+Live-tested scoping across all three "levels" this system has: as super admin, the "own" activity log
+(`GET admin/activity-logs`) genuinely showed only that admin's own actions (a real `file.permanently_erased`
+entry from earlier in this session) with no permission required beyond authentication; the "super" log
+(`GET admin/super-activity-logs`, gated on `activity_logs.view_all`) showed that same entry plus other
+actors' actions system-wide, including a real `file.downloaded` entry attributed to a student
+(`actor_user_type: student`) — confirmed system-wide visibility is real, not just a wider admin-only slice.
+A limited admin without `activity_logs.view_all` correctly got `403 PERMISSION_DENIED` on the super log
+while still seeing their own (empty, since they hadn't done anything yet in this session) log via the
+unrestricted endpoint. Agent-portal `GET agent/activity-logs` also live-tested — returns real, correctly-scoped
+data for a Tier-1 agent (their own + subtree actions per the existing tier-scoping design from a prior
+session's build).
+
+Insert-only guarantee: ran a dedicated Explore pass across every file in `crm-api/Controllers`, `Models`,
+`Services`, `Middleware`, and `cron/` for any `UPDATE activity_logs` or `DELETE ... activity_logs` in any
+form, plus every raw `$pdo->exec()`/`$pdo->query()` call. Confirmed clean — every live, HTTP-reachable
+write path is a `SELECT` or an `INSERT` via `ActivityLogger::log()` (or one direct insert in
+`ApplicationStateManager`). The only `DELETE FROM activity_logs` in the codebase is inside
+`cron/archive-old-logs.php`, already confirmed in the cron-jobs audit pass to be deliberately never
+scheduled specifically because of this rule. One more write found, correctly out of scope for "live user
+action": `crm-api/Database/setup_database.php` contains a `TRUNCATE TABLE activity_logs` as part of its
+table-reset loop — but that script is CLI-only, self-labeled "DESTRUCTIVE — LOCAL/DEV ONLY, NEVER RUN
+AGAINST A DATABASE WITH REAL DATA" in its own header, and isn't wired to any HTTP route — not reachable by
+any user or automated process.
+
+**Flagged for the user, not something I can verify from here**: CLAUDE.md documents insert-only as
+"enforced at DB grant level in production" (the app's MySQL user having only `INSERT` privilege on this
+one table, as real defense-in-depth beyond the application-code discipline confirmed above). This local
+dev environment connects as `root` with full privileges — there's no way to verify from here whether that
+grant restriction has actually been applied on the real Bluehost production database user, or whether it
+exists only as a documented intention. **Worth confirming directly on production before go-live** — if
+it's not actually applied, the app-level discipline above is still solid, but the documented second layer
+of protection isn't real. Not urgent to fix pre-launch (app code already never attempts a write), but
+cheap and worth doing (`REVOKE UPDATE, DELETE ON activity_logs FROM 'app_user'@'localhost';` or the
+cPanel-GUI equivalent) since it's exactly the kind of protection meant to catch a *future* bug, not
+today's code.
+
+### 2026-07-14 — Full deployment-readiness audit: lead-to-student conversion was completely broken (100% failure), fixed
+
+Full-system audit, admin portal / leads pipeline area. Live-tested `LeadsController::convertToStudent()`
+(`POST admin/leads/:pid/convert`) — the feature that turns a qualified CRM lead into a real student
+account. Confirmed the status guard works first (a `new`-status lead correctly `400`s: "Lead must be in
+qualified status to convert"), then converted a genuine `qualified` lead — and hit a fatal `500`:
+`SQLSTATE[42S22]: Column not found: 1054 Unknown column 'first_name' in 'field list'`.
+
+**Root cause**: the exact same recurring mistake already documented in this codebase's own hotfix history
+(prior session's admin-dashboard cleanup: "users table has no first_name/last_name — recurring gotcha") —
+`convertToStudent()`'s `INSERT INTO users (...)` listed `first_name, last_name` columns that don't exist
+on `users` at all (the person's name only ever lives on the `students`/`agents`/`admins` profile table, as
+a single `full_name` field). Since this is inside a `try { ... } catch (\PDOException $e) { rollBack(); ...
+500 }` block, **every single conversion attempt, unconditionally, since this endpoint shipped, has failed**
+— a completely non-functional feature, not an edge case. Secondary bug in the same block: the
+`INSERT INTO students (...)` never included `full_name` at all (a `NOT NULL` column), so even fixing just
+the `users` half would have hit a second fatal error immediately after.
+
+**Fix**: rewrote both INSERTs to match the exact pattern every other working registration path in this
+codebase already uses (`RegistrationController::completeStudentReg()`,
+`StudentController::agentCreateStudent()`) — `users` gets email/phone (encrypted + lookup + prefix
+hashes for search), no name columns; `students` gets `full_name` from `$lead['full_name']` plus
+`phone_in_profile`.
+
+**Verified live end-to-end, not just "no more SQL error"**: re-ran the same conversion request — `200
+"Lead converted to student"` with a real `student_public_id`. Queried the DB directly: the new student row
+has the correct `full_name` ("Farhan Test Lead 3"), `nationality`, `lead_source` carried over from the
+lead, account `status = 'active'`; the source lead flipped to `status = 'converted'` with
+`converted_student_id` correctly pointing at the new student. Then went one step further than "the DB row
+looks right" — decrypted the new account's email and **actually logged in as the converted student** with
+the password supplied at conversion time, confirming the account is genuinely usable, not just
+structurally present in the database.
+
+### 2026-07-14 — Full deployment-readiness audit: global search scoping across all three roles, no bugs
+
+Full-system audit, global search area. Builds on the admin-role RBAC gaps already found and fixed
+elsewhere in this audit's `SearchController` work — this pass specifically attacked cross-role/cross-scope
+leakage from the agent and student sides.
+
+- Agent (tier3) searching by name for a real, existing student who belongs to a different branch of the
+  same hierarchy (already proven out-of-subtree via the earlier hierarchy-boundary testing) — empty
+  results, no leakage. Positive control confirmed the search mechanism itself works correctly: the same
+  agent searching for their own real student by name found them immediately.
+- Agent searching `types=agents` — empty (non-admin roles never get the agents/leads branches at all,
+  confirmed both by earlier code reading and this live check).
+- Student searching for another real, existing student's name — empty results (students never search
+  other students at all, a deliberate privacy rule, confirmed live rather than just trusting the code
+  comment). Student searching the university catalog — real results returned, confirming the block is
+  specific to student-vs-student privacy, not a broken search feature generally.
+
+No fixes needed — every boundary held on the first live attempt, consistent with the admin-side RBAC
+gaps found and fixed elsewhere in this audit (all now closed).
+
+**Files changed**: `crm-api/Controllers/LeadsController.php`.

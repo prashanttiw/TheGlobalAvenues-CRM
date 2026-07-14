@@ -3,7 +3,14 @@
 **Prepared for:** The Global Avenues (TGA)
 **Covers:** The full CRM platform at `apply.theglobalavenues.com` — Student Portal, Agent Portal, and Admin Portal
 **Status of the system described:** Live, production build, as verified directly against the current source code
-**Document date:** 2026-07-09
+**Document version:** 1.1 — **Last updated:** 2026-07-14
+
+**Revision history:**
+
+| Version | Date | What changed |
+|---|---|---|
+| 1.0 | 2026-07-09 | Initial complete edition — all three portals, all cross-cutting systems. |
+| 1.1 | 2026-07-14 | Re-verified against a system-wide deployment-readiness audit and the fixes it produced: the university/course/intake catalog now has an explicit campus-selection step everywhere it's needed (Sections 5.2, 5.3, 5.4, 7.5); application review moved from a side panel to a dedicated full page (Section 5.8); a document can no longer be replaced once approved (Sections 5.8, 7.4); several access-control boundaries were confirmed and, in a couple of cases, tightened (Sections 4.3, 4.7, 5.12, 8); notice content filtering and background-job reliability were strengthened (Sections 4.2, 4.5, 4.9, 5.11); several smaller UI corrections (Sections 5.6, 5.9, 6.3, 6.6, 7.3, 7.6). |
 
 ---
 
@@ -198,7 +205,7 @@ Several layers of protection work together, mostly invisibly, to keep student an
 - **Partial/"starts with" search on encrypted fields:** a special set of additional short hashes (covering just the first 4, 6, or 8 characters of an email, or the first 4/6 digits of a phone number) let admin staff search "starts with" on encrypted data without ever decrypting a whole table's worth of records to do it — a meaningful performance difference once the student list is in the thousands.
 - **Passwords:** hashed with Argon2id (the current best-practice password-hashing algorithm), tuned with a memory cost and time cost read from server configuration.
 - **Rate limiting:** login attempts, OTP requests, and public-facing endpoints (like the lead-capture form on the public website) are all limited to a small number of attempts per time window, tracked per IP address and per account, with an automatic escalating lockout.
-- **Upload safety:** every uploaded file's true type is checked by inspecting its actual bytes (not just trusting the file extension or the browser's claimed content-type), and image uploads are additionally scanned for embedded PHP code — a known attack technique where a working image file also secretly contains executable code, hoping a careless server will run it.
+- **Upload safety:** every uploaded file's true type is checked by inspecting its actual bytes (not just trusting the file extension or the browser's claimed content-type), and image uploads are additionally scanned for embedded PHP code — a known attack technique where a working image file also secretly contains executable code, hoping a careless server will run it. As a second, independent layer, the folder that serves publicly-viewable uploads (avatars, notice attachments, university logos) is separately configured at the web-server level to never execute any file placed in it, no matter what type it claims to be — so even a hypothetical future gap elsewhere couldn't turn an uploaded file into running code.
 - **Downloads are integrity-checked:** every file has a stored cryptographic fingerprint (SHA-256 checksum) computed at upload time; every time that file is downloaded again, the system recomputes the fingerprint of what's actually on disk and refuses to serve it if the two don't match, logging the mismatch as a security event.
 
 #### Why it was built this way
@@ -215,7 +222,7 @@ Several layers of protection work together, mostly invisibly, to keep student an
 
 Not every admin can do everything. A super admin decides, page by page, exactly which parts of the Admin portal each individual admin staff member can see — and separately, whether they can only *look* at that page (read-only) or also *make changes* on it (full access). A counsellor might be able to see and edit Students and Applications, but only look at (not touch) Reports; a finance-focused admin might have full access to Commissions but no access to the Leads pipeline at all. This is set up once per admin account and can be changed at any time.
 
-A small number of powers are reserved for super admins specifically and cannot be handed to a regular admin no matter what boxes are ticked: creating or deleting other admin accounts, editing the system-wide configuration settings, and permanently destroying a file. Super admin status itself, once granted, also cannot be removed through the interface — it's a deliberately hard-to-reverse status, changeable only by someone with direct database access.
+A small number of powers are reserved for super admins specifically and cannot be handed to a regular admin no matter what boxes are ticked: creating or deleting other admin accounts, editing the system-wide configuration settings, and permanently destroying a file. Super admin status itself can only be granted by an existing super admin, and once granted, cannot be removed through the interface at all — it's a deliberately hard-to-reverse status, changeable only by someone with direct database access.
 
 #### Step by step — granting a page to an admin
 
@@ -314,7 +321,7 @@ A number of routine tasks need to happen on a schedule, without any person needi
 - **The scheduling mechanism:** one cPanel cron entry runs `cron/scheduler.php` every minute. That script uses a lock file to guarantee only one copy of itself is ever running at a time (if a previous run is still going, a new one exits immediately rather than piling up), checks a small JSON file recording when each job last ran, and launches (as a separate process) any job that's now due.
 - **Stuck-job recovery:** before doing anything else, the scheduler checks whether any job has been sitting in a "running" state for more than 15 minutes (which would only happen if something crashed mid-run without cleaning up after itself) and force-marks it as failed so it isn't permanently stuck blocking future runs.
 - **Safe concurrent processing:** several of these jobs use a database technique called `SELECT ... FOR UPDATE SKIP LOCKED` when pulling a batch of work (e.g. pending emails) to process. In plain terms: if the job somehow ran twice at once, each copy would automatically skip rows the other copy has already claimed, guaranteeing no email is ever sent twice, without needing a more complicated locking scheme.
-- **Every job has a time limit** so that a single stuck job can never hang the server indefinitely — it's forcibly stopped and marked failed, to be picked up again on its next scheduled run.
+- **Every job has a time limit** so that a single stuck job can never hang the server indefinitely — it's forcibly stopped and marked failed, to be picked up again on its next scheduled run. The notification-sending job specifically reuses one connection to the mail server across a whole batch of emails (rather than opening a new one per email) and tracks its own running time as it goes, so instead of risking being cut off mid-batch, it gracefully stops and leaves any remaining emails for the next run — about a minute later — keeping a large backlog from ever causing a stalled or failed run.
 
 #### Why it was built this way
 
@@ -367,7 +374,7 @@ Who gets to see whose activity depends on their role:
 
 #### Technical detail
 
-- **Database-level enforcement, not just application logic:** the `activity_logs` table's database permissions are configured so that the application's own database user is only allowed to `INSERT` new rows — it has no permission to `UPDATE` or `DELETE` existing ones, at the database engine level. Even a bug in the application code, or a compromised admin session, could not be used to alter or erase history from this table, because the database itself would refuse the operation regardless of what the application asked it to do.
+- **Database-level enforcement, not just application logic:** no code path anywhere in the application ever attempts to update or delete an existing activity log row — confirmed by a full search of the codebase — and the production database is designed to have its own application database user restricted to `INSERT` only on this table, with no `UPDATE`/`DELETE` permission granted at the database engine level at all. Together, this means even a bug in the application code, or a compromised admin session, could not be used to alter or erase history from this table — the database itself would refuse the operation regardless of what the application asked it to do.
 - **Actor names are recorded as a snapshot at the time of the action**, not looked up fresh every time the log is viewed — so the log still correctly shows "Jane Smith approved this agent" even if Jane's account is later renamed or deleted.
 - **Personal/sensitive data is deliberately stripped before anything is written to the log** — password hashes, raw email/phone values, and session tokens are automatically removed from any "before/after" snapshot the log records, and any very long text value is truncated, so the audit trail itself never becomes a second place where sensitive data leaks out.
 - **The agent-tier visibility rule** is powered by a single shared helper function that all four different "who can see this log" checks (admin-own, super-admin, agent, student) route through, so the tier-visibility logic only exists in one place and can't drift out of sync between different parts of the system.
@@ -410,7 +417,7 @@ TGA has set internal response-time targets for itself — a submitted document s
 #### Technical detail
 
 - **Current configured targets:** document review within 48 hours of submission; application review within 72 hours of submission.
-- **How a target is tracked:** when a document or application enters the relevant "waiting for review" stage, a clock starts (an `sla_events` row is created with a target completion time). If review happens before that time, the clock is closed as "met." If the review deadline is reached first, a background job (Section 4.5, running every 15 minutes) marks it "breached" and alerts all super admins. If the underlying item is withdrawn/cancelled before either of those happens, the clock is closed out rather than left dangling.
+- **How a target is tracked:** when a document or application enters the relevant "waiting for review" stage, a clock starts (an `sla_events` row is created with a target completion time). If review happens before that time, the clock is closed as "met." If the review deadline is reached first, a background job (Section 4.5, running every 15 minutes) marks it "breached" and alerts all super admins — each breached item is checked and notified independently, so a problem with one doesn't prevent any of the others found in the same check from being flagged. If the underlying item is withdrawn/cancelled before either of those happens, the clock is closed out rather than left dangling.
 
 #### Why it was built this way
 
@@ -463,22 +470,24 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 
 ### 5.2 University Catalog Management
 
-**What it does:** Maintains the master list of partner universities — the same catalog that powers what students and agents browse when applying.
+**What it does:** Maintains the master list of partner institutions — the same catalog that powers what students and agents browse when applying.
 
 **Step by step:**
-1. The Universities page lists every university, switchable between a grid (with logos) and table view, searchable by name, country, city, or even by a course/intake name inside that university (e.g. searching a specific course name correctly surfaces its parent university).
-2. "Add University" opens a short form (name, country, city, website, exclusive/non-exclusive partnership type); saving takes the admin straight to that university's own detail page to finish filling it in.
-3. On the detail page, every field (name, country, city, website, partnership type, description, ranking/fact info) can be edited in place — double-click the field, type, it saves itself immediately, no separate "save" button or page reload needed for each field.
-4. A logo can be uploaded (hovering over the current logo reveals an upload icon); the system automatically generates a smaller thumbnail version for use in lists.
-5. A university can be marked active or inactive with one click on its status badge (inactive universities stop appearing to students/agents browsing to apply, but remain visible and editable to admin staff).
-6. Additional campuses of the same institution can be added as linked "sibling" entries (see below) directly from the detail page.
-7. Deleting a university requires confirming a warning dialog.
+1. The Universities page lists every partner **institution** (not every individual campus — see below), switchable between a grid (with logos) and table view, searchable by name, country, city, or even by a course/intake name inside that institution (e.g. searching a specific course name correctly surfaces its parent institution).
+2. Two filters narrow the list: a text search, and a partnership-type filter (**All / Exclusive / Non-exclusive**).
+3. "Add University" opens a short form (name, country, city, website, exclusive/non-exclusive partnership type); saving takes the admin straight to that institution's own detail page to finish filling it in.
+4. On the detail page, every field (name, country, city, website, partnership type, description, ranking/fact info) can be edited in place — double-click the field, type, it saves itself immediately, no separate "save" button or page reload needed for each field.
+5. A logo can be uploaded (hovering over the current logo reveals an upload icon); the system automatically generates a smaller thumbnail version for use in lists.
+6. A university can be marked active or inactive with one click on its status badge (inactive universities stop appearing to students/agents browsing to apply, but remain visible and editable to admin staff).
+7. Additional campuses of the same institution can be added as linked "sibling" entries (see below) directly from the detail page.
+8. Deleting a university requires confirming a warning dialog.
 
 **Technical & business notes:**
-- **Multi-campus universities:** rather than storing a list of campus names against one university record, each campus of a multi-campus institution is modeled as its own **fully independent** university record — with its own courses, fees, intakes, applications, status, and logo — linked to its siblings only by sharing a common group identifier. The detail page shows an "Other Campuses" panel listing the linked siblings. This means, deliberately, that adding a new campus starts that campus with **no** courses or fees copied over from the main campus — TGA's own explicit instruction during the original data import was that assuming a new campus offers identical courses at identical prices to its "parent" campus would be guessing, not knowing, and the system should never silently guess.
-- Search reaches into a university's courses and intakes (not just its own name/location fields) via an efficient database technique (`EXISTS` subqueries) chosen specifically to avoid inflating or duplicating result counts, which a more naive join-based search would risk doing once a university has dozens or hundreds of courses.
+- **Multi-campus universities:** rather than storing a list of campus names against one university record, each campus of a multi-campus institution is modeled as its own **fully independent** university record — with its own courses, fees, intakes, applications, status, and logo — linked to its siblings only by sharing a common group identifier. This means, deliberately, that adding a new campus starts that campus with **no** courses or fees copied over from the main campus — TGA's own explicit instruction during the original data import was that assuming a new campus offers identical courses at identical prices to its "parent" campus would be guessing, not knowing, and the system should never silently guess.
+- **The list an admin sees is grouped to one card per real-world institution**, not one card per campus row — a 2-campus institution shows once, with a "2 campuses" badge and a course count summed across both campuses. Opening it goes to the detail page, which shows an "Other Campuses" panel for switching between the institution's individual campuses. (Behind the scenes, every other page that needs to pick one *specific* campus — Courses, Intakes — still lists campuses individually, since a course or intake always belongs to exactly one campus, not to the institution as a whole; see Sections 5.3/5.4.)
+- Search reaches into a university's courses and intakes (not just its own name/location fields) via an efficient database technique (`EXISTS` subqueries) chosen specifically to avoid inflating or duplicating result counts, which a more naive join-based search would risk doing once a university has dozens or hundreds of courses. Searching a term that only matches one campus of a multi-campus institution still correctly surfaces that institution's card.
 
-**Why it was built this way:** Treating each campus as a fully independent record (rather than a sub-list under one "master" university) means every downstream feature — applications, fees, intakes, reporting — already works correctly for a specific campus without needing any special-case logic anywhere else in the system. The trade-off is that adding a tenth campus of the same university means re-entering (or copying, campus by campus) that university's course catalog — accepted deliberately, in favor of never showing fee or course information that hasn't actually been confirmed for that specific location.
+**Why it was built this way:** Treating each campus as a fully independent record (rather than a sub-list under one "master" university) means every downstream feature — applications, fees, intakes, reporting — already works correctly for a specific campus without needing any special-case logic anywhere else in the system. The trade-off is that adding a tenth campus of the same university means re-entering (or copying, campus by campus) that university's course catalog — accepted deliberately, in favor of never showing fee or course information that hasn't actually been confirmed for that specific location. Grouping the *list view* back down to one card per institution (while keeping every other page campus-specific) exists purely so admin staff aren't scrolling past duplicate-looking rows for one institution's several campuses.
 
 ---
 
@@ -487,13 +496,14 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 **What it does:** Manages the individual academic programs (courses) offered under each university.
 
 **Step by step:**
-1. A single, flat Courses page lists every course across every university (filterable down to one university, searchable by course or university name) — built this way specifically so an admin never has to click into 300+ individual university pages one at a time just to find or fix one course.
-2. Every visible field (name, degree level, duration, language, status) can be double-click-edited directly in the list, the same in-place-editing pattern used on the University detail page.
-3. "Add Course" opens a short form: name, which university it belongs to, degree level (Certificate through PhD), duration in months, and language of instruction.
+1. A single, flat Courses page lists every course across every campus (searchable by course or university name) — built this way specifically so an admin never has to click into 300+ individual university pages one at a time just to find or fix one course.
+2. Filtering down to one institution is a two-step pick: choose the **institution** first, then — only if that institution has more than one campus — a second dropdown appears to choose the specific **campus** (each campus is labeled with its city so same-named sibling campuses are never ambiguous, e.g. "Alexander College — Larnaca" vs. "Alexander College — Paphos"). A single-campus institution skips straight to filtering, no extra click needed. The "Add Course" form uses the identical two-step picker to choose which specific campus a new course belongs to.
+3. Every visible field (name, degree level, duration, language, status) can be double-click-edited directly in the list, the same in-place-editing pattern used on the University detail page.
 4. Deleting a course shows an explicit warning that doing so will also close every one of its intakes (enrollment windows) — this cannot be undone.
 
 **Technical & business notes:**
 - **Fees live on the intake, not the course.** A course itself has no price; each of its intakes (enrollment terms) carries its own tuition figure, because fees genuinely can and do change term to term. Updating a course's "fee" from the Courses page is really a convenience shortcut that applies the new figure to every one of that course's currently-open or upcoming intakes at once — it deliberately refuses to run if the course has no open/upcoming intake to apply a price to yet.
+- A course always belongs to one specific campus, never to a whole multi-campus institution at once — this is why filtering and creating both need the institution-then-campus picker rather than just an institution picker.
 
 ---
 
@@ -502,8 +512,8 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 **What it does:** Manages the specific enrollment windows ("intakes" — e.g. "Fall 2027 Intake") within each course, including their fees, key dates, and open/closed status.
 
 **Step by step:**
-1. A flat, cross-course Intakes page (same reasoning as Courses, above), filterable by university then course, searchable, and filterable by status.
-2. "Create Intake" collects the course it belongs to, the intake name, month/year, application deadline, course start date, tuition fee and currency, an initial status, and any special requirement notes.
+1. A flat, cross-course Intakes page (same reasoning as Courses, above), filterable by institution → campus → course (the same two-step institution/campus picker described in Section 5.3, with the course dropdown then scoped to whichever campus is selected), searchable, and filterable by status.
+2. "Create Intake" uses the identical institution → campus → course cascade to pick exactly which course the new intake belongs to, then collects the intake name, month/year, application deadline, course start date, tuition fee and currency, an initial status, and any special requirement notes.
 3. Each row offers **Clone Intake** — instantly creates a new intake for the next term by copying over the course, month/year, fee, and requirement notes, but deliberately leaves the actual dates blank and resets status to "upcoming," so the admin is prompted to fill in the genuinely-new information (dates) rather than accidentally publishing a clone with last term's already-passed deadline.
 4. Status can be moved forward — upcoming → open → closed — but **never backward**: once an intake is closed, it stays closed permanently and cannot be reopened, by design.
 5. Deleting an intake that already has real student applications against it is blocked with a clear explanation, rather than silently orphaning those applications.
@@ -538,7 +548,7 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 **Step by step:**
 1. Requests default to showing only ones still awaiting a decision, searchable by student name.
 2. Each row shows the student, their current agent, the agent they've requested (or "Auto-assign" if they left that blank), their stated reason, and when they asked.
-3. **Approve** opens a panel summarizing the change; if the student left the "who to" question blank, the admin must pick an agent to assign; if the student did name someone, the admin can still override that choice with a different agent if there's a good operational reason to.
+3. **Approve** opens a panel summarizing the change; if the student left the "who to" question blank, the admin must pick an agent to assign; if the student did name someone, the admin can still override that choice with a different agent if there's a good operational reason to. The agent picker shows a browsable list of agents as soon as it's opened — an admin doesn't need to already know an agent's exact name or referral code to find them.
 4. **Deny** just asks for an optional internal note.
 5. On approval, the student's file updates immediately, and three separate notifications go out at once: the student is told their new agent, the previous agent (if there was one) is told they've lost this student, and the new agent is told they've gained one.
 
@@ -573,10 +583,10 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 
 **Step by step:**
 1. The Applications list is searchable by reference number, student, course, or university, with filters for status, university, and year.
-2. Opening an application (or arriving via a direct link, e.g. from a search result or a notification) opens a detail panel showing everything about it.
+2. Opening an application (or arriving via a direct link, e.g. from a search result or a notification) takes the admin to that application's own dedicated page — a full, responsive view rather than a narrow side panel, laid out as a header summary (student, reference number, status, university/course/intake/tuition/agent) with the working sections — Move Application, Document Requests, Payments — alongside a running Timeline, reflowing to a single stacked column on a smaller screen.
 3. **Moving the status forward:** only the button(s) for stages that are actually a legal next step from the application's current stage are shown — exactly mirroring the rules described in Section 4.8 — so an admin physically cannot attempt an invalid jump from the interface itself.
 4. **Withdrawing** an application (available from most stages, not just early ones) requires typing a reason.
-5. **Requesting a document:** the admin describes what's needed and an optional deadline; the student (or their agent, on the student's behalf) uploads it; the admin then Approves or Rejects it (rejection requires a reason, and loops the request back to "waiting for a document" so it can be resubmitted); a still-outstanding, not-yet-submitted request can also simply be cancelled.
+5. **Requesting a document:** the admin describes what's needed and an optional deadline; the student (or their agent, on the student's behalf) uploads it; the admin then Approves or Rejects it (rejection requires a reason, and loops the request back to "waiting for a document" so it can be resubmitted); a still-outstanding, not-yet-submitted request can also simply be cancelled. Once a document has been approved, it's locked — neither the student nor their agent can replace it with a different file afterward, keeping an approved document from ever being silently swapped out without a fresh review.
 6. **Requesting a payment:** the admin describes the fee, amount, currency, an optional payment link, and an optional due date; once the student (or agent) marks it as paid, the admin Confirms or Disputes it; a disputed payment can later be resolved back to confirmed, or cancelled outright.
 7. A running **Timeline** on the application records every status change, every document/payment event, and any free-text note an admin chooses to add — each note can optionally be marked visible to the assigned agent or admin-internal only, and an admin can delete a note they personally added.
 
@@ -589,7 +599,7 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 
 **Current status: not yet available for use.** Opening this page shows admin staff a message that it's still being finished, and blocks any interaction with the page until they navigate away via the sidebar. This is a deliberate hold, not a bug — TGA asked for the page to stay closed off while final checks continue.
 
-**What it's for, once released:** a ledger tracking what commission each agent has earned on each successfully placed student — a pending → confirmed → paid lifecycle, with the confirmed figure permanently locked at the database level the moment it's confirmed, so it can never be silently altered afterward. This matters because these figures ultimately drive real payouts to real business partners.
+**What it's for, once released:** a ledger tracking what commission each agent has earned on each successfully placed student — a pending → confirmed → paid lifecycle, with the confirmed figure permanently locked the moment it's confirmed, enforced independently both by the application itself and, as a backstop, by the database directly — so it can never be silently altered afterward, by any means. This matters because these figures ultimately drive real payouts to real business partners.
 
 ---
 
@@ -612,9 +622,10 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 4. Publishing sends the notice out to everyone in the chosen audience(s) at once, both as an email and as an in-app notification.
 5. An optional expiry date can be set (shown clearly on the notice once it's close to or past that date), and an optional file (image or PDF) can be attached.
 6. If the notice type is "Event" rather than a general notice, two extra fields appear for the event's date/time and location.
+7. An admin with delete rights can remove a notice; like everywhere else in the system, this is a soft delete (Section 4.6) rather than a permanent destruction.
 
 **Technical & business notes:**
-- Any rich-text formatting a notice contains is deliberately filtered down to a safe, limited set of formatting tags before being saved or shown to anyone — this prevents a notice (even one written by a trusted admin, as a safety-in-depth measure) from ever being able to embed active scripts or unsafe HTML.
+- Any rich-text formatting a notice contains is deliberately filtered down to a safe, limited set of formatting tags before being saved or shown to anyone — headings, bold/italic/underline, lists, quotes, code, and links — with every other HTML attribute stripped from what remains, including on tags that are otherwise allowed. A link is individually checked too: only ordinary web addresses, email links, and same-site links are kept, and anything else (including a disguised "run this code" link hidden inside what looks like a normal link) is removed. This prevents a notice — even one written by a trusted admin, as a safety-in-depth measure — from ever being able to embed hidden scripts or unsafe click-triggers, not just unsafe tags.
 - Publishing to a large audience is sent in batches of 1,000 recipients at a time internally, so publishing a notice to TGA's entire student base doesn't attempt one enormous, fragile all-at-once operation.
 
 ---
@@ -623,7 +634,7 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 
 **Current status: not yet available for use**, for the same reason as Commissions and Leads above.
 
-**What it's for, once released:** TGA's analytics console — six views into the health of the business (executive overview, recruitment funnel, agent performance rankings, university performance, lead-source effectiveness, and a custom trend chart), plus the ability to export Students, Applications, Agents, or Commissions data to Excel, CSV, or PDF. The numbers are designed to come from a once-a-day pre-calculated snapshot (Section 4.5) rather than a live query on the spot — heavy correlating-everything-across-everyone calculations like these would slow the shared server down for every user if run fresh every time someone opened a report, so they're computed once, overnight, and simply read back instantly whenever a report tab is opened.
+**What it's for, once released:** TGA's analytics console — six views into the health of the business (executive overview, recruitment funnel, agent performance rankings, university performance, lead-source effectiveness, and a custom trend chart), plus the ability to export Students, Applications, Agents, or Commissions data to Excel, CSV, or PDF. The numbers are designed to come from a once-a-day pre-calculated snapshot (Section 4.5) rather than a live query on the spot — heavy correlating-everything-across-everyone calculations like these would slow the shared server down for every user if run fresh every time someone opened a report, so they're computed once, overnight, and simply read back instantly whenever a report tab is opened. Exporting raw data specifically requires an admin to hold both the general Reports permission *and* their own view access to that specific data type (e.g. exporting student records needs Students view access too) — access to summary dashboards alone doesn't also unlock bulk-downloading raw records from a section that admin can't otherwise see.
 
 ---
 
@@ -726,7 +737,7 @@ Covered in step-by-step detail in **Section 4.1**. To recap the parts specific t
 
 **Technical detail — how the system checks who can see which students, efficiently:**
 
-Rather than the system needing to walk a whole family tree of agents every single time it checks "is this agent allowed to see this student," each agent record stores two things: who directly recruited them (`parent_agent_id`), and — critically — the identity of the Tier 1 agent sitting at the very top of their specific branch of the tree (`root_agent_id`), set once, at the moment they're created, and never recalculated. A Tier 1 agent's visibility check becomes a single, instant comparison ("does this student's agent share my same top-of-tree identifier?") rather than a potentially slow recursive search through every level of the tree on every single page load. A Tier 2 agent's check is similarly simple: their own students, plus students belonging to agents who list *them* specifically as the direct parent. A Tier 3 agent's check is simplest of all: only their own directly-assigned students.
+Rather than the system needing to walk a whole family tree of agents every single time it checks "is this agent allowed to see this student," each agent record stores two things: who directly recruited them (`parent_agent_id`), and — critically — the identity of the Tier 1 agent sitting at the very top of their specific branch of the tree (`root_agent_id`), set once, at the moment they're created, and never recalculated. A Tier 1 agent's visibility check becomes a single, instant comparison ("does this student's agent share my same top-of-tree identifier?") rather than a potentially slow recursive search through every level of the tree on every single page load. A Tier 2 agent's check is similarly simple: their own students, plus students belonging to agents who list *them* specifically as the direct parent. A Tier 3 agent's check is simplest of all: only their own directly-assigned students. These boundaries are enforced on every single request, not just in what the interface happens to show — an agent cannot view, retrieve, or act on a student outside their own branch of the hierarchy by any means, including by directly addressing a record they aren't supposed to have access to.
 
 **Why it was built this way:** A tree that has to be walked level-by-level to answer "can this person see this record" gets measurably slower as the network grows deeper and wider — exactly the kind of cost that compounds badly over time as TGA's partner network expands. Pre-computing and storing the top-of-tree identifier once, when an agent is created, converts every future visibility check into the fastest possible kind of database lookup, no matter how large the overall network eventually becomes.
 
@@ -760,6 +771,8 @@ Rather than the system needing to walk a whole family tree of agents every singl
 2. A picker lets the agent either search their existing roster for the right student, or choose "New Student" to create one on the spot (chaining directly into Section 6.5's flow, with the intake they were just looking at already pre-selected).
 3. Exactly the same rules apply as when a student applies for themselves (Section 4.8, Section 7.2): if the student's profile is already complete enough, the application submits immediately; if not, the agent is taken into the same "Complete Application Details" form to finish it, on the student's behalf.
 4. The application record itself keeps a permanent note of who actually started it — the agent, the student, or an admin — separate from which agent is the student's assigned agent of record, so this distinction is never lost even if the student's agent later changes.
+
+An agent can only ever do this for a student genuinely within their own roster — attempting to start or manage an application for a student outside their network is rejected, the same hierarchy boundary described in Section 6.3.
 
 ### 6.7 Applications Overview
 
@@ -835,7 +848,7 @@ The Student portal (`/portal/student/...`) is what a prospective or current stud
 **What it does:** The one shared form — used identically whether a student is filling it in for themselves, or an agent is filling it in on a student's behalf — that gathers everything TGA needs before an application can actually be submitted: personal details, academic history, and required documents.
 
 **Step by step:**
-1. **Personal Details:** gender, an alternate mobile number (optional), how they heard about TGA, and — only when a student is doing this for themselves, not when an agent is filling it in on their behalf — an optional field to assign themselves an agent by referral code, right here, if they haven't got one already. (A student's core name, primary mobile number, and passport details are deliberately not editable from this particular form — those live on the separate Profile page, Section 7.9, to keep this form focused on what's actually needed to get an application moving.)
+1. **Personal Details:** gender, an alternate mobile number (optional), how they heard about TGA, and — only when a student is doing this for themselves, not when an agent is filling it in on their behalf — an optional field to assign themselves an agent, right here, if they haven't got one already. This field shows a browsable list of approved agents as soon as it's opened, narrowable by typing a name, agency, or referral code — a student doesn't need to already know an exact code to use it. (A student's core name, primary mobile number, and passport details are deliberately not editable from this particular form — those live on the separate Profile page, Section 7.9, to keep this form focused on what's actually needed to get an application moving.)
 2. **Academic History & Test Scores:** the student can add as many prior qualifications (institution, degree level, field of study, dates, grade) and standardized test results (test name, overall score, and the four section scores, with the test date) as apply to them — each one saves immediately the moment it's added, individually, rather than waiting for one big final save.
 3. **Documents:** a checklist of required uploads — photo, passport (front and back), academic transcript, and marksheet — plus optional ones (CV, statement of purpose, letters of recommendation, a "no objection" letter, and an English-proficiency certificate). Ticking "I am planning to apply for a PhD program" reveals two further required uploads specific to doctoral applicants.
 4. Once every *required* document is uploaded, the form can be submitted. Submitting marks the student's overall profile as ready, and — if this specific form was reached via a particular in-progress application — automatically finishes submitting that exact application at the same moment.
@@ -851,17 +864,20 @@ The Student portal (`/portal/student/...`) is what a prospective or current stud
 1. Every outstanding or past document request shows its label, any deadline, and its current state.
 2. A request still waiting for a first upload, or one that was reviewed and **rejected**, both show an Upload/Re-upload action; anything already submitted-and-approved shows a simple green confirmation instead.
 3. Uploading starts a formal review clock (Section 4.9) and notifies the reviewing admin.
-4. If rejected, the admin's reason is shown, and the student can immediately re-upload — the request simply loops back to "waiting for a document" rather than being a dead end.
+4. If rejected, the admin's reason is shown, and the student can immediately re-upload — the request simply loops back to "waiting for a document" rather than being a dead end. Once a document has been approved, though, that's final — it can no longer be replaced with a different file, so an approved document can never be silently swapped out without a fresh admin review.
 
 ### 7.5 Browsing Universities, Courses & Intakes
 
-**What it does:** The catalog browsing experience — searching universities, drilling into their courses, and applying directly to a specific open intake.
+**What it does:** The catalog browsing experience — searching institutions, picking a specific campus, drilling into its courses, and applying directly to a specific open intake.
 
 **Step by step:**
-1. A searchable, filterable (by country) list of universities, paginated.
-2. Clicking a university shows its course list, plus — where relevant — a switcher to any of its linked sister campuses (Section 5.2).
-3. Clicking a course shows its currently available intakes as individual cards, each showing key dates and fees.
-4. An "Apply" button appears on any intake that's currently open (closed or not-yet-open intakes don't offer it) — clicking it immediately starts the application (Section 7.2). Browsing itself is never restricted by profile completeness — only what happens *after* clicking Apply depends on that.
+1. A searchable, filterable (by country) list of partner **institutions**, paginated — one card per institution, even if it has several campuses.
+2. Clicking an institution opens a **campus picker** — a dedicated step listing every campus of that institution (each showing its city and how many programs it offers), always shown even when there's only one campus. This is a separate step from browsing courses, so switching between an institution's campuses is always one clear click away rather than a small toggle buried inside the course list.
+3. Clicking a campus shows its course list.
+4. Clicking a course shows its currently available intakes as individual cards, each showing key dates and fees.
+5. An "Apply" button appears on any intake that's currently open (closed or not-yet-open intakes don't offer it) — clicking it immediately starts the application (Section 7.2). Browsing itself is never restricted by profile completeness — only what happens *after* clicking Apply depends on that.
+
+A breadcrumb trail at the top always shows all four levels (Institution → Campus → Course → Intakes) and lets a student jump back up to any of them directly.
 
 ### 7.6 Your Agent / Consultant
 
@@ -869,7 +885,7 @@ The Student portal (`/portal/student/...`) is what a prospective or current stud
 
 **Step by step:**
 1. If an agent is assigned, their name, agency, tier, referral code, country, and contact details are shown.
-2. If reassignment is currently allowed (see below), a request form lets the student explain why (a short reason is required), and optionally name a specific agent they'd rather work with by referral code — if the student currently has no agent at all, naming one is required rather than optional.
+2. If reassignment is currently allowed (see below), a request form lets the student explain why (a short reason is required), and optionally browse for and name a specific agent they'd rather work with (the same browsable agent picker described in Section 7.3 — searchable by name, agency, or referral code, no need to already know the code) — if the student currently has no agent at all, naming one is required rather than optional.
 3. The request goes to TGA's admin team for review and a decision (Section 5.6); the student is notified either way.
 4. If the student has no agent at all, the page instead shows a clear "no consultant assigned yet" state with a direct way to either claim a referral code or ask to be assigned one.
 
@@ -926,7 +942,7 @@ Every portal has a single search box, opened from anywhere with `Ctrl+K` (or `Cm
 
 ### Technical detail
 
-- One shared backend endpoint serves all three portals, but what it's allowed to search is different for each role: an admin's search reaches students, applications, universities, courses, agents, and leads; an agent's search is scoped to their own visible network (their students and applications, plus universities/courses); a student's search is scoped to only their own applications, plus universities/courses — deliberately excluding any other student, agent, or lead data entirely.
+- One shared backend endpoint serves all three portals, but what it's allowed to search is different for each role: an admin's search can reach students, applications, universities, courses, agents, and leads — but for each of those categories individually, results are also filtered by that specific admin's own page-access grants (Section 4.3), the same as everywhere else in the system, so an admin without access to the Agents page gets no agent results from search either, even though the rest of their search still works normally; an agent's search is scoped to their own visible network (their students and applications, plus universities/courses); a student's search is scoped to only their own applications, plus universities/courses — deliberately excluding any other student, agent, or lead data entirely.
 - Searching waits for a brief pause after typing stops (300 milliseconds) before actually querying the server, and is rate-limited per user, so rapid typing doesn't flood the server with a search request per keystroke.
 - Each record type is searched and capped independently (a handful of top matches per type) and the results are combined into one list, ordered so the most likely-relevant types surface first.
 - Because email and phone number fields are encrypted (Section 4.2), searching for a student by those fields uses the same exact-match/"starts with" technique described there, not a full free-text search.
@@ -940,6 +956,8 @@ A single global search box, rather than requiring a user to first decide "which 
 ## 9. Current Limitations & Notes
 
 Three admin-facing pages are not yet available for general use: **Commissions** (Section 5.9, and its agent-side counterpart, Section 6.9), **Leads Pipeline** (Section 5.10), and **Reports & Exports** (Section 5.12). Each currently shows a "still being finished" message and blocks interaction until the user navigates away — a deliberate hold while final checks continue, not a bug. Everything else described in this document is built, working, and in active use today.
+
+One further backend capability exists but has no way to reach it yet: the system can store staff-only notes attached to a student, application, agent, university, or course record (with per-note visibility to agents/students, and pinning), but no current page in any portal actually exposes this — it isn't reachable through a single click anywhere in the live interface today, so it isn't documented as a usable feature elsewhere in this report.
 
 ---
 

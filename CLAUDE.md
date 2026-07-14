@@ -176,7 +176,7 @@ D:\TheGlobalAvenues-CRM\
 | **File downloads** | 8KB chunked `fread()` — NOT `readfile()` (memory exhaustion). X-Sendfile unavailable on Bluehost. |
 | **OTP emails** | Sent synchronously via `MailService::sendNow()` — bypasses the notification queue. 2-min queue delay is unacceptable for auth. |
 | **FOR UPDATE SKIP LOCKED** | Used in cron jobs. Rows MUST be updated to `status='processing'` BEFORE the transaction commits — not after. Otherwise duplicate processing occurs. |
-| **Two state managers** | `ApplicationStateManager` (simple, role-guarded, 5 states, no transaction) and `StateManager` (extended, 20 states, transactional, fires notifications + SLA). They coexist. Check which a controller uses before editing. |
+| **Two state managers, one dead** | `ApplicationStateManager` (simple, role-guarded, 5 states, no transaction) exists but is **not called from any controller, cron script, or frontend code** — confirmed by full-codebase search 2026-07-14. `ApplicationController` exclusively uses `StateManager` (extended, 20 states, transactional, fires notifications + SLA) for every transition. Treat `ApplicationStateManager` as dead code; `StateManager` is the only one that matters. |
 | **Database::getConnection()** | Always use this. NOT `Database::connect()`. |
 | **`npm run preview`** | Not in `package.json` scripts (only `dev` and `build`). Use `npx vite preview` if needed. |
 
@@ -274,7 +274,7 @@ Actual table count: ~41+ (original "40 tables" spec predates Phase 9 additions).
 | Service | Owns |
 |---------|------|
 | `ActivityLogger` | INSERT to `activity_logs` — columns: `actor_user_id`, `action`, `target_type`, `target_id` |
-| `ApplicationStateManager` | **Simple** 5-state role-guarded machine (final class). No transaction. Updates `profile_status`. |
+| `ApplicationStateManager` | **Dead code** — simple 5-state role-guarded machine (final class), fully implemented but never called from anywhere. `ApplicationController` uses `StateManager` exclusively. |
 | `AuditService` | Structured audit events wrapping ActivityLogger |
 | `BackupRetentionManager` | Prunes Drive backups per `backup_retain_*` settings (NOT `backup_retention_*`) |
 | `CommissionService` | Commission CRUD, state transitions, agent-chain validation |
@@ -424,7 +424,9 @@ All event keys must have a matching row in `notification_templates`.
 
 ### Application Status (`applications.status`)
 
-**`ApplicationStateManager`** — simple, role-guarded (used by some controllers):
+**`ApplicationStateManager`** — simple, role-guarded, fully implemented but **dead code, never called
+from any controller, cron script, or frontend code** (confirmed by full-codebase search 2026-07-14).
+Its rule table for reference only, since nothing runs it:
 ```
 draft         → submitted       [student, agent, admin]
 submitted     → under_review    [admin]
@@ -441,7 +443,7 @@ waitlisted    → submitted       [admin]
 ```
 On `enrolled`: sets `students.agent_lock_status = 'locked'`.
 
-**`StateManager`** — extended, transactional (used by `ApplicationController`):
+**`StateManager`** — extended, transactional (the only state manager actually used, exclusively by `ApplicationController`):
 All states above + `inquiry`, `profile_review`, `documents_submitted`, `conditional_offer`,
 `unconditional_offer`, `cas_coe_issued`, `visa_applied`, `visa_approved`, `visa_rejected`,
 `pre_departure`, `departed`, `deferred`. Runs inside `beginTransaction()` with `FOR UPDATE`. Also fires
@@ -684,9 +686,11 @@ php cron/process-reminders.php
 5. **Migration 038 duplicate prefix.** Both `038_pending_registrations.sql` and `038_seeds.sql` share
    the `038` prefix. Not a functional issue with combined SQL but may confuse file-based tooling.
 
-6. **`StateManager` vs `ApplicationStateManager` — no documentation on which controller uses which.**
-   Both coexist. Before modifying application state transitions, read the specific controller to
-   confirm which class it delegates to.
+~~6. `StateManager` vs `ApplicationStateManager` — no documentation on which controller uses which.~~ —
+   **Resolved 2026-07-14.** Full-codebase search confirms `ApplicationStateManager` is never called from
+   anywhere (no controller, cron script, or frontend code). `ApplicationController` uses `StateManager`
+   exclusively for every transition. `ApplicationStateManager.php` is dead code — safe to delete if a
+   future cleanup pass wants to, not urgent.
 
 7. **`npm run preview` not in package.json.** Only `dev` and `build` are defined. Use `npx vite preview`.
 

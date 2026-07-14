@@ -1030,3 +1030,96 @@ error) in two *unrelated* files during this fix's live audit — `AdminDashboard
 - `npx vite build` clean (no stale references to the removed envelope types anywhere in `src/`).
 
 **Files changed**: `src/shared/hooks/useNotifications.ts`.
+
+### 2026-07-14 — Notification cron's root timeout cause fixed (the 2026-07-10 fix only mitigated the symptom)
+
+Full deployment-readiness audit, cross-cutting notifications area. The 2026-07-10 fix above (stale-`processing`
+sweep) makes a fatal mid-batch timeout *recoverable*, but never addressed *why* the timeout happens: the send
+loop called `MailService::createMailer()` **inside** the `foreach`, so every single notification opened a brand
+new SMTP connection (connect + STARTTLS + AUTH + DATA + QUIT — measured ~2.15s each against live Gmail). At
+`LIMIT 50` per batch, worst-case serial runtime is ~50 × 2.15s ≈ 107s — right at the edge of `set_time_limit(110)`,
+and any Gmail latency variance tips it over. Since a PHP execution-timeout fatal is uncatchable (bypasses
+`try/catch` entirely, confirmed in the 07-10 entry too), every run under a realistic backlog was one slow
+network blip away from crashing mid-batch, skipping `CronHealth::failure()` and leaving `in_app` bookkeeping
+(the `queued→sent` flip after the email loop) un-run for that cycle.
+
+**Reproduced live first**: a genuine local backlog of 87 email-channel notifications (built up over many past
+sessions where cron never auto-runs — noted local-dev gotcha) reliably fatal-crashed the unmodified script:
+`PHP Fatal error: Maximum execution time of 110 seconds exceeded in .../SMTP.php on line 1299`. Isolated SMTP
+connect+auth alone to 2.15s via a standalone debug script to confirm the arithmetic (not a hang — Gmail
+responded normally, there just wasn't enough time budget for 50 sequential full connections).
+
+**Fix** (`cron/send-notifications.php`):
+1. Create one `PHPMailer` with `SMTPKeepAlive = true` **before** the loop; call `clearAddresses()` +
+   `send()` per recipient instead of reconnecting, then `smtpClose()` once after the loop. Same object also
+   used by the existing fallback-mailer path unchanged (fallback still opens its own connection — rare path).
+2. Added an explicit wall-clock budget check (90s, comfortably inside the 110s ceiling) at the top of each
+   loop iteration. If tripped, the loop breaks and any rows already marked `processing` this run but not yet
+   attempted are written straight back to `queued` (no attempts increment — they were never actually tried),
+   so the *next* cron tick (≈1 min) retries them immediately instead of waiting on the 5-minute stuck-row
+   sweep from the 07-10 fix. That sweep still exists as a second line of defense for the actual crash case
+   (e.g. a hard SMTP hang, not just a big batch), which connection reuse doesn't fully rule out.
+3. `CronHealth::success()` detail string now includes `Deferred:N` alongside `Sent`/`Failed` so a
+   time-budget break is visible in the health record, not indistinguishable from "nothing to do."
+
+**Verified live end-to-end against the real backlog, not a synthetic one**:
+- Ran the fixed script against the live 87-row backlog: completed in 91.9s with `CronHealth` recording
+  `last_run_status = 'success'`, detail `Sent:8 Failed:24 Deferred:18` — no fatal, no PHP error output.
+- Ran it again immediately after: `Sent:0 Failed:29 Deferred:21`, again a clean `success` — confirms the
+  deferred rows from run 1 were correctly re-queued (not lost, not stuck) and picked up by run 2, and that
+  repeated runs under sustained load stay stable rather than degrading.
+- The `Failed` rows are real Gmail `550`-class `SMTP Error: data not accepted` responses — this dev Gmail
+  account's daily send quota, already diagnosed as an environment limit in a prior session, re-triggered by
+  this audit's own volume of test logins/registrations/OTPs. Not a code defect; left as-is (self-clears at
+  Gmail's daily reset, retried up to the existing 3-attempt cap either way).
+- `in_app` notifications reached `0` stuck in `queued` after the two runs (298 correctly flipped to `sent`),
+  confirming the loop no longer blocks that bookkeeping line even mid-backlog.
+- `php -l` clean.
+
+**Files changed**: `cron/send-notifications.php`.
+
+### 2026-07-14 — Full deployment-readiness audit: background cron jobs sweep — one silent-notification-loss bug found and fixed
+
+Full-system audit, background jobs area. Ran the real master `scheduler.php` (not the individual scripts
+directly) to exercise the actual production invocation path, then checked every job's `cron_health` row.
+All 4 currently-scheduled jobs (`send-notifications.php`, `check-sla-breaches.php`,
+`generate-snapshots.php`, `monitor-disk.php`) completed with `last_run_status = success` and sensible
+detail strings. `check-sla-breaches.php` genuinely found and processed a real, pre-existing breached SLA
+event (an overdue application) during this run — confirmed live: both `sla_events.status` flipped to
+`breached` and `breach_notified` to `1`, and real `sla.breached` notifications (both channels) were queued
+for the correct recipients (`NotificationService::getSuperAdminUserIds()` — confirmed both recipient user
+IDs are genuinely super admins). `generate-snapshots.php` populated `report_snapshots` with the expected
+dimension spread (per-agent, per-country, per-lead-source, per-university, plus global metrics) for
+yesterday's date. `monitor-disk.php` correctly read real disk usage (50.7%, below the 80% warning
+threshold — correctly did not fire a notification).
+
+**Bug found while reading `check-sla-breaches.php` for this audit**: the script bulk-marks the ENTIRE
+batch of newly-breached `sla_events` rows `status='breached', breach_notified=1` in one UPDATE, then loops
+over them firing `NotificationService::fire()` + `ActivityLogger::log()` per event. If either call threw
+for any single event partway through the loop (a genuine DB hiccup, not the "missing template" case, which
+already silently no-ops rather than throwing), the exception would propagate out of the `foreach`,
+`CronHealth::failure()` would record the run as failed — but every event *not yet reached* in that same
+loop already had `breach_notified=1` set by the earlier bulk UPDATE. Since the breach-detection `SELECT`
+that seeds the batch filters on `breach_notified = 0`, those events would never be picked up again by any
+future run — their notification would be silently, permanently lost, with no error surfaced anywhere
+pointing at the specific missed entity.
+
+**Fix**: wrapped the per-event notification + activity-log calls in a `try/catch`, logging via `error_log()`
+on failure and continuing to the next event, so one event's failure can't take down notification delivery
+for every other event already-committed as breached in the same batch. Mirrors the existing
+per-notification isolation pattern already used in `send-notifications.php`'s own loop.
+
+**Verified live**: `php -l` clean; re-ran the script immediately after the fix against the (now
+already-notified) real breach — `cron_health` recorded `success`, `"0 breaches processed"` (correct — no
+new breaches, and the already-processed one correctly wasn't picked up again), confirming the refactor
+didn't change the script's normal happy-path behavior.
+
+**Also reviewed, no action needed**: `archive-old-logs.php` is intentionally left unscheduled in
+`scheduler.php` (existing comment: "activity_logs must never be deleted (product decision 2026-07-08)") —
+confirmed the script genuinely still contains a real `DELETE FROM activity_logs` that would violate that
+policy if ever invoked, so its exclusion from the schedule is load-bearing, not just cosmetic; left as-is
+per the standing decision, did not execute it against real data. `cron_health`'s `cleanup_rate_limits` row
+is a confirmed pre-existing dead row (seeded by a migration, no script ever implemented it — already
+documented in migration `084`'s own comments) — not a new finding.
+
+**Files changed**: `cron/check-sla-breaches.php`.

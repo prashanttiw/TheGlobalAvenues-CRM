@@ -2550,4 +2550,103 @@ now reachable directly.
 
 **Files changed**: `src/pages/agent/AgentStudents.tsx`.
 
+### 2026-07-14 — Full deployment-readiness audit: commission immutability confirmed at both layers, no bugs
+
+Full-system audit, commissions area. Created a real commission on a real enrolled application, walked it
+pending -> confirmed -> paid through the actual endpoints, then attacked the "immutable once paid" claim
+from every angle:
+
+- PHP guard: attempted to edit the amount on the now-paid commission - 422 COMMISSION_LOCKED "Only
+  pending commissions can be edited." Attempted delete - 422 COMMISSION_LOCKED "Only pending commissions
+  can be deleted." Attempted to push it backwards (re-confirm) - 422 INVALID_TRANSITION "Only pending
+  commissions can be confirmed."
+- DB trigger (the second, independent layer CLAUDE.md claims exists): went around the application
+  entirely and ran a raw UPDATE commissions SET amount = 8888 WHERE ... directly against the database as
+  the root DB user - genuinely rejected at the database level: ERROR 1644 (45000): COMMISSION_IMMUTABLE:
+  Financial fields on paid commissions are locked. Confirmed the row's amount stayed 5000.00,
+  unchanged. This is real defense-in-depth, not just an application-layer convention - even a direct SQL
+  client with full privileges cannot mutate a paid commission's financial fields.
+
+No fixes needed - every check passed on the first attempt, at both layers.
+
+### 2026-07-14 - Full deployment-readiness audit: agent portal full sweep, hierarchy boundaries thoroughly attacked with zero leakage found
+
+Full-system audit, agent portal area. No bugs found; recording the verification since the hierarchy
+boundary testing was the highest-value part of this pass.
+
+Mapped a real 3-tier hierarchy for this test: Rajesh Kumar (tier1, root) with two tier2 children Sonia
+Sharma and Test SubAgent L2 Flow (siblings), each with their own tier3 child (Arjun Test Agent 3 under
+Sonia; Test SubSubAgent L3 Flow under Test SubAgent L2 Flow) - siblings at both tier2 and tier3, plus a
+completely separate second root (a different tier1 agent with no relation at all) for cross-root testing.
+
+- Roster scoping: tier3 agent's own roster correctly returned only their own 2 students, nothing from
+  their parent or from the sibling branch. Tier2 agent's roster correctly returned only their own +
+  direct-sub-agent's students (empty, since neither had any) - explicitly NOT their tier2 sibling's or
+  that sibling's tier3 child's students, despite being at the same tree depth.
+- Direct-ID IDOR across every boundary shape tried: tier3 agent attempting a sibling-branch tier2's
+  student by guessing the real public_id - 403 STUDENT_NOT_IN_SUBTREE. Tier2 agent attempting both its
+  tier2 sibling's student AND that sibling's tier3 child's student - 403 both times. Tier1 agent
+  attempting a student belonging to a completely unrelated second root - 403.
+- Positive control (to prove the guard is actually scoping, not just universally denying): the same tier1
+  root agent successfully retrieved both branches' students (Sonia's and Arjun's) via the identical
+  endpoint that 403'd everyone else - confirming root-level visibility genuinely covers the whole subtree
+  and the 403s above weren't just a broken/over-restrictive endpoint.
+- Dashboard for every tier: tier2 and tier3 dashboards both live-tested (not just tier1, which the audit
+  brief specifically calls out) - both returned correct, differently-scoped real data (tier3 showed its
+  real 2-student roster with a genuine 50% conversion rate; tier2 correctly showed a team summary with 1
+  sub-agent).
+- Agent-assisted application creation: agent created a real draft application on behalf of their own
+  student successfully; the identical request naming a student outside their subtree correctly 403'd
+  ("Student not found in your network") rather than silently creating it - confirmed live, not just from
+  the pre-existing code comment noting this was a fixed vulnerability in an earlier session.
+- Spot-checked commissions view (real endpoint, correctly empty for an agent with none) and the notices
+  feed (real published notices returned) - both functioning.
+
+No fixes needed in this area - every boundary held on the first attempt.
+
+### 2026-07-14 — AgentCombobox: browse-all-on-focus instead of requiring 2+ typed characters (post-audit item 3/4)
+
+Item 3 of the user's 4-item post-audit list (see items 1-2 above, both in `PHASE_4_APPEND.md`). User's
+complaint: everywhere an agent search/assignment happens, the field only accepted searching by exact
+name or referral code — "no one will remember that" — and wanted a full browsable list shown on focus,
+narrowing as the user types.
+
+**Root cause, one shared component**: `src/shared/components/ui/AgentCombobox.tsx` had
+`enabled: debouncedQuery.length >= 2` on its `useQuery`, and its results dropdown was only rendered
+when `query.length >= 2 && results.length > 0` — so nothing appeared at all until the user had already
+typed 2 characters of a name/agency/code they had to already know. This one component is shared by all
+4 places in the app where this pattern exists: `ProfileCompletionPanel.tsx` and `StudentAgentPage.tsx`
+(student portal), `AdminReassignmentsPage.tsx` and `AdminLeadsPage.tsx` (admin portal) — fixing it once
+fixes all 4.
+
+**Fix**: both backend endpoints already handled an empty search term gracefully —
+`StudentController::agentDirectory()` returns the first 20 approved agents (`ORDER BY full_name ASC`)
+when `$q === ''`, and `AdminAgentController::listAll()` similarly returns its full paginated list
+(`ORDER BY a.created_at DESC`) with no `search` param — so no backend change was needed, only the
+frontend's artificial gate. Removed the `enabled` length check entirely (the query now always runs,
+keeping data ready before the user even interacts). Added an `isOpen` state set on `onFocus` and on
+every `onChange` keystroke, with a document-level `mousedown` listener to close it on outside click
+(the dropdown is no longer implicitly gated shut by an empty query, so it needs its own real
+open/close state). Default placeholder changed from "Search agent by name or code…" to "Type to
+search, or click to browse all agents…" to describe the new behavior; the one explicit
+placeholder-override at the call site in `AdminReassignmentsPage.tsx` was removed so it picks up the
+new default.
+
+**Verified live** (admin scope, `AdminReassignmentsPage.tsx`'s Approve-Reassignment panel): focusing the
+field fired `GET admin&action=agents&per_page=8&status=approved` with **no** `search` param at all and
+returned 8 real approved agents — confirming the "show everyone by default" behavior. Typing "Priya"
+correctly re-fired debounced as `...&search=Priya&status=approved`, narrowed to exactly 1 match ("Priya
+Nair", `TGA-RSP637`), which rendered in the dropdown and was selectable — clicking it correctly
+transitioned the component into its selected-agent state with the "Remove" button, same as before.
+
+**Testing note, not a product issue**: this session's browser-automation tooling hit two known
+environment quirks while verifying — a `SlideOverPanel`'s Framer Motion enter animation froze mid-
+transform when the panel opened via a script-triggered click while the tab was backgrounded (matches
+[[preview_testing_gotchas]]; fixed for testing purposes by calling `.finish()` on its running
+`Animation` objects), and CDP-simulated clicks landing correctly per `elementFromPoint` but not always
+moving `document.activeElement`. Neither reflects real user interaction, which uses genuine OS-level
+focus/click and isn't affected.
+
+**Files changed**: `src/shared/components/ui/AgentCombobox.tsx`, `src/pages/admin/AdminReassignmentsPage.tsx`.
+
 
