@@ -25,7 +25,7 @@ import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { EditableField } from '../../shared/components/ui/EditableField'
 import { CountrySelect } from '../../shared/components/ui/CountrySelect'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
-import { ApplicationDetailDrawer, renderApplicationStatus } from '../../shared/components/applications/ApplicationDetailDrawer'
+import { renderApplicationStatus } from '../../shared/components/applications/applicationStatusBadge'
 import { usePermission } from '../../hooks/usePermission'
 
 const DEGREE_OPTIONS = [
@@ -50,7 +50,6 @@ export default function AdminUniversityDetailPage() {
   const canWrite = usePermission('universities', 'edit')
   const [isAddCourseOpen, setIsAddCourseOpen] = React.useState(false)
   const [courseForm, setCourseForm] = React.useState({ name: '', degree_level: 'bachelors', duration_months: 24, language: 'English' })
-  const [selectedApplicationPid, setSelectedApplicationPid] = React.useState<string | null>(null)
   const [isAddCampusOpen, setIsAddCampusOpen] = React.useState(false)
   const [campusForm, setCampusForm] = React.useState({ city: '', country: '' })
   const fileInputRef = React.useRef<HTMLInputElement>(null)
@@ -424,7 +423,7 @@ export default function AdminUniversityDetailPage() {
             columns={applicationColumns}
             data={applications}
             isLoading={applicationsQuery.isLoading}
-            onRowClick={(row: any) => setSelectedApplicationPid(row.public_id)}
+            onRowClick={(row: any) => navigate(`/portal/admin/applications/${row.public_id}`)}
             emptyMessage="No students have applied to this university yet."
           />
         </CardContent>
@@ -518,12 +517,6 @@ export default function AdminUniversityDetailPage() {
           </div>
         </form>
       </SlideOverPanel>
-
-      <ApplicationDetailDrawer
-        applicationPid={selectedApplicationPid}
-        onOpenChange={(open) => !open && setSelectedApplicationPid(null)}
-        onMutated={() => void queryClient.invalidateQueries({ queryKey: ['admin', 'university-detail', pid, 'applications'] })}
-      />
 
       <input
         type="file"

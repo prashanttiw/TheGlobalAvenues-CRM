@@ -36,6 +36,7 @@ export default function AdminUniversitiesPage() {
   const [viewMode, setViewMode] = React.useState<'grid' | 'table'>(readStoredViewMode)
   const [search, setSearch] = React.useState('')
   const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const [partnershipFilter, setPartnershipFilter] = React.useState('')
   const [page, setPage] = React.useState(1)
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [editingUniversity, setEditingUniversity] = React.useState<any | null>(null)
@@ -57,9 +58,9 @@ export default function AdminUniversitiesPage() {
   // this used to fan out one extra request per university just to count its courses,
   // which is what caused rate-limit errors once the catalog held 200+ universities.
   const universitiesQuery = useQuery({
-    queryKey: ['admin', 'universities', 'cards', page, debouncedSearch],
+    queryKey: ['admin', 'universities', 'cards', page, debouncedSearch, partnershipFilter],
     queryFn: async () => {
-      const result = await fetchAdminUniversitiesLive({ page, perPage: PER_PAGE, q: debouncedSearch || undefined })
+      const result = await fetchAdminUniversitiesLive({ page, perPage: PER_PAGE, q: debouncedSearch || undefined, partnershipType: partnershipFilter || undefined, view: 'grouped' })
       const universities = (result.universities ?? []).map((university: any) => ({
         ...university,
         courseCount: university.course_count ?? null,
@@ -160,7 +161,6 @@ export default function AdminUniversitiesPage() {
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <MapPin className="h-3.5 w-3.5" />
           {row.city ? `${row.city}, ` : ''}{row.country}
-          {!!row.sibling_count && <Badge variant="outline" className="ml-1">+{row.sibling_count} campuses</Badge>}
         </span>
       ),
     },
@@ -196,6 +196,15 @@ export default function AdminUniversitiesPage() {
 
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 bg-surface-card border border-border-warm rounded-xl p-3">
         <SearchInput value={search} onChange={setSearch} placeholder="Search by name, location, course, or intake…" className="sm:max-w-sm" />
+        <select
+          value={partnershipFilter}
+          onChange={(e) => { setPartnershipFilter(e.target.value); setPage(1) }}
+          className="w-full sm:w-48 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+        >
+          <option value="">All Partnerships</option>
+          <option value="exclusive">Exclusive</option>
+          <option value="non_exclusive">Non-exclusive</option>
+        </select>
         <div className="sm:ml-auto flex rounded-lg border border-border-warm overflow-hidden self-start">
           <button
             type="button"
@@ -257,7 +266,6 @@ export default function AdminUniversitiesPage() {
               <CardContent className="mt-4 border-t border-border-warm pt-4 flex items-center justify-between">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Globe className="h-3.5 w-3.5" />{univ.country}
-                  {!!univ.sibling_count && <Badge variant="outline">+{univ.sibling_count} campuses</Badge>}
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-brand-navy font-semibold"><BookOpen className="h-3.5 w-3.5 text-brand-orange-accessible" />{univ.courseCount === null ? 'Courses —' : `${univ.courseCount} Courses`}</div>
               </CardContent>
