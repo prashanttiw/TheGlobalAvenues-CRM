@@ -63,57 +63,91 @@ try {
         $pdo->commit();
     }
 
-    $sent = 0; $failed = 0;
+    $sent = 0; $failed = 0; $deferred = 0;
 
-    foreach ($notifications as $notif) {
-        try {
-            $email = EncryptionService::decrypt($notif['email_enc']);
+    if (!empty($notifications)) {
+        // Reuse one SMTP connection across the whole batch instead of a fresh connect+auth+quit
+        // per email (~2s each at Gmail). At LIMIT 50, per-email reconnect made worst-case runtime
+        // (~107s) hug the set_time_limit(110) ceiling — and a PHP execution-timeout fatal is NOT
+        // catchable, so it skipped the catch block below entirely, meaning CronHealth::failure()
+        // never ran and this job just looked stuck instead of failed. SMTPKeepAlive fixes the
+        // throughput; the wall-clock budget check below is the actual guarantee against fatals.
+        $mail = MailService::createMailer();
+        $mail->SMTPKeepAlive = true;
 
-            $mail = MailService::createMailer();
-            $mail->addAddress($email);
-            $mail->isHTML(true);
-            $mail->Subject = $notif['subject'] ?? '(No Subject)';
-            $body = $notif['body'] ?? '';
-            $mail->Body    = MailService::buildHtmlBody($body);
-            $mail->AltBody = $body;
-            try {
-                $mail->send();
-            } catch (\Throwable $primaryEx) {
-                $mailFallback = MailService::createFallbackMailer();
-                if ($mailFallback !== null) {
-                    error_log("[SMTP Fallback] Primary failed. Retrying with fallback server: " . $primaryEx->getMessage());
-                    $mailFallback->addAddress($email);
-                    $mailFallback->isHTML(true);
-                    $mailFallback->Subject = $notif['subject'] ?? '(No Subject)';
-                    $mailFallback->Body    = MailService::buildHtmlBody($body);
-                    $mailFallback->AltBody = $body;
-                    $mailFallback->send();
-                } else {
-                    throw $primaryEx;
-                }
+        $processedIds = [];
+        $timeBudgetSeconds = 90; // stay well clear of the 110s script ceiling
+
+        foreach ($notifications as $notif) {
+            if ((microtime(true) - $startTime) > $timeBudgetSeconds) {
+                break; // remaining rows are reverted to 'queued' below for the next run to pick up in ~1 min
             }
 
-            $pdo->prepare("
-                UPDATE notifications SET status='sent', sent_at=NOW(),
-                attempts=attempts+1, last_attempt_at=NOW() WHERE id=?
-            ")->execute([$notif['id']]);
-            $sent++;
+            $processedIds[] = $notif['id'];
 
-        } catch (\Throwable $e) {
-            $isFinal = ($notif['attempts'] + 1) >= 3;
-            $pdo->prepare("
-                UPDATE notifications
-                SET attempts = attempts + 1,
-                    last_attempt_at = NOW(),
-                    error_message = ?,
-                    status = ?
-                WHERE id = ?
-            ")->execute([
-                substr($e->getMessage(), 0, 500),
-                $isFinal ? 'failed' : 'queued',
-                $notif['id'],
-            ]);
-            $failed++;
+            try {
+                $email = EncryptionService::decrypt($notif['email_enc']);
+
+                $mail->clearAddresses();
+                $mail->addAddress($email);
+                $mail->isHTML(true);
+                $subject = $notif['subject'] ?? '(No Subject)';
+                $mail->Subject = $subject;
+                $body = $notif['body'] ?? '';
+                $mail->Body    = MailService::buildHtmlBody($subject, $body);
+                $mail->AltBody = MailService::toPlainText($body);
+                try {
+                    $mail->send();
+                } catch (\Throwable $primaryEx) {
+                    $mailFallback = MailService::createFallbackMailer();
+                    if ($mailFallback !== null) {
+                        error_log("[SMTP Fallback] Primary failed. Retrying with fallback server: " . $primaryEx->getMessage());
+                        $mailFallback->addAddress($email);
+                        $mailFallback->isHTML(true);
+                        $mailFallback->Subject = $subject;
+                        $mailFallback->Body    = MailService::buildHtmlBody($subject, $body);
+                        $mailFallback->AltBody = MailService::toPlainText($body);
+                        $mailFallback->send();
+                    } else {
+                        throw $primaryEx;
+                    }
+                }
+
+                $pdo->prepare("
+                    UPDATE notifications SET status='sent', sent_at=NOW(),
+                    attempts=attempts+1, last_attempt_at=NOW() WHERE id=?
+                ")->execute([$notif['id']]);
+                $sent++;
+
+            } catch (\Throwable $e) {
+                $isFinal = ($notif['attempts'] + 1) >= 3;
+                $pdo->prepare("
+                    UPDATE notifications
+                    SET attempts = attempts + 1,
+                        last_attempt_at = NOW(),
+                        error_message = ?,
+                        status = ?
+                    WHERE id = ?
+                ")->execute([
+                    substr($e->getMessage(), 0, 500),
+                    $isFinal ? 'failed' : 'queued',
+                    $notif['id'],
+                ]);
+                $failed++;
+            }
+        }
+
+        $mail->smtpClose();
+
+        // Rows locked into 'processing' at the top of this run but not reached before the time
+        // budget tripped — put them straight back to 'queued' (no attempts increment, they were
+        // never actually tried) so the next cron tick picks them up in ~1 minute, not the 5-minute
+        // stuck-row recovery window.
+        $unprocessedIds = array_diff(array_column($notifications, 'id'), $processedIds);
+        if (!empty($unprocessedIds)) {
+            $deferred = count($unprocessedIds);
+            $placeholders = implode(',', array_fill(0, $deferred, '?'));
+            $pdo->prepare("UPDATE notifications SET status='queued' WHERE id IN ($placeholders)")->execute(array_values($unprocessedIds));
         }
     }
 
@@ -125,7 +159,7 @@ try {
     ");
 
     $ms = (int)((microtime(true) - $startTime) * 1000);
-    CronHealth::success('send_notifications', $ms, "Sent:{$sent} Failed:{$failed}");
+    CronHealth::success('send_notifications', $ms, "Sent:{$sent} Failed:{$failed} Deferred:{$deferred}");
 
 } catch (\Throwable $e) {
     CronHealth::failure('send_notifications', $e->getMessage());
