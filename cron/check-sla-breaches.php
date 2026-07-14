@@ -46,20 +46,28 @@ try {
     }
 
     foreach ($breached as $event) {
-        $overdue = (int)round((time() - strtotime($event['target_at'])) / 3600);
-        
-        // Trigger notification
-        NotificationService::fire('sla.breached', [
-            'rule_name'     => $event['rule_name'],
-            'entity_type'   => $event['entity_type'],
-            'entity_id'     => $event['entity_id'],
-            'target_at'     => $event['target_at'],
-            'overdue_hours' => $overdue,
-            'admin_url'     => (Environment::get('APP_FRONTEND_URL', '') . '/admin/'),
-        ], NotificationService::getSuperAdminUserIds());
+        // breach_notified was already set to 1 for the WHOLE batch above (so a retry never
+        // reprocesses an event whose status update already committed). That means if fire()
+        // or the activity log throws for one event, isolating it per-event here is the only
+        // thing standing between that failure and every LATER event in this same batch
+        // silently never getting notified at all (the loop would die, but their
+        // breach_notified flag is already 1 — no future run would ever retry them).
+        try {
+            $overdue = (int)round((time() - strtotime($event['target_at'])) / 3600);
 
-        // Log Activity
-        ActivityLogger::log('sla.breached', $event['entity_type'], (int)$event['entity_id']);
+            NotificationService::fire('sla.breached', [
+                'rule_name'     => $event['rule_name'],
+                'entity_type'   => $event['entity_type'],
+                'entity_id'     => $event['entity_id'],
+                'target_at'     => $event['target_at'],
+                'overdue_hours' => $overdue,
+                'admin_url'     => (Environment::get('APP_FRONTEND_URL', '') . '/admin/'),
+            ], NotificationService::getSuperAdminUserIds());
+
+            ActivityLogger::log('sla.breached', $event['entity_type'], (int)$event['entity_id']);
+        } catch (\Throwable $e) {
+            error_log('[check-sla-breaches] Notification/log failed for sla_events.id=' . $event['id'] . ': ' . $e->getMessage());
+        }
     }
 
     $duration = (int) ((microtime(true) - $startTime) * 1000);
