@@ -24,6 +24,7 @@ import { Badge, StatusBadge, type StatusType } from '../../shared/components/ui/
 import { StatCard } from '../../shared/components/ui/StatCard'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidget'
+import { RecentNoticesCard } from '../../shared/components/ui/RecentNoticesCard'
 import { ProfileCompletionPanel } from '../../shared/components/student/ProfileCompletionPanel'
 import { useAuth } from '../../shared/hooks/useAuth'
 import { useUnreadCount } from '../../shared/hooks/useNotifications'
@@ -32,6 +33,7 @@ import {
   fetchStudentAgentInfo,
   fetchStudentApplicationsList,
   fetchStudentDocumentRequests,
+  fetchStudentNoticesFeed,
   fetchStudentPayments,
   markPaymentPaid,
 } from '../../lib/api'
@@ -200,6 +202,8 @@ export default function StudentOverviewPage() {
         </Card>
 
         <div className="space-y-6">
+          <RecentNoticesCard fetchFn={fetchStudentNoticesFeed} viewAllPath="/portal/student/notices" queryKeyPrefix="student" />
+
           <Card>
             <CardHeader className="flex flex-row items-center gap-2 pb-2">
               <FileText className="h-4 w-4 text-brand-orange-accessible" />

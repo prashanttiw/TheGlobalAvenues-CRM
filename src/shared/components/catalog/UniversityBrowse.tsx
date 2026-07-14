@@ -14,7 +14,9 @@ import {
   createApplication,
   fetchProgramIntakes,
   fetchUniversities,
+  fetchUniversityCampuses,
   fetchUniversityDetail,
+  type CatalogCampus,
   type CatalogUniversity,
   type UniversityDetailCourse,
 } from '../../../lib/api'
@@ -63,13 +65,36 @@ function Breadcrumb({ items }: { items: { label: string; onClick?: () => void }[
   )
 }
 
+function campusToCatalogUniversity(campus: CatalogCampus): CatalogUniversity {
+  return {
+    id: campus.public_id,
+    public_id: campus.public_id,
+    name: campus.name,
+    shortName: null,
+    country: campus.country,
+    city: campus.city,
+    partnershipType: 'non_exclusive',
+    isExclusive: false,
+    programCount: campus.programCount,
+    campusCount: 1,
+    startingTuition: null,
+    startingTuitionCurrency: null,
+    startingTuitionLabel: null,
+    logoUrl: campus.logoUrl,
+    logoThumbUrl: campus.logoThumbUrl,
+  }
+}
+
 export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowseProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const [search, setSearch] = React.useState('')
   const [country, setCountry] = React.useState('')
   const [page, setPage] = React.useState(1)
-  const [selectedUniversity, setSelectedUniversity] = React.useState<CatalogUniversity | null>(null)
+  // selectedGroup: the institution card chosen from the main list (university -> campus step).
+  // selectedCampus: the specific campus row chosen from the campus picker (campus -> course step).
+  const [selectedGroup, setSelectedGroup] = React.useState<CatalogUniversity | null>(null)
+  const [selectedCampus, setSelectedCampus] = React.useState<CatalogUniversity | null>(null)
   const [selectedCourse, setSelectedCourse] = React.useState<UniversityDetailCourse | null>(null)
   const [applyingIntakeId, setApplyingIntakeId] = React.useState<string | null>(null)
 
@@ -77,15 +102,16 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
     setPage(1)
   }, [search, country])
 
-  // Deep-link support: global search opens a specific university via ?open=<pid>
-  // without needing it to be on the currently loaded/filtered page. Uses a minimal
-  // stub — the real name/city/country/logo backfill in once detailQuery resolves.
+  // Deep-link support: global search opens a specific campus via ?open=<pid>, jumping straight to
+  // its course list — same as before, just skipping the group card and campus-picker steps rather
+  // than skipping a single list step. Uses a minimal stub — the real name/city/country/logo
+  // backfill in once detailQuery resolves.
   React.useEffect(() => {
     const openId = searchParams.get('open')
-    if (openId && !selectedUniversity) {
-      setSelectedUniversity({
+    if (openId && !selectedCampus) {
+      setSelectedCampus({
         id: openId, public_id: openId, name: '', shortName: null, country: '', city: null,
-        partnershipType: 'non_exclusive', isExclusive: false, programCount: 0, siblingCount: 0,
+        partnershipType: 'non_exclusive', isExclusive: false, programCount: 0, campusCount: 1,
         startingTuition: null, startingTuitionCurrency: null, startingTuitionLabel: null,
         logoUrl: null, logoThumbUrl: null,
       })
@@ -112,16 +138,23 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
     staleTime: 60_000,
   })
 
+  // Campus picker: every campus belonging to the selected institution.
+  const campusesQuery = useQuery({
+    queryKey: ['catalog', 'university-campuses', selectedGroup?.public_id],
+    queryFn: () => fetchUniversityCampuses(selectedGroup!.public_id),
+    enabled: !!selectedGroup && !selectedCampus,
+  })
+
   const detailQuery = useQuery({
-    queryKey: ['catalog', 'university-detail', selectedUniversity?.public_id],
-    queryFn: () => fetchUniversityDetail(selectedUniversity!.public_id),
-    enabled: !!selectedUniversity,
+    queryKey: ['catalog', 'university-detail', selectedCampus?.public_id],
+    queryFn: () => fetchUniversityDetail(selectedCampus!.public_id),
+    enabled: !!selectedCampus,
   })
 
   // Backfill the deep-link stub's display fields once the real record loads.
   React.useEffect(() => {
-    if (detailQuery.data && selectedUniversity && !selectedUniversity.name) {
-      setSelectedUniversity((prev) => prev ? {
+    if (detailQuery.data && selectedCampus && !selectedCampus.name) {
+      setSelectedCampus((prev) => prev ? {
         ...prev,
         name: detailQuery.data.name ?? prev.name,
         city: detailQuery.data.city ?? prev.city,
@@ -131,7 +164,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
         isExclusive: detailQuery.data.partnership_type === 'exclusive',
       } : prev)
     }
-  }, [detailQuery.data, selectedUniversity])
+  }, [detailQuery.data, selectedCampus])
 
   const intakesQuery = useQuery({
     queryKey: ['catalog', 'course-intakes', selectedCourse?.public_id],
@@ -162,12 +195,13 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
   }
 
   function handleAgentApply(intake: any) {
-    if (!selectedCourse || !selectedUniversity) return
-    onApplyForStudent?.(intake, selectedCourse, selectedUniversity)
+    if (!selectedCourse || !selectedCampus) return
+    onApplyForStudent?.(intake, selectedCourse, selectedCampus)
   }
 
   function backToList() {
-    setSelectedUniversity(null)
+    setSelectedGroup(null)
+    setSelectedCampus(null)
     setSelectedCourse(null)
     if (searchParams.has('open')) {
       const next = new URLSearchParams(searchParams)
@@ -176,15 +210,29 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
     }
   }
 
+  function backToCampuses() {
+    setSelectedCampus(null)
+    setSelectedCourse(null)
+  }
+
+  function selectCampus(campus: CatalogCampus) {
+    setSelectedCourse(null)
+    setSelectedCampus(campusToCatalogUniversity(campus))
+  }
+
   // Course intake view
-  if (selectedCourse && selectedUniversity) {
+  if (selectedCourse && selectedCampus) {
     const intakes = intakesQuery.data ?? []
+    const campusLabel = selectedGroup && selectedGroup.public_id !== selectedCampus.public_id
+      ? (selectedCampus.city ? `${selectedCampus.city} Campus` : selectedCampus.name)
+      : null
     return (
       <div className="space-y-4">
         <Breadcrumb
           items={[
             { label: 'Universities', onClick: backToList },
-            { label: selectedUniversity.name, onClick: () => setSelectedCourse(null) },
+            ...(selectedGroup ? [{ label: selectedGroup.name, onClick: backToCampuses }] : []),
+            ...(campusLabel ? [{ label: campusLabel, onClick: () => setSelectedCourse(null) }] : [{ label: selectedCampus.name, onClick: () => setSelectedCourse(null) }]),
             { label: selectedCourse.name },
           ]}
         />
@@ -250,70 +298,31 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
     )
   }
 
-  // University detail (course list) view
-  if (selectedUniversity) {
+  // Campus detail (course list) view
+  if (selectedCampus) {
     const courses = detailQuery.data?.courses ?? []
-    const siblings = detailQuery.data?.siblings ?? []
-
-    function openSibling(sibling: { public_id: string; name: string; city: string | null; country: string }) {
-      setSelectedCourse(null)
-      setSelectedUniversity({
-        id: sibling.public_id,
-        public_id: sibling.public_id,
-        name: sibling.name,
-        shortName: null,
-        country: sibling.country,
-        city: sibling.city,
-        partnershipType: 'non_exclusive',
-        isExclusive: false,
-        programCount: 0,
-        siblingCount: 0,
-        startingTuition: null,
-        startingTuitionCurrency: null,
-        startingTuitionLabel: null,
-        logoUrl: null,
-        logoThumbUrl: null,
-      })
-    }
 
     return (
       <div className="space-y-4">
         <Breadcrumb
           items={[
             { label: 'Universities', onClick: backToList },
-            { label: selectedUniversity.name },
+            ...(selectedGroup ? [{ label: selectedGroup.name, onClick: backToCampuses }] : []),
+            { label: selectedCampus.name },
           ]}
         />
         <div className="flex items-center gap-4">
-          <UniversityLogo name={selectedUniversity.name} logoThumbUrl={selectedUniversity.logoThumbUrl} logoUrl={selectedUniversity.logoUrl} size="xl" />
+          <UniversityLogo name={selectedCampus.name} logoThumbUrl={selectedCampus.logoThumbUrl} logoUrl={selectedCampus.logoUrl} size="xl" />
           <div>
             <h2 className="text-xl font-semibold text-brand-navy flex items-center gap-2">
-              {selectedUniversity.name}
-              {mode === 'readonly' && selectedUniversity.isExclusive && (
+              {selectedCampus.name}
+              {mode === 'readonly' && selectedCampus.isExclusive && (
                 <Badge variant="secondary" className="gap-1"><ShieldCheck className="h-3 w-3" />Exclusive Partner</Badge>
               )}
             </h2>
-            <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{selectedUniversity.city ? `${selectedUniversity.city}, ` : ''}{selectedUniversity.country}</p>
+            <p className="text-sm text-muted-foreground flex items-center gap-1"><MapPin className="h-3.5 w-3.5" />{selectedCampus.city ? `${selectedCampus.city}, ` : ''}{selectedCampus.country}</p>
           </div>
         </div>
-
-        {siblings.length > 0 && (
-          <div>
-            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Other Campuses</p>
-            <div className="flex flex-wrap gap-2">
-              {siblings.map((sibling: any) => (
-                <button
-                  key={sibling.public_id}
-                  onClick={() => openSibling(sibling)}
-                  className="flex items-center gap-1.5 rounded-full border border-border-warm bg-surface-warm px-3 py-1.5 text-xs hover:border-brand-orange-accessible/50 hover:bg-surface-card transition-colors"
-                >
-                  <MapPin className="h-3 w-3 text-brand-orange-accessible" />
-                  {sibling.city || 'Unknown city'}, {sibling.country}
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {detailQuery.isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -322,7 +331,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
             <SkeletonCard />
           </div>
         ) : courses.length === 0 ? (
-          <EmptyState icon={GraduationCap} heading="No programs yet" description="No active programs are listed for this university yet. Check back soon." />
+          <EmptyState icon={GraduationCap} heading="No programs yet" description="No active programs are listed for this campus yet. Check back soon." />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {courses.map((course: UniversityDetailCourse) => (
@@ -334,6 +343,64 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
                   <p className="flex items-center gap-1.5"><GraduationCap className="h-3.5 w-3.5" />{course.degree_level}</p>
                   <p>{course.duration_months ? `${course.duration_months} months` : 'Duration TBD'}</p>
                   <p className="text-brand-orange-accessible font-semibold text-xs">{course.open_intake_count} open intake{course.open_intake_count === 1 ? '' : 's'}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Campus picker view
+  if (selectedGroup) {
+    const campuses = campusesQuery.data ?? []
+
+    return (
+      <div className="space-y-4">
+        <Breadcrumb
+          items={[
+            { label: 'Universities', onClick: backToList },
+            { label: selectedGroup.name },
+          ]}
+        />
+        <div className="flex items-center gap-4">
+          <UniversityLogo name={selectedGroup.name} logoThumbUrl={selectedGroup.logoThumbUrl} logoUrl={selectedGroup.logoUrl} size="xl" />
+          <div>
+            <h2 className="text-xl font-semibold text-brand-navy flex items-center gap-2">
+              {selectedGroup.name}
+              {mode === 'readonly' && selectedGroup.isExclusive && (
+                <Badge variant="secondary" className="gap-1"><ShieldCheck className="h-3 w-3" />Exclusive Partner</Badge>
+              )}
+            </h2>
+            <p className="text-sm text-muted-foreground">Choose a campus to see its programs.</p>
+          </div>
+        </div>
+
+        {campusesQuery.isLoading ? (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
+          </div>
+        ) : campuses.length === 0 ? (
+          <EmptyState icon={MapPin} heading="No campuses found" description="This institution has no active campuses right now. Check back soon." />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {campuses.map((campus) => (
+              <Card key={campus.public_id} className="cursor-pointer hover:shadow-card-hover transition-shadow" onClick={() => selectCampus(campus)}>
+                <CardHeader className="pb-2">
+                  <div className="flex items-start gap-2">
+                    <UniversityLogo name={campus.name} logoThumbUrl={campus.logoThumbUrl} logoUrl={campus.logoUrl} size="md" />
+                  </div>
+                  <CardTitle className="text-base mt-3 leading-tight flex items-center gap-1.5">
+                    <MapPin className="h-3.5 w-3.5 text-brand-orange-accessible shrink-0" />
+                    {campus.city || 'Unknown city'}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1"><Globe className="h-3.5 w-3.5" />{campus.country}</span>
+                  <span className="font-semibold text-brand-navy">{campus.programCount} programs</span>
                 </CardContent>
               </Card>
             ))}
@@ -376,7 +443,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {universities.map((university) => (
-              <Card key={university.public_id} className="cursor-pointer hover:shadow-card-hover transition-shadow" onClick={() => setSelectedUniversity(university)}>
+              <Card key={university.public_id} className="cursor-pointer hover:shadow-card-hover transition-shadow" onClick={() => setSelectedGroup(university)}>
                 <CardHeader className="pb-2">
                   <div className="flex items-start justify-between gap-2">
                     <UniversityLogo name={university.name} logoThumbUrl={university.logoThumbUrl} logoUrl={university.logoUrl} size="md" />
@@ -389,7 +456,6 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
                 <CardContent className="flex items-center justify-between text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Globe className="h-3.5 w-3.5" />{university.country}
-                    {university.siblingCount > 0 && <Badge variant="outline">+{university.siblingCount} campuses</Badge>}
                   </span>
                   <span className="font-semibold text-brand-navy">{university.programCount} programs</span>
                 </CardContent>
