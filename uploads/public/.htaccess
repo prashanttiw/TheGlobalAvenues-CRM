@@ -1,0 +1,10 @@
+# Defense-in-depth: uploads/public/ must stay directly web-servable (avatars, notice
+# attachments, university logos), unlike storage/private/ which denies all direct access.
+# FileUploadService already blocks non-whitelisted MIME types and always writes a UUID-based
+# filename derived from the *detected* (finfo) MIME type, never the client-supplied name or
+# extension — so a PHP file cannot reach this directory through the app's own upload path.
+# This rule is the second layer: even if some other path ever wrote an executable file here,
+# Apache refuses to execute it.
+<FilesMatch "\.(php|phtml|php\d|pht|phar|cgi|pl|py|sh|exe)$">
+    Require all denied
+</FilesMatch>
