@@ -157,7 +157,7 @@ export default function AgentApplicationsPage() {
       />
 
       <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
-        <div className="flex flex-1 gap-2 flex-col sm:flex-row w-full">
+        <div className="flex flex-1 gap-2 flex-col sm:flex-row sm:flex-wrap w-full">
           <select
             value={statusFilter}
             onChange={(event) => {

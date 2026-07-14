@@ -724,7 +724,7 @@ export default function AdminNoticesPage() {
         }
       />
 
-      <div className="flex flex-col sm:flex-row gap-3 bg-surface-card p-4 rounded-xl border border-border-warm items-center">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 bg-surface-card p-4 rounded-xl border border-border-warm items-center">
         <SearchInput
           value={search}
           onChange={setSearch}

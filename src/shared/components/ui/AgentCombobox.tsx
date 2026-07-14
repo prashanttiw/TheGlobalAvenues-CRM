@@ -19,15 +19,32 @@ interface AgentComboboxProps {
   removeLabel?: string
 }
 
-export function AgentCombobox({ value, onChange, scope, placeholder = 'Search agent by name or code…', removeLabel = 'Remove' }: AgentComboboxProps) {
+export function AgentCombobox({ value, onChange, scope, placeholder = 'Type to search, or click to browse all agents…', removeLabel = 'Remove' }: AgentComboboxProps) {
   const [query, setQuery] = React.useState('')
   const [debouncedQuery, setDebouncedQuery] = React.useState('')
+  const [isOpen, setIsOpen] = React.useState(false)
+  const containerRef = React.useRef<HTMLDivElement>(null)
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedQuery(query), 250)
     return () => clearTimeout(t)
   }, [query])
 
+  // Close on outside click — the list otherwise stays open since it's no longer gated by query length.
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // No minimum-character gate: an empty query returns a default list (both backend endpoints
+  // already support this — most-recent/alphabetical agents up to their own limit) so focusing the
+  // field shows every reachable agent immediately, rather than forcing the user to already know
+  // the exact name or referral code before anything appears.
   const searchQuery = useQuery({
     queryKey: ['agent-combobox', scope, debouncedQuery],
     queryFn: async (): Promise<AgentOption[]> => {
@@ -37,7 +54,7 @@ export function AgentCombobox({ value, onChange, scope, placeholder = 'Search ag
       const result = await fetchAdminAgents({ q: debouncedQuery, perPage: 8, status: 'approved' })
       return result.agents
     },
-    enabled: debouncedQuery.length >= 2,
+    staleTime: 15_000,
   })
 
   const results = searchQuery.data ?? []
@@ -66,15 +83,16 @@ export function AgentCombobox({ value, onChange, scope, placeholder = 'Search ag
   }
 
   return (
-    <div className="relative">
+    <div className="relative" ref={containerRef}>
       <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
       <input
         className="w-full rounded-md border border-border-warm bg-surface-warm px-3.5 py-2.5 pl-9 text-sm text-brand-navy focus:border-brand-navy focus:outline-none"
         placeholder={placeholder}
         value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        onChange={(e) => { setQuery(e.target.value); setIsOpen(true) }}
+        onFocus={() => setIsOpen(true)}
       />
-      {query.length >= 2 && results.length > 0 && (
+      {isOpen && results.length > 0 && (
         <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-md border border-border-warm bg-surface-card shadow-card">
           {results.map((agent) => (
             <button
@@ -84,6 +102,7 @@ export function AgentCombobox({ value, onChange, scope, placeholder = 'Search ag
               onClick={() => {
                 onChange(agent)
                 setQuery('')
+                setIsOpen(false)
               }}
             >
               <span className="font-medium text-brand-navy">{agent.full_name}</span>
@@ -93,8 +112,10 @@ export function AgentCombobox({ value, onChange, scope, placeholder = 'Search ag
           ))}
         </div>
       )}
-      {query.length >= 2 && !searchQuery.isFetching && results.length === 0 && (
-        <p className="mt-1 text-xs text-muted-foreground">No approved agents match "{query}".</p>
+      {isOpen && !searchQuery.isFetching && results.length === 0 && (
+        <p className="mt-1 text-xs text-muted-foreground">
+          {query ? `No approved agents match "${query}".` : 'No approved agents available.'}
+        </p>
       )}
     </div>
   )

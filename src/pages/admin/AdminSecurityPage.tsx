@@ -249,7 +249,7 @@ export default function AdminSecurityPage() {
         })}
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
         <select
           value={eventTypeFilter}
           onChange={(e) => setEventTypeFilter(e.target.value)}

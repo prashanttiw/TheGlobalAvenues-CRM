@@ -50,6 +50,7 @@ import {
   fetchAdminAuditLog,
   fetchAdminDashboardStats,
   fetchAdminDocumentQueue,
+  fetchAdminNoticesFeed,
   fetchAdminPaymentQueue,
   fetchAdminPipeline,
   fetchAdminPrograms,
@@ -124,6 +125,7 @@ export function AdminDashboardPage() {
   const [agents, setAgents] = useState<any[]>([]);
   const [documents, setDocuments] = useState<AdminDocumentQueueItem[]>([]);
   const [pendingPayments, setPendingPayments] = useState<AdminPaymentQueueItem[]>([]);
+  const [recentNotices, setRecentNotices] = useState<any[]>([]);
   const [universities, setUniversities] = useState<AdminUniversityRecord[]>([]);
   const [programs, setPrograms] = useState<AdminProgramRecord[]>([]);
   const [auditEntries, setAuditEntries] = useState<AuditLogEntry[]>([]);
@@ -201,14 +203,16 @@ export function AdminDashboardPage() {
         // their individual page grants (only the action buttons are permission-gated), so this
         // never 403s for a restricted admin the way the shared, page-gated fetchAdminAgents()
         // (used by the full Agents management page) would.
-        const [agentQueue, documentResult, paymentQueue] = await Promise.all([
+        const [agentQueue, documentResult, paymentQueue, noticesResult] = await Promise.all([
           fetchAdminAgentQueue(),
           fetchAdminDocumentQueue({ status: 'pending', perPage: 6 }),
           fetchAdminPaymentQueue(),
+          fetchAdminNoticesFeed({ page: 1, per_page: 6, sort: 'desc' }),
         ]);
         setAgents(agentQueue);
         setDocuments(documentResult.documents);
         setPendingPayments(paymentQueue);
+        setRecentNotices(noticesResult.notices);
       }
 
       if (section === 'pipeline') {
@@ -631,7 +635,7 @@ export function AdminDashboardPage() {
                 <MetricCard icon={BookOpenCheck} label="Shared Programs" value={dashboard.activePrograms} tone="blue" detail="Public + portal programs" />
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
+              <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr]">
                 <Panel
                   title="Recent stage movement"
                   subtitle="Latest operational movement across the application pipeline."
@@ -784,6 +788,33 @@ export function AdminDashboardPage() {
                   </div>
                 </Panel>
               </div>
+
+              <Panel title="Recent Notices & Events" subtitle="Latest announcements and events published across the portal.">
+                <div className="space-y-3">
+                  {recentNotices.length === 0 && <EmptyState label="No notices or events yet." />}
+                  {recentNotices.map((notice) => (
+                    <div key={notice.public_id} className="rounded-2xl border border-gray-100 p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-black text-gray-900">{notice.title}</div>
+                          <div className="mt-1 text-xs text-gray-500">
+                            {notice.notice_type === 'event' && notice.event_date
+                              ? `Event · ${new Date(notice.event_date).toLocaleDateString()}`
+                              : `Notice · ${new Date(notice.published_at || notice.created_at).toLocaleDateString()}`}
+                          </div>
+                        </div>
+                        <div
+                          className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${
+                            notice.notice_type === 'event' ? 'bg-[#FFF6D9] text-[#A06C00]' : 'bg-[#EEE9FF] text-[#2D1B69]'
+                          }`}
+                        >
+                          {notice.notice_type === 'event' ? 'Event' : 'Notice'}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
             </div>
           )}
 

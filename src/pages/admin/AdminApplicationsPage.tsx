@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { Calendar, Globe, User } from 'lucide-react'
 import { fetchAdminApplications } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
@@ -9,7 +9,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
-import { ApplicationDetailDrawer, renderApplicationStatus } from '../../shared/components/applications/ApplicationDetailDrawer'
+import { renderApplicationStatus } from '../../shared/components/applications/applicationStatusBadge'
 
 interface AdminApplicationRecord {
   public_id: string
@@ -30,27 +30,12 @@ function formatDate(value?: string | null) {
 }
 
 export default function AdminApplicationsPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
   const [statusFilter, setStatusFilter] = React.useState('')
   const [univFilter, setUnivFilter] = React.useState('')
   const [yearFilter, setYearFilter] = React.useState('')
-  const [selectedPid, setSelectedPid] = React.useState<string | null>(() => searchParams.get('open'))
   const [search, setSearch] = React.useState('')
   const [debouncedSearch, setDebouncedSearch] = React.useState('')
-
-  // Deep-link support: global search opens a specific application via ?open=<pid>
-  // without needing it to be on the currently loaded/filtered page — the drawer
-  // fetches its own detail data independently of the list.
-  const handleDrawerOpenChange = React.useCallback((open: boolean) => {
-    if (!open) {
-      setSelectedPid(null)
-      if (searchParams.has('open')) {
-        const next = new URLSearchParams(searchParams)
-        next.delete('open')
-        setSearchParams(next, { replace: true })
-      }
-    }
-  }, [searchParams, setSearchParams])
 
   React.useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 350)
@@ -126,7 +111,7 @@ export default function AdminApplicationsPage() {
         subtitle="Manage real academic applications across the live portal pipeline."
       />
 
-      <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
         <SearchInput
           value={search}
           onChange={setSearch}
@@ -174,12 +159,10 @@ export default function AdminApplicationsPage() {
           columns={columns}
           data={applications}
           isLoading={applicationsQuery.isLoading}
-          onRowClick={(row) => setSelectedPid(row.public_id)}
+          onRowClick={(row) => navigate(`/portal/admin/applications/${row.public_id}`)}
           emptyMessage="No applications match the current filters."
         />
       )}
-
-      <ApplicationDetailDrawer applicationPid={selectedPid} onOpenChange={handleDrawerOpenChange} />
     </PageWrapper>
   )
 }

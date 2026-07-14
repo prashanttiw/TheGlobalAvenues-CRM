@@ -33,7 +33,7 @@ export default function AgentLogsPage() {
         subtitle="Your activity and your team's activity across the CRM."
       />
 
-      <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
         <input
           type="text"
           value={searchQuery}

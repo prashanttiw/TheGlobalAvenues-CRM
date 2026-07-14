@@ -8,8 +8,9 @@ import { Button } from '../../shared/components/ui/Button';
 import { EmptyState } from '../../shared/components/ui/EmptyState';
 import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
 import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidget';
+import { RecentNoticesCard } from '../../shared/components/ui/RecentNoticesCard';
 import { Users, CreditCard, ChevronRight, CheckCircle2, TrendingUp } from 'lucide-react';
-import { fetchAgentDashboardSummary, fetchAgentCommissions } from '../../lib/api';
+import { fetchAgentDashboardSummary, fetchAgentCommissions, fetchAgentNoticesFeed } from '../../lib/api';
 import { toast } from 'sonner';
 
 export default function AgentDashboard() {
@@ -167,7 +168,7 @@ export default function AgentDashboard() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base font-semibold">Recent Commissions</CardTitle>
@@ -191,6 +192,8 @@ export default function AgentDashboard() {
             )}
           </CardContent>
         </Card>
+
+        <RecentNoticesCard fetchFn={fetchAgentNoticesFeed} viewAllPath="/portal/agent/notices" queryKeyPrefix="agent" />
 
         <Card>
           <CardHeader className="pb-2">

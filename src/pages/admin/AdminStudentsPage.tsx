@@ -157,14 +157,14 @@ export default function AdminStudentsPage() {
         }
       />
 
-      <div className="flex flex-col sm:flex-row gap-4 justify-between items-center bg-surface-card p-4 rounded-xl border border-border-warm">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 justify-between items-center bg-surface-card p-4 rounded-xl border border-border-warm">
         <SearchInput
           value={searchTerm}
           onChange={setSearchTerm}
           placeholder="Search by name, ID, email, or phone (from the start)..."
           className="w-full sm:max-w-xs"
         />
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}

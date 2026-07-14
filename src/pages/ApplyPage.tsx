@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   User, Briefcase, ArrowRight, CheckCircle, Globe,
   Eye, EyeOff, Mail, Lock, RefreshCw, ShieldCheck, Phone,
@@ -54,7 +54,8 @@ export function ApplyPage() {
   const establishSession = useAuth((state) => state.establishSession);
   const navigate = useNavigate();
 
-  const [role, setRole] = useState<Role>('student');
+  const [searchParams] = useSearchParams();
+  const [role, setRole] = useState<Role>(searchParams.get('role') === 'agent' ? 'agent' : 'student');
   const [step, setStep] = useState<Step>(1);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);

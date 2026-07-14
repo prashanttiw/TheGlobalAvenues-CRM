@@ -244,7 +244,7 @@ export default function AdminReassignmentsPage() {
                 <label className="text-xs font-semibold text-brand-navy block mb-1">
                   New Agent {actionTarget.request.requested_agent_code ? '(optional override)' : '(required — student left this to auto-assign)'}
                 </label>
-                <AgentCombobox value={overrideAgent} onChange={setOverrideAgent} scope="admin" placeholder="Search agent by name or code…" />
+                <AgentCombobox value={overrideAgent} onChange={setOverrideAgent} scope="admin" />
               </div>
             )}
 

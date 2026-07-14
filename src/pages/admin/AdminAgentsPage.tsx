@@ -348,7 +348,7 @@ export default function AdminAgentsPage() {
 
       {section === 'all' && (
         <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
             <SearchInput
               value={search}
               onChange={setSearch}

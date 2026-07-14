@@ -110,7 +110,9 @@ export function CommandPalette({ items }: CommandPaletteProps) {
         // inside the owning student's page. The backend returns that student's
         // public_id (not the application's) for agent-scoped application results.
         if (role === 'agent') return `${base}/students/${id}`
-        return `${base}/applications?open=${id}`
+        // Admin has a real /applications/:pid detail page; student portal only has a
+        // flat list page (local-state), so that one still deep-links via ?open=.
+        return role === 'admin' ? `${base}/applications/${id}` : `${base}/applications?open=${id}`
       default: return '#'
     }
   }

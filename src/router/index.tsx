@@ -64,6 +64,7 @@ const AdminUniversityDetailPage = React.lazy(() => import('../pages/admin/AdminU
 const AdminCoursesPage = React.lazy(() => import('../pages/admin/AdminCoursesPage'));
 const AdminIntakesPage = React.lazy(() => import('../pages/admin/AdminIntakesPage'));
 const AdminApplicationsPage = React.lazy(() => import('../pages/admin/AdminApplicationsPage'));
+const AdminApplicationDetailPage = React.lazy(() => import('../pages/admin/AdminApplicationDetailPage'));
 const AdminUsersPage = React.lazy(() => import('../pages/admin/AdminUsers'));
 const AdminStudentsPage = React.lazy(() => import('../pages/admin/AdminStudentsPage'));
 const AdminStudentDetailPage = React.lazy(() => import('../pages/admin/AdminStudentDetailPage'));
@@ -168,6 +169,7 @@ export function AppRouter() {
           <Route path="agents" element={<PageGuard permission="agents.view"><AdminAgentsPage /></PageGuard>} />
           <Route path="agents/:pid/tree" element={<PageGuard permission="agents.view"><AdminAgentDetailPage /></PageGuard>} />
           <Route path="applications" element={<PageGuard permission="applications.view"><AdminApplicationsPage /></PageGuard>} />
+          <Route path="applications/:pid" element={<PageGuard permission="applications.view"><AdminApplicationDetailPage /></PageGuard>} />
           <Route path="commissions" element={<PageGuard permission="commissions.view"><AdminCommissionsPage /></PageGuard>} />
           <Route path="leads" element={<PageGuard permission="leads.view"><AdminLeadsPage /></PageGuard>} />
           <Route path="notices" element={<PageGuard permission="notices.view"><AdminNoticesPage /></PageGuard>} />

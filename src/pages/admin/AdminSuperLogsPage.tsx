@@ -48,7 +48,7 @@ export default function AdminSuperLogsPage() {
         subtitle="System-wide audit trail — every admin, agent, and student action."
       />
 
-      <div className="flex flex-col sm:flex-row gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
+      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm">
         <select
           value={actorTypeFilter}
           onChange={(e) => setActorTypeFilter(e.target.value)}

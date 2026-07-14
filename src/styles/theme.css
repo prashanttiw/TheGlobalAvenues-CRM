@@ -287,3 +287,12 @@
     linear-gradient(90deg, rgba(253,126,20,0.06) 1px, transparent 1px);
   background-size: 60px 60px;
 }
+
+/* ── Buttons show a pointer cursor on hover ── */
+/* Native <button> elements don't get cursor:pointer by default in most browsers (only <a>
+   tags do), so every clickable button across the app showed the plain arrow. This also
+   covers portal-rendered buttons (SlideOverPanel/Modal/CommandPalette) since those render
+   to document.body, outside any wrapper a scoped selector could target. */
+button:not(:disabled) {
+  cursor: pointer;
+}

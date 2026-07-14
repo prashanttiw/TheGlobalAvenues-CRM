@@ -377,8 +377,11 @@ export function LoginPage() {
           <div className="mt-6 flex flex-col items-center gap-2 text-xs text-gray-400">
             <p>
               Don't have a workspace?{' '}
-              <Link to="/apply" className="text-[#FD7E14] font-bold hover:underline">
-                Create Student Account
+              <Link
+                to={portalHint === 'agent' ? '/apply?role=agent' : '/apply'}
+                className="text-[#FD7E14] font-bold hover:underline"
+              >
+                {portalHint === 'agent' ? 'Create Agent Account' : 'Create Student Account'}
               </Link>
             </p>
             <p>
