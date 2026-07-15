@@ -1297,6 +1297,7 @@ final class AgentController
             'agency_name' => $agent['agency_name'] ?: $fullName,
             'full_name'   => $fullName,
             'country'     => $agent['country'] ?: 'India',
+            'admin_url'   => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/admin/agents',
         ], $adminUserIds);
 
         Response::json([

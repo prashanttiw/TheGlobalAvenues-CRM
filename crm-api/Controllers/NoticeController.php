@@ -217,36 +217,40 @@ class NoticeController
         $this->pdo->prepare("UPDATE notices SET status = 'published', published_at = NOW() WHERE id = ?")
             ->execute([$notice['id']]);
 
-        // Chunked Notification Publishing Logic
-        $recipients = [];
+        // Chunked Notification Publishing Logic — fired once per audience (not one merged
+        // blast) so each recipient's portal_url actually points at their own portal. A single
+        // shared link can't be correct for a mixed audience: student/agent/admin each live under
+        // a different /portal/<role>/ path, and there is no generic role-aware landing route.
+        $frontendUrl = rtrim(\TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', ''), '/');
+        $audiences = [];
 
         if ((int)$notice['visible_to_students'] === 1) {
             $studentIds = $this->pdo->query("SELECT id FROM users WHERE user_type = 'student' AND status = 'active' AND deleted_at IS NULL")
                 ->fetchAll(PDO::FETCH_COLUMN);
-            $recipients = array_merge($recipients, $studentIds);
+            $audiences[] = ['ids' => $studentIds, 'portal_url' => $frontendUrl . '/portal/student/'];
         }
 
         if ((int)$notice['visible_to_agents'] === 1) {
             $agentIds = $this->pdo->query("SELECT u.id FROM users u JOIN agents a ON a.user_id = u.id WHERE u.status = 'active' AND a.status = 'approved' AND u.deleted_at IS NULL")
                 ->fetchAll(PDO::FETCH_COLUMN);
-            $recipients = array_merge($recipients, $agentIds);
+            $audiences[] = ['ids' => $agentIds, 'portal_url' => $frontendUrl . '/portal/agent/'];
         }
 
         if ((int)$notice['visible_to_admins'] === 1) {
             $adminIds = $this->pdo->query("SELECT id FROM users WHERE user_type = 'admin' AND status = 'active' AND deleted_at IS NULL")
                 ->fetchAll(PDO::FETCH_COLUMN);
-            $recipients = array_merge($recipients, $adminIds);
+            $audiences[] = ['ids' => $adminIds, 'portal_url' => $frontendUrl . '/portal/admin'];
         }
 
-        $recipients = array_unique($recipients);
-        $chunks = array_chunk($recipients, 1000);
-
-        foreach ($chunks as $chunk) {
-            NotificationService::fire('notice.published', [
-                'title' => $notice['title'],
-                'content_preview' => substr(strip_tags($notice['content'] ?? ''), 0, 200),
-                'portal_url' => $_ENV['FRONTEND_URL'] ?? 'https://theglobalavenues.com/portal'
-            ], $chunk);
+        foreach ($audiences as $audience) {
+            $ids = array_unique($audience['ids']);
+            foreach (array_chunk($ids, 1000) as $chunk) {
+                NotificationService::fire('notice.published', [
+                    'title' => $notice['title'],
+                    'content_preview' => substr(strip_tags($notice['content'] ?? ''), 0, 200),
+                    'portal_url' => $audience['portal_url'],
+                ], $chunk);
+            }
         }
 
         ActivityLogger::log('notice.published', 'notice', $notice['id'], (int)$user['id'], [], ['title' => $notice['title']]);

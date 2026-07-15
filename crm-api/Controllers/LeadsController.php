@@ -93,7 +93,7 @@ class LeadsController
             'source' => $source,
             'interested_country' => $input['interested_country'] ?? 'Unknown',
             'interested_course' => $input['interested_course'] ?? 'Unknown',
-            'admin_url' => ($_ENV['FRONTEND_URL'] ?? 'https://theglobalavenues.com/portal') . '/admin/leads'
+            'admin_url' => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/admin/leads'
         ], $this->getAdminIds());
 
         ActivityLogger::log('lead.created', 'leads', $leadId, 0, [], ['public_id' => $pid]);
@@ -365,7 +365,7 @@ class LeadsController
                         NotificationService::fire('lead.status_changed', [
                             'full_name' => $lead['full_name'],
                             'new_status' => $status,
-                            'admin_url' => ($_ENV['FRONTEND_URL'] ?? 'https://theglobalavenues.com/portal') . '/admin/leads'
+                            'admin_url' => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/admin/leads'
                         ], [(int)$staffUserId]);
                     }
                 }
@@ -417,7 +417,7 @@ class LeadsController
             'full_name' => $lead['full_name'],
             'staff_name' => $admin['first_name'],
             'source' => $lead['source'] ?? 'Unknown',
-            'admin_url' => ($_ENV['FRONTEND_URL'] ?? 'https://theglobalavenues.com/portal') . '/admin/leads'
+            'admin_url' => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/admin/leads'
         ], [(int)$admin['user_id']]);
 
         Response::json(['success' => true, 'message' => 'Lead assigned successfully']);
@@ -536,7 +536,10 @@ class LeadsController
             $this->pdo->commit();
 
             ActivityLogger::log('lead.converted', 'leads', (int)$lead['id'], (int)$user['id'], [], ['student_id' => $studentId]);
-            NotificationService::fire('student.registered', ['name' => $lead['full_name'], 'student_name' => $lead['full_name']], [$userId]);
+            NotificationService::fire('student.registered', [
+                'student_name' => $lead['full_name'],
+                'portal_url'   => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/student/',
+            ], [$userId]);
 
             Response::json(['success' => true, 'message' => 'Lead converted to student', 'student_public_id' => $studentPid]);
         } catch (\PDOException $e) {

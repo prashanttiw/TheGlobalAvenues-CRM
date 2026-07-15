@@ -240,7 +240,10 @@ final class RegistrationController
             // is issued right below) — pass the actor type explicitly so the log
             // resolves the student's real name instead of falling back to "System".
             ActivityLogger::log('student.registered', 'student', $studentId, $userId, [], [], 'student');
-            \TGA\CRM\Services\NotificationService::fire('student.registered', ['name' => $fullName, 'student_name' => $fullName], [$userId]);
+            \TGA\CRM\Services\NotificationService::fire('student.registered', [
+                'student_name' => $fullName,
+                'portal_url'   => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/student/',
+            ], [$userId]);
 
             $tokens = JWTService::issueTokenPair($userId, $userPublicId, 'student', []);
 

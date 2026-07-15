@@ -160,6 +160,7 @@ final class ReassignmentController
                 'student_name'        => $user['name'] ?? 'Student',
                 'current_agent_name'  => $student['agent_name'] ?? 'None',
                 'reason'              => $reason,
+                'admin_url'           => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/admin/reassignments',
             ], $adminUserIds);
 
             Response::json([

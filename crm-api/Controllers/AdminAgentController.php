@@ -250,7 +250,11 @@ final class AdminAgentController
             $this->pdo->commit();
 
             ActivityLogger::log('agent.approved', 'agent', (int)$agent['id'], null, [], ['status' => 'approved', 'referral_code' => $code]);
-            NotificationService::fire('agent.approved', ['referral_code' => $code, 'full_name' => $agent['full_name']], [$agent['user_id']]);
+            NotificationService::fire('agent.approved', [
+                'referral_code' => $code,
+                'full_name'     => $agent['full_name'],
+                'portal_url'    => \TGA\CRM\Config\Environment::get('APP_FRONTEND_URL', '') . '/portal/agent/',
+            ], [$agent['user_id']]);
 
             Response::json([
                 'success' => true,
