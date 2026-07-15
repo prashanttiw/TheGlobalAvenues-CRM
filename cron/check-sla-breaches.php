@@ -61,7 +61,7 @@ try {
                 'entity_id'     => $event['entity_id'],
                 'target_at'     => $event['target_at'],
                 'overdue_hours' => $overdue,
-                'admin_url'     => (Environment::get('APP_FRONTEND_URL', '') . '/admin/'),
+                'admin_url'     => (Environment::get('APP_FRONTEND_URL', '') . '/portal/admin'),
             ], NotificationService::getSuperAdminUserIds());
 
             ActivityLogger::log('sla.breached', $event['entity_type'], (int)$event['entity_id']);
