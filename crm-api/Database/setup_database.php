@@ -377,6 +377,17 @@ try {
     $pdo->exec(file_get_contents($migration084File));
     echo "Migration 084 applied.\n\n";
 
+    // 7g. Migration 085: fixes a leftover "clearing old backups" reference in the disk_warning
+    // notification template's body text (content-only, no schema change). Must run after 084,
+    // which is what removed the backup feature this text was referring to.
+    $migration085File = __DIR__ . '/migrations/085_disk_warning_template_text_fix.sql';
+    if (!is_file($migration085File)) {
+        throw new \RuntimeException("085_disk_warning_template_text_fix.sql not found at {$migration085File}");
+    }
+    echo "Applying migration 085...\n";
+    $pdo->exec(file_get_contents($migration085File));
+    echo "Migration 085 applied.\n\n";
+
     // 7g. Migration 085: brands the last 6 plain-text notification_templates rows (agent.registered,
     // document.requested/submitted/reviewed/cancelled, application.status_changed) to match the
     // HTML style migration 070 gave everything else. UPDATEs by event_key, same ordering
@@ -388,6 +399,17 @@ try {
     echo "Applying migration 085...\n";
     $pdo->exec(file_get_contents($migration085File));
     echo "Migration 085 applied.\n\n";
+
+    // 7h. Migration 086: removes every clickable button/link from notification emails (client
+    // decision 2026-07-14 — see migration file header). UPDATEs by event_key, same ordering
+    // requirement as 070/081/082/085 — must run after the truncate-and-reseed in step 6.
+    $migration086File = __DIR__ . '/migrations/086_remove_all_email_links_and_buttons.sql';
+    if (!is_file($migration086File)) {
+        throw new \RuntimeException("086_remove_all_email_links_and_buttons.sql not found at {$migration086File}");
+    }
+    echo "Applying migration 086...\n";
+    $pdo->exec(file_get_contents($migration086File));
+    echo "Migration 086 applied.\n\n";
 
     // 8. Helper to create a user record with encryption and lookup hashes
     $createUser = function (string $email, string $phone, string $password, string $userType, string $status = 'active') use ($pdo): array {
