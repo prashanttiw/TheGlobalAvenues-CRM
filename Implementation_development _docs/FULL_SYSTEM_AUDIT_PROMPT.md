@@ -17,8 +17,8 @@ didn't break anything else, and only then move to the next thing.
 
 ## Mindset — understand the system, don't trust the map
 
-- **The documentation is a starting hint, not the source of truth.** `CLIENT_SYSTEM_DOCUMENTATION.md` and the
-  `PHASE_*` docs describe what the system was *intended* to be at various points in the past. The system has
+- **The documentation is a starting hint, not the source of truth.** `CLIENT_SYSTEM_DOCUMENTATION.md` and
+  `PROJECT_HISTORY.md` describe what the system was *intended* to be at various points in the past. The system has
   changed a lot since then — the catalog navigation, avatars, the application cap, and many fixes all landed
   after large parts of those docs were written. **Do not audit by replaying the doc's step lists.** Read the
   docs to learn the original intent, then go find out how the system *actually* works right now by reading the
@@ -77,7 +77,7 @@ For each area of the system, in order:
      you touched.
 5. **Re-test the fix live.** Prove it actually works end to end in the running app, and that the thing you
    changed didn't regress anything adjacent. A fix you only read but didn't exercise is not done.
-6. **Record it.** Append a dated entry to the correct `PHASE_X_APPEND.md` per that file's existing convention,
+6. **Record it.** Append a dated entry to `PROJECT_HISTORY.md` under the relevant phase/area section,
    and update `CLIENT_SYSTEM_DOCUMENTATION.md` if the real behavior now differs from what it claimed.
 7. **Move to the next area.** Leave nothing half-finished behind you.
 

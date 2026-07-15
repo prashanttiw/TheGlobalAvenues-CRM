@@ -1,8 +1,9 @@
 # TGA CRM — Project Context for Claude Code
 
 This file is auto-loaded on every Claude Code session. It is the condensed always-available brief.
-For depth on any topic, read the relevant `PHASE_X_*.md` + `PHASE_X_APPEND.md` — do NOT re-read all
-9 phase docs per session.
+For depth on any topic, read `Implementation_development _docs/PROJECT_HISTORY.md` (full build history)
+or `TGA_CRM_MASTER_REFERENCE.md` / `CLIENT_SYSTEM_DOCUMENTATION.md` (current system spec) — see
+§Where to Look for Detail at the end of this file.
 
 ---
 
@@ -351,16 +352,17 @@ actual values from the code — they differ from some phase doc descriptions:
 | Script | Frequency | Purpose |
 |--------|-----------|---------|
 | `send-notifications.php` | Every **1 min** | Email + in-app queue dispatch (PHPMailer, Timeout=10) |
-| `process-reminders.php` | Every **5 min** | Deadline alerts for docs/payments/commissions |
 | `check-sla-breaches.php` | Every **15 min** | SLA breach detection |
-| `sync-drive.php` | Every **60 min** | Google Drive file backup (resumable chunked) |
-| `backup-db.php` | Every **24 hr** | mysqldump (or PDO fallback) → gzip → Drive |
-| `verify-backups.php` | Every **24 hr** | Backup integrity check |
 | `generate-snapshots.php` | Every **24 hr** | Pre-compute all report metrics → `report_snapshots` |
 | `monitor-disk.php` | Every **12 hr** | Disk usage alerts at 80%/95% |
 | `archive-old-logs.php` | Every **7 days** | Move `activity_logs` rows > 2yr → archive table |
 
 All scripts: `set_time_limit(110)`, `PHPMailer Timeout=10`. MariaDB < 10.6: SKIP LOCKED stripped.
+
+`process-reminders.php`, `sync-drive.php`, `backup-db.php`, and `verify-backups.php` were removed from
+the codebase on 2026-07-10 (Google Drive backup sync and the never-functional payment-reminder engine
+were both deleted — 11 files removed, see `PROJECT_HISTORY.md` Phase 6). They no longer exist; don't
+reference them in cron config or troubleshooting.
 
 ---
 
@@ -478,7 +480,9 @@ Immutable once `paid` — enforced by PHP guard + DB trigger (migration 057).
 
 ## Hotfix History (chronological — post-original-build fixes)
 
-All detail in `PHASE_X_APPEND.md` files. Table shows the highest-impact fixes:
+Full detail in `Implementation_development _docs/PROJECT_HISTORY.md` (the single consolidated build/fix
+log — replaces the old per-phase `PHASE_X_RELEASE_NOTES.md` / `PHASE_X_*.md` spec / `PHASE_X_APPEND.md`
+files, which were deleted 2026-07-15 after being folded in). Table below shows the highest-impact fixes:
 
 | Phase | Problem | Fix Applied | Append Ref |
 |-------|---------|-------------|-----------|
@@ -516,22 +520,22 @@ All detail in `PHASE_X_APPEND.md` files. Table shows the highest-impact fixes:
 
 ## Off-Limits Files / Directories — NEVER MODIFY
 
-Public marketing website — never touch during CRM work, under any framing:
+Public marketing website — never touch during CRM work, under any framing. **Verified against
+`src/router/index.tsx` and the filesystem on 2026-07-15** — the marketing site was trimmed at some
+point to a single home page plus contact/apply/login; a wider Destinations/Universities/Courses/
+Partners/About/Services marketing site referenced in older project notes no longer exists on disk.
+Treat `src/router/index.tsx` as the source of truth for what's actually live, not this list alone:
 
 ```
 src/pages/HomePage.tsx
-src/pages/DestinationsPage.tsx
-src/pages/CountryDetailPage.tsx
-src/pages/CoursesPage.tsx
-src/pages/CourseCategoryPage.tsx
-src/pages/PartnersPage.tsx
-src/pages/AboutPage.tsx
 src/pages/ContactPage.tsx
-src/pages/ServicesPage.tsx
-src/components/home/          (entire directory)
+src/components/home/          (entire directory — homepage sections)
 src/components/layout/        (entire directory — marketing Header/Footer/WhatsApp)
-src/data/                     (entire directory — all TGA content data)
+src/data/                     (entire directory — company.ts, reports.ts, universities.ts static data)
 ```
+
+`src/pages/ApplyPage.tsx`, `LoginPage.tsx`, and `ForgotPasswordPage.tsx` are public routes but **are
+in scope** — they're CRM auth entry points, not marketing content.
 
 ---
 
@@ -598,29 +602,69 @@ UPLOAD_PATH=uploads
 UPLOAD_ALLOWED_TYPES=application/pdf,image/jpeg,image/png,image/webp
 RATE_LIMIT_AUTH_REQUESTS=5, RATE_LIMIT_AUTH_WINDOW=60
 RATE_LIMIT_OTP_REQUESTS=3, RATE_LIMIT_OTP_WINDOW=600
-CORS_ALLOWED_ORIGINS=http://localhost:5173,https://apply.theglobalavenues.com
+CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://apply.theglobalavenues.com
 LOG_PATH=logs, LOG_LEVEL=debug
-DRIVE_SERVICE_ACCOUNT_JSON=/home2/lidglcmy/<path-to-app>/crm-api/config/drive-credentials.json
-DRIVE_BACKUP_FOLDER_ID=your_google_drive_folder_id
+MAIL_LOGO_URL             # public HTTPS URL of the logo used in email headers (Gmail/Outlook must reach it — no localhost)
 ```
 
 Generate `ENCRYPTION_KEY`: `php -r "echo base64_encode(random_bytes(32));"`
 
 ---
 
-## Working Rules for Claude Code Sessions
+## Working Mode for Claude Code Sessions
 
-1. This file is auto-loaded. It is the short brief. Do not re-read all 9 phase docs per session.
-2. For depth: read `PHASE_X_*.md` + `PHASE_X_APPEND.md` for that phase only.
-3. Discuss first, implement on approval. Do not generate files unless explicitly asked.
-4. One change at a time. Verify via live test, not just code reading.
-5. After implementing any change, append a record to the correct `PHASE_X_APPEND.md` using
-   the file's existing dated-section convention.
-6. Never touch off-limits zones above — not under any framing.
-7. Server/deployment commands: one step at a time. Wait for human confirmation at each step.
-8. No hard deletes in application code. Soft delete only (except super_admin erase flow).
-9. `activity_logs` is INSERT-only. Use `ActivityLogger::log()`. Never UPDATE/DELETE.
-10. `Database::getConnection()` — always use this, not `Database::connect()`.
+This file is auto-loaded every session — it's the only project-instruction file confirmed to actually
+load. (A former companion file, `WORKING_MODE.md`, claimed to auto-load alongside this one but wasn't
+actually picked up by the harness; its substance is folded into this section below and the file was
+deleted 2026-07-15 as part of a documentation consolidation pass.)
+
+### The change loop
+1. **Plan** — state what's changing in one paragraph, list exactly which files will be touched and why,
+   confirm no off-limits zone is affected, and if application status is involved, confirm which state
+   manager owns it (always `StateManager` — see §State Machines; `ApplicationStateManager` is dead
+   code). Discuss first, implement only on explicit approval — discussing an approach is not
+   authorization to write code.
+2. **Do** — implement only what was approved, one logical change at a time. If discovery mid-work
+   contradicts the plan (wrong method name, unexpected column, missing dependency), stop and re-plan
+   rather than silently pivoting.
+3. **Verify live** — hit the actual API endpoint, open the actual UI, run the actual migration or cron
+   script. Re-reading the code you just wrote is not verification.
+4. **Record** — append a dated entry to `Implementation_development _docs/PROJECT_HISTORY.md` under the
+   relevant phase/area section: what changed, files touched, why, how it was verified.
+
+### Rules
+1. Discuss first, implement on approval. Do not generate files unless explicitly asked.
+2. One change at a time. Verify via live test, not just code reading.
+3. Never touch off-limits zones (§Off-Limits Files) — not under any framing, not even "just a typo,"
+   not even if adjacent to CRM work.
+4. Server/deployment operations (cPanel steps, migrations, cron config, env vars) — one step at a time,
+   wait for human confirmation before the next. The human is running these live and an error at step 3
+   can invalidate steps 4–10.
+5. No hard deletes in application code. Soft delete only (except the `super_admin` erase flow).
+6. `activity_logs` is INSERT-only. Use `ActivityLogger::log()`. Never UPDATE/DELETE.
+7. `Database::getConnection()` — always use this, not `Database::connect()`.
+8. For depth beyond this brief: read `Implementation_development _docs/PROJECT_HISTORY.md` (full build
+   history + fixes, phase by phase) and `TGA_CRM_MASTER_REFERENCE.md` / `CLIENT_SYSTEM_DOCUMENTATION.md`
+   (current system spec). The old per-phase spec/release-notes/append files no longer exist — they were
+   consolidated into `PROJECT_HISTORY.md` 2026-07-15.
+9. Ask rather than assume when: a change touches a state-machine transition, any schema change, anything
+   in auth/OTP/JWT/session handling, any deployment-side operation, or which state manager a controller
+   uses.
+10. Not your job unless explicitly asked: adding unrequested features, "cleaning up" adjacent working
+    code, replacing already-chosen libraries, reorganizing directories, speculative performance work,
+    rewriting comments/docstrings.
+
+### Audit mode
+When reviewing existing code for correctness/security/spec-compliance, use this format: **FINDING /
+SEVERITY (Critical = data loss, security breach, or fully blocked flow · High = broken feature, no
+workaround · Medium = incorrect behavior with a workaround · Low = cosmetic) / FILE:LINE / PROBLEM /
+PROPOSED FIX**. Present in batches of ~5, get explicit per-finding approval, then implement → verify →
+record → move to the next finding. Don't batch-implement multiple findings even if they look independent.
+
+### Session hygiene
+- **Start:** run `git status` before touching anything, so you know what's already modified vs. clean.
+- **End** (any session where files changed): list every file modified, confirm what was recorded in
+  `PROJECT_HISTORY.md`, leave an unambiguous handoff note — the next session starts cold.
 
 ---
 
@@ -634,20 +678,21 @@ Generate `ENCRYPTION_KEY`: `php -r "echo base64_encode(random_bytes(32));"`
 | MySQL | Local setup needed — use XAMPP or import `all_migrations_combined.sql` |
 
 ```bash
-# Frontend
-npm run dev              # http://localhost:5173
-npm run build            # dist/
-npx vite preview         # Preview build (no npm run preview script exists)
+# Frontend (XAMPP Apache+MySQL must be running — see Working Mode section above)
+npm run dev              # http://127.0.0.1:3000 (pinned in vite.config.ts — not the 5173 default)
+npm run build             # dist/
+npx vite preview          # Preview build (no npm run preview script exists)
 
-# Backend
+# Backend (XAMPP's Apache serves crm-api/ day-to-day; this is a fallback only)
 php -S localhost:8080 -t crm-api
 
 # Test cron scripts
 php cron/send-notifications.php
-php cron/process-reminders.php
+php cron/check-sla-breaches.php
 
 # Generate DB from scratch
-# mysql -u root -p tga_crm < crm-api/Database/all_migrations_combined.sql
+php crm-api/Database/setup_database.php   # preferred — full schema + RBAC + super admin + real catalog
+# or: mysql -u root -p tga_crm < crm-api/Database/all_migrations_combined.sql
 ```
 
 ---
@@ -702,17 +747,19 @@ php cron/process-reminders.php
 
 ## Where to Look for Detail
 
+**2026-07-15 documentation consolidation:** the old per-phase file set (9× `PHASE_X_RELEASE_NOTES.md` at
+root, 9× `PHASE_X_*.md` specs, 9× `PHASE_X_APPEND.md`, the audit-1 pair, `CLAUDE_DISCOVERY.md`, and
+`WORKING_MODE.md` — 30 files) was read in full and consolidated into a single history file plus this
+section of `CLAUDE.md`. Do not look for those files; they no longer exist.
+
 | What | Where |
 |------|-------|
 | Full system spec | `Implementation_development _docs/TGA_CRM_MASTER_REFERENCE.md` |
-| Per-phase spec | `Implementation_development _docs/PHASE_X_*.md` (X = 1–9) |
-| Per-phase history + audit | `Implementation_development _docs/PHASE_X_APPEND.md` |
+| Current system, plain-language + technical (all 3 portals) | `Implementation_development _docs/CLIENT_SYSTEM_DOCUMENTATION.md` |
+| Full build history — what shipped + why + every notable bug per phase | `Implementation_development _docs/PROJECT_HISTORY.md` |
 | This brief (always loaded) | `CLAUDE.md` (this file) |
-| One-time inventory snapshot | `CLAUDE_DISCOVERY.md` |
-| Authoritative DB schema | `crm-api/Database/all_migrations_combined.sql` |
+| Reusable full-audit kickoff prompt | `Implementation_development _docs/FULL_SYSTEM_AUDIT_PROMPT.md` |
+| Manual regression checklist | `Implementation_development _docs/FULL_LIVE_QA_TEST_GUIDE.md` |
+| Every automatic email/notification, word-for-word | `Implementation_development _docs/EMAIL_NOTIFICATION_CONTENT_REVIEW.md` |
+| Authoritative DB schema | `crm-api/Database/all_migrations_combined.sql` + `migrations/` |
 | All API routes | `crm-api/Routes/api.php` → feature route files |
-| Auth + registration | Phase 2 spec + Phase 2 APPEND |
-| Commission + agent hierarchy | Phase 5 spec + Phase 5 APPEND |
-| Notifications + cron + Drive | Phase 6 spec + Phase 6 APPEND |
-| Reporting + snapshots | Phase 8 spec + Phase 8 APPEND |
-| Security + deployment | Phase 9 spec + Phase 9 APPEND |

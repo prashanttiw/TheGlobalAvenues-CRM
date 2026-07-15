@@ -22,9 +22,12 @@ system — the wording is confirmed to exist and load correctly, and every situa
 one does send one. The delivery step that turns a stored message into an actual outgoing email was
 also tested, and a real formatting bug in that step was found and fixed: 28 of these were losing
 their line breaks and company branding on the way out. The last 6 that still looked plainer than the
-rest have since been redesigned to match the same branded look as everything else — every emailed
-notification below now shares one consistent design. Full technical record:
-`Implementation_development _docs/PHASE_9_APPEND.md` §9.11 and §9.12.
+rest have since been redesigned to match the same branded look as everything else. A link audit then
+found 9 buttons pointing at the wrong place or nowhere at all — rather than keep maintaining links
+against a site that keeps changing, **every button has since been removed from every email,
+system-wide**. Nothing below is clickable — there is nothing left that can point somewhere wrong.
+Full technical record: `Implementation_development _docs/PROJECT_HISTORY.md`, Phase 9 section (formerly
+`PHASE_9_APPEND.md` §9.11–§9.14, consolidated 2026-07-15).
 
 ---
 
@@ -48,10 +51,10 @@ Sent once, the moment an account is ready to use.
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **New Student** — after they sign up themselves and verify their code. | **Subject:** Welcome to The Global Avenues, Priya Sharma!<br><br>Your student account is ready. We are excited to support your journey toward international education.<br><br>*What you can do now:*<br>→ Browse universities and courses<br>→ Submit your first application<br>→ Track your application status in real time<br>→ Upload documents and receive feedback<br><br>**[Button: Go to Student Portal →]**<br><br>If you have any questions, reply to this email or contact us at connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
-| **New Student — added by their Agent** — when an agent registers a student on the student's behalf. Deliberately has no password in it; login is via one-time code or "forgot password". | **Subject:** Your Global Avenues student profile is ready<br><br>Welcome to The Global Avenues, Priya Sharma!<br>Your student profile has been created with The Global Avenues by Rahul Mehta. You can now track your applications, documents, and offers in one place.<br><br>*How to log in:* Use this email address (priya.sharma@example.com) with either:<br>→ One-time passcode (OTP) login — no password needed, or<br>→ "Forgot password" to set your own password<br><br>**[Button: Go to Student Portal →]**<br><br>Warm regards, The Global Avenues Team |
-| **New Admin** — when a Super Admin creates a staff account. Also lists exactly which admin pages this account can access. | **Subject:** Your TGA Admin Account Is Ready<br><br>Welcome to the TGA Admin Portal, Anjali Verma!<br>Your admin account has been created by a super administrator. Below you will find the details of your account access level.<br><br>*[Automatically inserted list of the exact pages/permissions granted]*<br><br>**[Button: Access Admin Portal →]**<br><br>Please change your password upon first login and enable two-factor authentication. If you did not expect this email, contact the TGA system administrator immediately.<br><br>Warm regards, The Global Avenues Team |
-| **New Agent** — self-registered, or a brand-new sub-agent account. | **Subject:** Welcome to The Global Avenues, Rahul Mehta!<br><br>Welcome to The Global Avenues, Rahul Mehta!<br>Your TGA partner account has been created. The final step is to complete your partner application so our team can review it.<br><br>*Next steps:*<br>→ Log in and complete your partner application<br>→ Our team will review it and confirm your partnership<br><br>**[Button: Complete Partner Application →]**<br><br>If you have any questions, contact us at connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
+| **New Student** — after they sign up themselves and verify their code. | **Subject:** Welcome to The Global Avenues, Priya Sharma!<br><br>Your student account is ready. We are excited to support your journey toward international education.<br><br>*What you can do now:*<br>→ Browse universities and courses<br>→ Submit your first application<br>→ Track your application status in real time<br>→ Upload documents and receive feedback<br><br>If you have any questions, reply to this email or contact us at connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
+| **New Student — added by their Agent** — when an agent registers a student on the student's behalf. Deliberately has no password in it; login is via one-time code or "forgot password". | **Subject:** Your Global Avenues student profile is ready<br><br>Welcome to The Global Avenues, Priya Sharma!<br>Your student profile has been created with The Global Avenues by Rahul Mehta. You can now track your applications, documents, and offers in one place.<br><br>*How to log in:* Use this email address (priya.sharma@example.com) with either:<br>→ One-time passcode (OTP) login — no password needed, or<br>→ "Forgot password" to set your own password<br><br>Warm regards, The Global Avenues Team |
+| **New Admin** — when a Super Admin creates a staff account. Also lists exactly which admin pages this account can access. | **Subject:** Your TGA Admin Account Is Ready<br><br>Welcome to the TGA Admin Portal, Anjali Verma!<br>Your admin account has been created by a super administrator. Below you will find the details of your account access level.<br><br>*[Automatically inserted list of the exact pages/permissions granted]*<br><br>Please change your password upon first login and enable two-factor authentication. If you did not expect this email, contact the TGA system administrator immediately.<br><br>Warm regards, The Global Avenues Team |
+| **New Agent** — self-registered, or a brand-new sub-agent account. | **Subject:** Welcome to The Global Avenues, Rahul Mehta!<br><br>Welcome to The Global Avenues, Rahul Mehta!<br>Your TGA partner account has been created. The final step is to complete your partner application so our team can review it.<br><br>*Next steps:*<br>→ Log in and complete your partner application<br>→ Our team will review it and confirm your partnership<br><br>If you have any questions, contact us at connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
 
 ---
 
@@ -61,8 +64,8 @@ The approval workflow for education agents who want to partner with TGA.
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **All Admins** — the moment someone applies to become a partner agent. | **Subject:** New Partner Application: Meridian Overseas Consultants<br><br>New Partner Application Received<br>A new education agent application has been submitted and requires your review.<br><br>Agency Name: Meridian Overseas Consultants<br>Contact Name: Rahul Mehta<br>Country: India<br><br>**[Button: Review Application →]**<br><br>Warm regards, The Global Avenues Team |
-| **The Agent** — their application is approved. Includes their new referral code. | **Subject:** Your TGA Partnership Is Approved!<br><br>Congratulations, Rahul Mehta!<br>Your application to become a certified partner of The Global Avenues has been approved. Welcome to our global education network.<br><br>Referral Code: TGA-RAHUL24<br>Partner Tier: Bronze (upgrades with performance)<br><br>**[Button: Access Partner Portal →]**<br><br>Warm regards, The Global Avenues Team |
+| **All Admins** — the moment someone applies to become a partner agent. | **Subject:** New Partner Application: Meridian Overseas Consultants<br><br>New Partner Application Received<br>A new education agent application has been submitted and requires your review.<br><br>Agency Name: Meridian Overseas Consultants<br>Contact Name: Rahul Mehta<br>Country: India<br><br>Warm regards, The Global Avenues Team |
+| **The Agent** — their application is approved. Includes their new referral code. | **Subject:** Your TGA Partnership Is Approved!<br><br>Congratulations, Rahul Mehta!<br>Your application to become a certified partner of The Global Avenues has been approved. Welcome to our global education network.<br><br>Referral Code: TGA-RAHUL24<br>Partner Tier: Bronze (upgrades with performance)<br><br>Warm regards, The Global Avenues Team |
 | **The Agent** — their application is declined. Includes the reason typed by the admin. | **Subject:** Update on Your TGA Partnership Application<br><br>Dear Rahul Mehta, thank you for your interest in partnering with The Global Avenues. After careful review, we regret that we are unable to proceed at this time.<br><br>*Reason for Decision:* [admin's entered text]<br><br>You are welcome to reapply in the future. For questions, write to connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
 | **The Agent** — their partner account is suspended. Includes the stated reason. | **Subject:** Your TGA Partner Account Has Been Suspended<br><br>Dear Rahul Mehta, your partner account with The Global Avenues has been placed under suspension, effective immediately.<br><br>*Reason for Suspension:* [admin's entered text]<br><br>To appeal or seek clarification, contact connect@theglobalavenues.com.<br><br>Regards, The Global Avenues Compliance Team |
 | **The Parent Agent** — a sub-agent applies underneath them, pending TGA review. *(The sub-agent themselves separately gets their own Welcome email once created — see §2.)* | **Subject:** New Sub-Agent Application Under Your Account<br><br>Hi Rahul Mehta, a new sub-agent has applied under your referral network and is pending approval from The Global Avenues.<br><br>Name: [sub-agent's name]<br>Agency: [sub-agent's agency]<br>Status: Pending TGA Review<br><br>We will notify you once their application has been reviewed.<br><br>Warm regards, The Global Avenues Team |
@@ -75,7 +78,7 @@ The workflow when a student asks to switch which agent is helping them.
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **All Admins** — a student requests to change their assigned agent. | **Subject:** Agent Reassignment Request — Action Required<br><br>A student has submitted a request to change their assigned education agent. Please review and take action.<br><br>Student: Priya Sharma<br>Current Agent: Rahul Mehta<br>Reason: [student's stated reason]<br><br>**[Button: Review Request →]**<br><br>Warm regards, The Global Avenues Team |
+| **All Admins** — a student requests to change their assigned agent. | **Subject:** Agent Reassignment Request — Action Required<br><br>A student has submitted a request to change their assigned education agent. Please review and take action.<br><br>Student: Priya Sharma<br>Current Agent: Rahul Mehta<br>Reason: [student's stated reason]<br><br>Warm regards, The Global Avenues Team |
 | **The Student** — their request is approved. Names the new agent. | **Subject:** Your Agent Reassignment Has Been Approved<br><br>Dear Priya Sharma, we are pleased to confirm that your request to change your assigned education consultant has been approved.<br><br>New Agent Assigned: [new agent's name]<br><br>Your new agent will reach out to you shortly.<br><br>Warm regards, The Global Avenues Team |
 | **The Student** — their request is declined. Includes the admin's review notes. | **Subject:** Your Agent Reassignment Request Was Not Approved<br><br>Dear Priya Sharma, after careful review, your request could not be approved at this time.<br><br>Review Notes: [admin's stated reason]<br><br>If you have further questions or would like to submit a new request, contact connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
 | **The Agent who lost the student** — reassures them their records aren't erased. | **Subject:** Student Reassigned to Another Agent<br><br>Hi Rahul Mehta, student Priya Sharma has been reassigned to another education consultant, effective immediately.<br><br>Your historical records and commission ledger for this student remain available in your partner portal activity log.<br><br>Warm regards, The Global Avenues Team |
@@ -103,9 +106,9 @@ A lead or prospective student never receives any of these — they are internal-
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **All Admins** — a new enquiry comes in from the public website contact form. | **Subject:** New Lead: Aarav Kapoor from Website Contact Form<br><br>A new prospective student has submitted an enquiry through the TGA website.<br><br>Name: Aarav Kapoor<br>Source: Website Contact Form<br>Interested In: Canada — MBA<br><br>**[Button: View Lead in CRM →]**<br><br>Warm regards, The Global Avenues Team |
-| **The Staff Member it's assigned to** — a lead is handed to them for follow-up. | **Subject:** Lead Assigned to You: Aarav Kapoor<br><br>Hi Anjali, a prospective student lead has been assigned to you for follow-up.<br><br>Name: Aarav Kapoor<br>Source: Website Contact Form<br><br>**[Button: View Lead →]**<br><br>Warm regards, The Global Avenues Team |
-| **The Staff Member currently assigned** — a lead moves to a new pipeline stage. *(In-app bell only, no email — this happens too often for inboxes.)* | **Subject:** Lead Status Updated: Aarav Kapoor<br><br>Lead Aarav Kapoor has moved to a new status: Qualified.<br><br>**[Button: View in CRM →]** |
+| **All Admins** — a new enquiry comes in from the public website contact form. | **Subject:** New Lead: Aarav Kapoor from Website Contact Form<br><br>A new prospective student has submitted an enquiry through the TGA website.<br><br>Name: Aarav Kapoor<br>Source: Website Contact Form<br>Interested In: Canada — MBA<br><br>Warm regards, The Global Avenues Team |
+| **The Staff Member it's assigned to** — a lead is handed to them for follow-up. | **Subject:** Lead Assigned to You: Aarav Kapoor<br><br>Hi Anjali, a prospective student lead has been assigned to you for follow-up.<br><br>Name: Aarav Kapoor<br>Source: Website Contact Form<br><br>Warm regards, The Global Avenues Team |
+| **The Staff Member currently assigned** — a lead moves to a new pipeline stage. *(In-app bell only, no email — this happens too often for inboxes.)* | **Subject:** Lead Status Updated: Aarav Kapoor<br><br>Lead Aarav Kapoor has moved to a new status: Qualified. |
 
 ---
 
@@ -130,8 +133,8 @@ agent if one is assigned — each with their own portal link.
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **The Student** — their own application changes status. | **Subject:** Application Update: TGA-2026-004821<br><br>Application Update<br>Hi Priya Sharma, your application TGA-2026-004821 has a new status.<br><br>*New Status:* Offer Received<br><br>**[Button: View Application →]**<br><br>Warm regards, The Global Avenues Team |
-| **The Agent handling that application** — same status change, own copy. | **Subject:** Application Update: TGA-2026-004821<br><br>Application Update<br>Hi Rahul Mehta, your application TGA-2026-004821 has a new status.<br><br>*New Status:* Offer Received<br><br>**[Button: View Application →]**<br><br>Warm regards, The Global Avenues Team |
+| **The Student** — their own application changes status. | **Subject:** Application Update: TGA-2026-004821<br><br>Application Update<br>Hi Priya Sharma, your application TGA-2026-004821 has a new status.<br><br>*New Status:* Offer Received<br><br>Warm regards, The Global Avenues Team |
+| **The Agent handling that application** — same status change, own copy. | **Subject:** Application Update: TGA-2026-004821<br><br>Application Update<br>Hi Rahul Mehta, your application TGA-2026-004821 has a new status.<br><br>*New Status:* Offer Received<br><br>Warm regards, The Global Avenues Team |
 
 *Note: "Offer Received" (not the internal `offer_received`) — fixed today so the status shown in the email always matches what the portal itself displays.*
 
@@ -144,7 +147,7 @@ whichever audience they target — All Students, All Agents, or Everyone.
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **Everyone in the chosen audience** — a notice is published. | **Subject:** New Notice: Winter Intake Deadlines Extended<br><br>*[A short preview of the notice's own text, exactly as the admin wrote it]*<br><br>**[Button: Read Full Notice →]**<br><br>Warm regards, The Global Avenues Team |
+| **Everyone in the chosen audience** — a notice is published. | **Subject:** New Notice: Winter Intake Deadlines Extended<br><br>*[A short preview of the notice's own text, exactly as the admin wrote it]*<br><br>Warm regards, The Global Avenues Team |
 
 ---
 
@@ -166,9 +169,9 @@ Super Admins receive them, about the server itself.
 
 | Who receives it, and why | Exact message content |
 |---|---|
-| **All Super Admins** — a deadline the business set for itself (e.g. "review a document within 48 hours") is missed. | **Subject:** SLA Breach: Document Review — Immediate Action Required<br><br>An SLA target has been missed and requires immediate attention.<br><br>Rule: Document Review<br>Entity: document_request #4821<br>Target Was: 2026-07-12 14:00<br>Overdue By: 18 hours<br><br>**[Button: Review in Admin Panel →]** |
-| **All Super Admins** — server storage disk is getting full (early warning). | **Subject:** Disk Space Warning: 82% Used<br><br>Server disk usage has crossed the warning threshold.<br><br>Current Usage: 82% used — 9.4 GB free<br><br>Consider clearing old backups or logs before this reaches critical levels. |
-| **All Super Admins** — disk is nearly full, uploads about to start failing. | **Subject:** CRITICAL: Disk Space 96% Used<br><br>Server disk usage has crossed the critical threshold. Immediate action is required.<br><br>Current Usage: 96% used — 2.1 GB free<br><br>New uploads will begin failing once the disk is full. Free up space now. |
+| **All Super Admins** — a deadline the business set for itself (e.g. "review a document within 48 hours") is missed. | **Subject:** SLA Breach: Document Review — Immediate Action Required<br><br>An SLA target has been missed and requires immediate attention.<br><br>Rule: Document Review<br>Entity: document_request #4821<br>Target Was: 2026-07-12 14:00<br>Overdue By: 18 hours<br><br>The Global Avenues System |
+| **All Super Admins** — server storage disk is getting full (early warning). | **Subject:** Disk Space Warning: 82% Used<br><br>Server disk usage has crossed the warning threshold.<br><br>Current Usage: 82% used — 9.4 GB free<br><br>Consider clearing old backups or logs before this reaches critical levels.<br><br>The Global Avenues System |
+| **All Super Admins** — disk is nearly full, uploads about to start failing. | **Subject:** CRITICAL: Disk Space 96% Used<br><br>Server disk usage has crossed the critical threshold. Immediate action is required.<br><br>Current Usage: 96% used — 2.1 GB free<br><br>New uploads will begin failing once the disk is full. Free up space now.<br><br>The Global Avenues System |
 
 ---
 
