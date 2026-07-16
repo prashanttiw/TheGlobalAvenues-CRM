@@ -78,4 +78,5 @@ try {
         $pdo->rollBack();
     }
     CronHealth::failure('check_sla_breaches', $e->getMessage());
+    exit(1);
 }

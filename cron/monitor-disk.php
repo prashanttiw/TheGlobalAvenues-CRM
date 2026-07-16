@@ -53,4 +53,5 @@ try {
 
 } catch (\Throwable $e) {
     CronHealth::failure('monitor_disk', $e->getMessage());
+    exit(1);
 }
