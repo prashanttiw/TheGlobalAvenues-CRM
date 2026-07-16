@@ -230,7 +230,7 @@ final class RegistrationController
 
             $studentId = (int)$this->pdo->lastInsertId();
 
-            $this->pdo->prepare('INSERT INTO user_preferences (user_id) VALUES (?)')->execute([$userId]);
+            $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')")->execute([$userId]);
 
             $this->pdo->commit();
 
@@ -369,7 +369,7 @@ final class RegistrationController
                 $this->pdo->prepare("UPDATE agents SET root_agent_id = ? WHERE id = ?")->execute([$agentId, $agentId]);
             }
 
-            $this->pdo->prepare('INSERT INTO user_preferences (user_id) VALUES (?)')->execute([$userId]);
+            $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')")->execute([$userId]);
 
             $this->pdo->commit();
 
@@ -490,7 +490,7 @@ final class RegistrationController
             }
 
             // Insert Preferences
-            $prefStmt = $this->pdo->prepare('INSERT INTO user_preferences (user_id) VALUES (?)');
+            $prefStmt = $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')");
             $prefStmt->execute([$userId]);
 
             $this->pdo->commit();

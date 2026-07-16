@@ -527,7 +527,7 @@ class LeadsController
             $studentId = (int) $this->pdo->lastInsertId();
 
             // Insert user preferences
-            $this->pdo->prepare("INSERT INTO user_preferences (user_id) VALUES (?)")->execute([$userId]);
+            $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')")->execute([$userId]);
 
             // Update lead status
             $this->pdo->prepare("UPDATE leads SET status = 'converted', converted_student_id = ?, updated_at = NOW() WHERE id = ?")

@@ -1191,13 +1191,15 @@ export async function updateAdminApplication(payload: {
   return fetchAdminApplicationDetail(payload.application_id);
 }
 
-export async function fetchAdminDocumentQueue(_params: {
+export async function fetchAdminDocumentQueue(params: {
   page?: number;
   perPage?: number;
   q?: string;
   status?: string;
 } = {}): Promise<{ documents: AdminDocumentQueueItem[]; meta: PaginationMeta }> {
-  const response = await api.get<{ queue: any[] }>('admin/get_document_queue');
+  const response = await api.get<{ queue: any[] }>('admin/get_document_queue', {
+    params: { status: params.status, per_page: params.perPage },
+  });
   const rows = response.data.queue ?? [];
 
   const documents: AdminDocumentQueueItem[] = rows.map((row: any) => ({

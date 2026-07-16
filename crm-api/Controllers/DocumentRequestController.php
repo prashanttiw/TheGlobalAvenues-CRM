@@ -619,7 +619,16 @@ class DocumentRequestController
         // regardless of their individual page grants."
         AuthMiddleware::requireRole('admin');
 
-        $stmt = $this->pdo->query("
+        $allowedStatuses = ['requested', 'submitted', 'approved', 'rejected', 'cancelled'];
+        $status = $_GET['status'] ?? 'submitted';
+        if (!in_array($status, $allowedStatuses, true)) {
+            $status = 'submitted';
+        }
+
+        $perPage = (int)($_GET['per_page'] ?? 30);
+        $perPage = max(1, min($perPage, 100));
+
+        $stmt = $this->pdo->prepare("
             SELECT dr.public_id, dr.doc_label, dr.description, dr.deadline, dr.status, dr.created_at,
                    app.public_id as application_pid, app.reference_number as application_reference,
                    u.email as student_email, s.full_name as student_name,
@@ -629,9 +638,11 @@ class DocumentRequestController
             JOIN students s ON app.student_id = s.id
             JOIN users u ON s.user_id = u.id
             LEFT JOIN files f ON dr.submitted_file_id = f.id
-            WHERE dr.status = 'submitted'
+            WHERE dr.status = ?
             ORDER BY dr.created_at ASC
+            LIMIT " . $perPage . "
         ");
+        $stmt->execute([$status]);
         Response::json(['queue' => $stmt->fetchAll(PDO::FETCH_ASSOC)]);
     }
 }

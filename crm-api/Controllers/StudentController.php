@@ -841,7 +841,7 @@ class StudentController
             ]);
             $studentId = (int) $this->pdo->lastInsertId();
 
-            $this->pdo->prepare('INSERT INTO user_preferences (user_id) VALUES (?)')->execute([$userId]);
+            $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')")->execute([$userId]);
 
             $this->pdo->commit();
         } catch (\Throwable $e) {

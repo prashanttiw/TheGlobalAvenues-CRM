@@ -151,7 +151,7 @@ final class SubAgentController
             $newAgentId = (int) $this->pdo->lastInsertId();
 
             // Insert Preferences
-            $prefStmt = $this->pdo->prepare('INSERT INTO user_preferences (user_id) VALUES (?)');
+            $prefStmt = $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')");
             $prefStmt->execute([$userId]);
 
             $this->pdo->commit();
