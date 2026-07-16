@@ -595,9 +595,11 @@ CREATE TABLE sla_events (
 CREATE TABLE user_preferences (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   user_id INT UNSIGNED NOT NULL UNIQUE,
-  preferences JSON NOT NULL DEFAULT ('{}')
+  preferences JSON NOT NULL
     COMMENT 'Keys: table_page_size, sidebar_collapsed, dashboard_widgets,
-             notification_categories, theme',
+             notification_categories, theme. No column DEFAULT (MySQL 5.7 disallows
+             any default on JSON/TEXT/BLOB columns) — every INSERT site must supply
+             preferences explicitly; app code always passes ''{}''.',
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY fk_pref_user (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

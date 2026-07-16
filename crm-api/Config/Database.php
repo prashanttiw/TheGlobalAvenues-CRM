@@ -64,11 +64,28 @@ final class Database
                 self::$supportsSkipLocked = false;
                 return false;
             }
+
+            // Real MySQL (not MariaDB) — SKIP LOCKED was added in 8.0. This branch used to assume
+            // true unconditionally for any non-MariaDB server, which caused a hard SQL syntax error
+            // on every run of send-notifications.php and a silently-swallowed failure in
+            // check-sla-breaches.php (that script's catch block logs via CronHealth::failure() but
+            // never exits non-zero, so the scheduler log showed no error at all) against this
+            // project's actual production server, MySQL 5.7.23 (confirmed 2026-07-16).
+            if (preg_match('/^([0-9]+)\.[0-9]+\.[0-9]+/', $version, $matches)) {
+                $major = (int)$matches[1];
+                self::$supportsSkipLocked = ($major >= 8);
+                return self::$supportsSkipLocked;
+            }
         } catch (\Throwable $e) {
-            // Fallback to true if attribute check fails
+            // fall through to the safe default below
         }
 
-        self::$supportsSkipLocked = true;
-        return true;
+        // Safe default when the version string can't be parsed at all: assume NOT supported.
+        // Omitting SKIP LOCKED just means slightly less optimal row-locking under concurrent cron
+        // runs — functionally correct either way. Assuming it IS supported when it isn't causes a
+        // hard syntax error instead, which is what actually happened here — so an unparseable
+        // version should fail safe toward "false", not "true".
+        self::$supportsSkipLocked = false;
+        return false;
     }
 }
