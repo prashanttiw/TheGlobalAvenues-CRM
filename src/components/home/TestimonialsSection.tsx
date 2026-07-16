@@ -1,215 +1,149 @@
-import { useState, useEffect } from 'react';
-import { Star, Quote, ChevronLeft, ChevronRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { Eye, FileCheck2, MessageCircle, Quote, Waypoints } from 'lucide-react';
+import { motion, useReducedMotion } from 'motion/react';
 
-const TESTIMONIALS = [
+const STUDENT_PERSPECTIVES = [
   {
-    id: 1,
-    name: 'Priya Sharma',
-    course: 'MBA — ICN Business School',
-    country: 'France',
-    flag: '🇫🇷',
-    year: '2024',
-    avatar: 'PS',
-    avatarColor: 'from-[#FD7E14] to-[#D32F2F]',
-    quote: 'Global Avenues made my dream of studying in France a reality. From finding ICN Business School to getting my visa approved — they handled everything. The team was incredibly responsive and supportive throughout.',
-    rating: 5,
-    scholarship: '€8,000 scholarship secured',
+    stage: 'Postgraduate applicant',
+    focus: 'Profile and document guidance',
+    quote:
+      'Once I understood which documents were needed and why, the application stopped feeling overwhelming. I had a clear next step instead of a long list of doubts.',
   },
   {
-    id: 2,
-    name: 'Rahul Mehta',
-    course: 'BSc Computer Science — EUAS',
-    country: 'Estonia',
-    flag: '🇪🇪',
-    year: '2024',
-    avatar: 'RM',
-    avatarColor: 'from-[#2196F3] to-[#1565C0]',
-    quote: 'I had no idea Estonia had such great tech universities. The counsellors at Global Avenues matched me perfectly with EUAS. The application process was smooth and I got my offer in just 2 weeks!',
-    rating: 5,
-    scholarship: 'Merit scholarship awarded',
+    stage: 'Undergraduate applicant',
+    focus: 'Course and university selection',
+    quote:
+      "I wasn't just handed a university list. We spoke about the course, intake, location and what made sense for my plans before I applied.",
   },
   {
-    id: 3,
-    name: 'Ananya Patel',
-    course: 'BBA — Benedictine University',
-    country: 'USA',
-    flag: '🇺🇸',
-    year: '2023',
-    avatar: 'AP',
-    avatarColor: 'from-[#4CAF50] to-[#2E7D32]',
-    quote: 'The visa process for the US seemed daunting but Global Avenues guided me step by step. Their 98% visa success rate is real — I got my F-1 visa approved on the first attempt. Highly recommend!',
-    rating: 5,
-    scholarship: 'Partial tuition waiver',
-  },
-  {
-    id: 4,
-    name: 'Arjun Singh',
-    course: 'MSc Sustainable Energy — EIT InnoEnergy',
-    country: 'Europe',
-    flag: '🇪🇺',
-    year: '2024',
-    avatar: 'AS',
-    avatarColor: 'from-[#9C27B0] to-[#6A1B9A]',
-    quote: 'EIT InnoEnergy is a pan-European program and the application was complex. Global Avenues knew exactly what was needed and helped me craft a compelling SOP. Now I\'m studying across 3 countries!',
-    rating: 5,
-    scholarship: '€12,000 scholarship',
-  },
-  {
-    id: 5,
-    name: 'Kavya Reddy',
-    course: 'Graphic Design — MJM Paris',
-    country: 'France',
-    flag: '🇫🇷',
-    year: '2023',
-    avatar: 'KR',
-    avatarColor: 'from-[#FF5722] to-[#BF360C]',
-    quote: 'As a creative student, I wanted a design school with real industry connections. MJM Paris was the perfect fit and Global Avenues helped me get there. The portfolio guidance was exceptional.',
-    rating: 5,
-    scholarship: 'Early bird discount',
+    stage: 'Student applicant',
+    focus: 'Application tracking',
+    quote:
+      'Seeing each request in one place made follow-ups easier. I could upload the document, check the update and know what was still pending.',
   },
 ];
 
+const SUPPORT_HIGHLIGHTS = [
+  { icon: Waypoints, label: 'Clear next steps' },
+  { icon: FileCheck2, label: 'Careful document checks' },
+  { icon: Eye, label: 'Visible application progress' },
+  { icon: MessageCircle, label: 'A reachable support team' },
+];
+
 export function TestimonialsSection() {
-  const [current, setCurrent] = useState(0);
-  const [direction, setDirection] = useState(1);
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      setDirection(1);
-      setCurrent(c => (c + 1) % TESTIMONIALS.length);
-    }, 6000);
-    return () => clearInterval(t);
-  }, []);
-
-  const go = (dir: number) => {
-    setDirection(dir);
-    setCurrent(c => (c + dir + TESTIMONIALS.length) % TESTIMONIALS.length);
-  };
-
-  const t = TESTIMONIALS[current];
+  const reduceMotion = useReducedMotion();
+  const reveal = reduceMotion ? false : { opacity: 0, y: 24 };
 
   return (
-    <section className="py-24 bg-gradient-to-b from-[#F8FAFC] to-[#EAF5FF] relative overflow-hidden">
-      {/* Background decoration */}
-      <div className="absolute inset-0 dot-grid opacity-40 pointer-events-none" />
-      <div className="absolute top-0 right-0 w-96 h-96 rounded-full bg-[#0074D9]/8 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-80 h-80 rounded-full bg-[#FD7E14]/6 blur-3xl pointer-events-none" />
+    <section className="relative overflow-hidden bg-[#FFF9F2] py-20 sm:py-24">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-40"
+        aria-hidden="true"
+        style={{
+          backgroundImage: 'radial-gradient(circle, rgba(253,126,20,0.18) 1px, transparent 1px)',
+          backgroundSize: '28px 28px',
+        }}
+      />
+      <div
+        className="pointer-events-none absolute -right-32 top-8 h-80 w-80 rounded-full bg-[#FD7E14]/10 blur-3xl"
+        aria-hidden="true"
+      />
 
-      <div className="max-w-6xl mx-auto px-6 relative z-10">
-        <motion.div
-          className="text-center mb-14"
-          initial={{ opacity: 0, y: 30 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-        >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#0074D9]/10 border border-[#0074D9]/20 mb-4">
-            <Star className="w-4 h-4 text-[#0074D9] fill-[#0074D9]" />
-            <span className="text-sm text-[#0074D9] font-semibold">Student Success Stories</span>
-          </div>
-          <h2 className="text-4xl md:text-5xl font-bold text-[#1C1C1E] mb-4">
-            Real Students. Real Results.
-          </h2>
-          <p className="text-lg text-[#6B7280] max-w-xl mx-auto">
-            4,000+ students have trusted us with their study abroad journey.
-          </p>
-        </motion.div>
+      <div className="relative z-10 mx-auto max-w-7xl px-6">
+        <div className="grid items-start gap-12 lg:grid-cols-[0.82fr_1.18fr] lg:gap-16">
+          <motion.div
+            initial={reveal}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, amount: 0.3 }}
+            transition={{ duration: 0.55 }}
+          >
+            <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#FD7E14]/20 bg-white px-4 py-2 text-sm font-semibold text-[#B54708] shadow-sm">
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              Student journey notes
+            </div>
 
-        {/* Main testimonial card */}
-        <div className="relative max-w-4xl mx-auto">
-          <AnimatePresence mode="wait" custom={direction}>
-            <motion.div
-              key={t.id}
-              custom={direction}
-              initial={{ opacity: 0, x: direction * 60 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: direction * -60 }}
-              transition={{ duration: 0.5, ease: 'easeInOut' }}
-              className="bg-white rounded-3xl p-10 shadow-[0_20px_60px_rgba(0,116,217,0.12)] border border-[#0074D9]/10 relative overflow-hidden"
-            >
-              {/* Quote icon */}
-              <div className="absolute top-8 right-8 opacity-8">
-                <Quote className="w-20 h-20 text-[#0074D9]" />
-              </div>
+            <h2 className="max-w-xl text-4xl font-black leading-[1.08] tracking-tight text-[#111827] sm:text-5xl">
+              Support that feels personal, not procedural.
+            </h2>
+            <p className="mt-5 max-w-xl text-base leading-7 text-[#5F6673] sm:text-lg">
+              Studying abroad comes with a lot of decisions. Students value having someone explain the next step,
+              check the details and stay reachable throughout the application journey.
+            </p>
 
-              {/* Stars */}
-              <div className="flex items-center gap-1 mb-6">
-                {[...Array(t.rating)].map((_, i) => (
-                  <Star key={i} className="w-5 h-5 text-[#FFC107] fill-[#FFC107]" />
-                ))}
-              </div>
-
-              {/* Quote */}
-              <blockquote className="text-xl md:text-2xl text-[#1C1C1E] font-medium leading-relaxed mb-8 relative z-10">
-                "{t.quote}"
-              </blockquote>
-
-              {/* Author */}
-              <div className="flex items-center justify-between flex-wrap gap-4">
-                <div className="flex items-center gap-4">
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${t.avatarColor} flex items-center justify-center text-white font-bold text-lg shadow-[0_4px_16px_rgba(253,126,20,0.3)]`}>
-                    {t.avatar}
-                  </div>
-                  <div>
-                    <div className="font-bold text-[#1C1C1E] text-lg">{t.name}</div>
-                    <div className="text-sm text-[#6B7280]">{t.course}</div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-base">{t.flag}</span>
-                      <span className="text-xs text-[#9CA3AF]">{t.country} · {t.year}</span>
-                    </div>
-                  </div>
-                </div>
-                {t.scholarship && (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-[#FFC107]/15 rounded-xl border border-[#FFC107]/30">
-                    <Star className="w-4 h-4 text-[#FFC107] fill-[#FFC107]" />
-                    <span className="text-sm font-semibold text-[#92400E]">{t.scholarship}</span>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          </AnimatePresence>
-
-          {/* Navigation */}
-          <div className="flex items-center justify-between mt-8">
-            <button
-              onClick={() => go(-1)}
-              className="w-12 h-12 rounded-2xl bg-white border border-[#0074D9]/20 flex items-center justify-center hover:bg-[#0074D9] hover:text-white hover:border-[#0074D9] transition-all shadow-[0_2px_12px_rgba(0,116,217,0.1)] group"
-            >
-              <ChevronLeft className="w-5 h-5 text-[#0074D9] group-hover:text-white" />
-            </button>
-
-            {/* Dots */}
-            <div className="flex items-center gap-2">
-              {TESTIMONIALS.map((_, i) => (
-                <button
-                  key={i}
-                  onClick={() => { setDirection(i > current ? 1 : -1); setCurrent(i); }}
-                  className={`transition-all duration-300 rounded-full ${i === current ? 'w-8 h-2.5 bg-[#0074D9]' : 'w-2.5 h-2.5 bg-[#0074D9]/25 hover:bg-[#0074D9]/50'}`}
-                />
+            <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+              {SUPPORT_HIGHLIGHTS.map(({ icon: Icon, label }, index) => (
+                <motion.div
+                  key={label}
+                  initial={reduceMotion ? false : { opacity: 0, x: -14 }}
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.4, delay: index * 0.07 }}
+                  className="flex items-center gap-3 rounded-2xl border border-[#F1DAC6] bg-white/80 px-4 py-3 text-sm font-semibold text-[#303846] shadow-[0_8px_30px_rgba(91,56,28,0.05)]"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[#FFF0E2] text-[#D95D0B]">
+                    <Icon className="h-4 w-4" aria-hidden="true" />
+                  </span>
+                  {label}
+                </motion.div>
               ))}
             </div>
 
-            <button
-              onClick={() => go(1)}
-              className="w-12 h-12 rounded-2xl bg-white border border-[#0074D9]/20 flex items-center justify-center hover:bg-[#0074D9] hover:text-white hover:border-[#0074D9] transition-all shadow-[0_2px_12px_rgba(0,116,217,0.1)] group"
-            >
-              <ChevronRight className="w-5 h-5 text-[#0074D9] group-hover:text-white" />
-            </button>
-          </div>
-        </div>
+            <p className="mt-7 max-w-lg text-xs leading-5 text-[#7B8190]">
+              Representative perspectives based on the student support journey. Names and identifying details are
+              intentionally not displayed.
+            </p>
+          </motion.div>
 
-        {/* Mini testimonial avatars */}
-        <div className="flex items-center justify-center gap-3 mt-10">
-          {TESTIMONIALS.map((t, i) => (
-            <motion.button
-              key={t.id}
-              onClick={() => { setDirection(i > current ? 1 : -1); setCurrent(i); }}
-              whileHover={{ scale: 1.15 }}
-              className={`w-10 h-10 rounded-xl bg-gradient-to-br ${t.avatarColor} flex items-center justify-center text-white text-xs font-bold transition-all ${i === current ? 'ring-2 ring-[#0074D9] ring-offset-2 scale-110' : 'opacity-50'}`}
+          <div className="grid gap-5 sm:grid-cols-2">
+            <motion.article
+              initial={reveal}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, amount: 0.25 }}
+              transition={{ duration: 0.55, delay: 0.08 }}
+              className="relative overflow-hidden rounded-[2rem] bg-[#111827] p-7 text-white shadow-[0_24px_70px_rgba(17,24,39,0.18)] sm:col-span-2 sm:p-9"
             >
-              {t.avatar}
-            </motion.button>
-          ))}
+              <div
+                className="absolute -right-12 -top-12 h-44 w-44 rounded-full border-[28px] border-[#FD7E14]/15"
+                aria-hidden="true"
+              />
+              <div className="relative">
+                <div className="mb-8 flex items-center justify-between gap-4">
+                  <span className="text-xs font-bold uppercase tracking-[0.18em] text-[#FFB16C]">
+                    A clearer first step
+                  </span>
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#FD7E14] text-white shadow-lg">
+                    <Quote className="h-5 w-5 fill-current" aria-hidden="true" />
+                  </span>
+                </div>
+                <blockquote className="max-w-2xl text-2xl font-semibold leading-relaxed tracking-[-0.02em] sm:text-[1.7rem]">
+                  “{STUDENT_PERSPECTIVES[0].quote}”
+                </blockquote>
+                <div className="mt-8 border-t border-white/15 pt-5">
+                  <p className="font-bold text-white">{STUDENT_PERSPECTIVES[0].stage}</p>
+                  <p className="mt-1 text-sm text-white/60">{STUDENT_PERSPECTIVES[0].focus}</p>
+                </div>
+              </div>
+            </motion.article>
+
+            {STUDENT_PERSPECTIVES.slice(1).map((perspective, index) => (
+              <motion.article
+                key={perspective.focus}
+                initial={reveal}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, amount: 0.25 }}
+                transition={{ duration: 0.5, delay: 0.14 + index * 0.08 }}
+                className="flex min-h-[290px] flex-col rounded-[1.75rem] border border-[#EDD8C6] bg-white p-6 shadow-[0_18px_50px_rgba(91,56,28,0.08)] sm:p-7"
+              >
+                <Quote className="h-8 w-8 text-[#FD7E14]" aria-hidden="true" />
+                <blockquote className="mt-5 flex-1 text-lg font-medium leading-8 text-[#242B36]">
+                  “{perspective.quote}”
+                </blockquote>
+                <div className="mt-7 border-t border-[#EEE7E0] pt-5">
+                  <p className="font-bold text-[#111827]">{perspective.stage}</p>
+                  <p className="mt-1 text-sm text-[#727987]">{perspective.focus}</p>
+                </div>
+              </motion.article>
+            ))}
+          </div>
         </div>
       </div>
     </section>

@@ -215,11 +215,11 @@ export function LiveAlumniFeed() {
         {/* Stats Banner */}
         <div className="mt-16 grid grid-cols-3 gap-6">
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 text-center border border-gray-200">
-            <div className="text-3xl font-bold text-[#FD7E14] mb-2">15+</div>
-            <div className="text-sm text-[#1A0A00]/70">Partner Institutions</div>
+            <div className="text-3xl font-bold text-[#FD7E14] mb-2">100+</div>
+            <div className="text-sm text-[#1A0A00]/70">Partner Universities</div>
           </div>
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 text-center border border-gray-200">
-            <div className="text-3xl font-bold text-[#FD7E14] mb-2">12+</div>
+            <div className="text-3xl font-bold text-[#FD7E14] mb-2">45+</div>
             <div className="text-sm text-[#1A0A00]/70">Countries Covered</div>
           </div>
           <div className="bg-white/80 backdrop-blur-xl rounded-2xl p-6 text-center border border-gray-200">

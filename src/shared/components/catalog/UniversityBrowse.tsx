@@ -10,6 +10,8 @@ import { SearchInput } from '../ui/SearchInput'
 import { SkeletonCard } from '../ui/SkeletonLoader'
 import { EmptyState } from '../ui/EmptyState'
 import { UniversityLogo } from './UniversityLogo'
+import { useUrlFilters } from '../../hooks/useUrlFilters'
+import { ClearFiltersButton } from '../ui/ClearFiltersButton'
 import {
   createApplication,
   fetchProgramIntakes,
@@ -88,19 +90,24 @@ function campusToCatalogUniversity(campus: CatalogCampus): CatalogUniversity {
 export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowseProps) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const [search, setSearch] = React.useState('')
-  const [country, setCountry] = React.useState('')
-  const [page, setPage] = React.useState(1)
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    search: '', country: '', page: '1',
+  })
+  const search = filters.search
+  const country = filters.country
+  const page = Number(filters.page) || 1
+  const setSearch = (v: string) => setFilters({ search: v, page: '1' })
+  const setCountry = (v: string) => setFilters({ country: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
   // selectedGroup: the institution card chosen from the main list (university -> campus step).
   // selectedCampus: the specific campus row chosen from the campus picker (campus -> course step).
   const [selectedGroup, setSelectedGroup] = React.useState<CatalogUniversity | null>(null)
   const [selectedCampus, setSelectedCampus] = React.useState<CatalogUniversity | null>(null)
   const [selectedCourse, setSelectedCourse] = React.useState<UniversityDetailCourse | null>(null)
   const [applyingIntakeId, setApplyingIntakeId] = React.useState<string | null>(null)
-
-  React.useEffect(() => {
-    setPage(1)
-  }, [search, country])
 
   // Deep-link support: global search opens a specific campus via ?open=<pid>, jumping straight to
   // its course list — same as before, just skipping the group card and campus-picker steps rather
@@ -429,6 +436,7 @@ export function UniversityBrowse({ mode, onApplyForStudent }: UniversityBrowsePr
             <option key={c} value={c}>{c}</option>
           ))}
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
       </div>
 
       {universitiesQuery.isError ? (

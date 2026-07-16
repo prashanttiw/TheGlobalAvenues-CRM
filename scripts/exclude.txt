@@ -6,3 +6,4 @@ php_errors.log
 .idea\
 .vscode\
 tests\
+create_test_users.php

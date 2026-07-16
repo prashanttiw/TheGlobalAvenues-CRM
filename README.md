@@ -504,7 +504,7 @@ removed from every transactional email system-wide. Full content review:
 
 ### Cron schedule
 
-One cPanel entry — `* * * * * /usr/local/bin/ea-php82 <docroot>/cron/scheduler.php` — internally
+One cPanel entry — `* * * * * /usr/local/bin/ea-php83 <docroot>/cron/scheduler.php` — internally
 dispatches everything else via `flock()` + `scheduler_state.json`:
 
 | Script | Frequency | Purpose |
@@ -628,6 +628,8 @@ the full, current list with technical detail.
 | Reusable full-audit kickoff prompt | `Implementation_development _docs/FULL_SYSTEM_AUDIT_PROMPT.md` |
 | Manual regression checklist | `Implementation_development _docs/FULL_LIVE_QA_TEST_GUIDE.md` |
 | Every automatic email/notification, word-for-word | `Implementation_development _docs/EMAIL_NOTIFICATION_CONTENT_REVIEW.md` |
+| Full deployment runbook, backup → upload → DB → cron → verify → rollback | `Implementation_development _docs/DEPLOYMENT_MASTER_RUNBOOK.md` |
+| One-time production DB setup steps (no-SSH Bluehost workaround) | `Implementation_development _docs/PRODUCTION_SETUP_RUNBOOK.md` |
 | Authoritative DB schema | `crm-api/Database/all_migrations_combined.sql` + `migrations/` |
 | All API routes | `crm-api/Routes/api.php` → feature route files |
 
@@ -641,9 +643,11 @@ Production is a single Bluehost India shared-hosting account:
 - **Backend:** upload `crm-api/` (and `cron/`, `storage/`, `uploads/`) alongside it — same document
   root, no separate host.
 - **Cron:** one cPanel Cron Jobs entry, `* * * * *`, pointed at `cron/scheduler.php` with the
-  server's PHP CLI binary (`ea-php82` on this account).
+  server's PHP CLI binary (`ea-php83` on this account).
 - **Database:** run `crm-api/Database/setup_database.php` once against a fresh MySQL 8.4 database, or
-  `reconcile.php --dry-run` / `--apply` to bring an existing database up to date safely.
+  `reconcile.php --dry-run` / `--apply` to bring an existing database up to date safely. Bluehost has no
+  SSH/Terminal, so this CLI script has to run via a one-shot cPanel Cron Jobs entry — see
+  `Implementation_development _docs/PRODUCTION_SETUP_RUNBOOK.md` for the exact steps.
 - **SPA routing:** Apache `.htaccess` must have `RewriteEngine On` with a fallback to `index.html` for
   client-side routes, and a separate rewrite in `crm-api/.htaccess` for the API front controller.
 

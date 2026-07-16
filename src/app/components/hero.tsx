@@ -55,7 +55,7 @@ export function Hero() {
           {/* Quick Stats */}
           <div className="grid grid-cols-3 gap-6 mt-12">
             <div className="bg-white/95 backdrop-blur-md rounded-xl p-4 border border-[#FD7E14]/20 shadow-[0_4px_16px_rgba(253,126,20,0.15)]">
-              <div className="text-3xl font-bold text-[#FD7E14] mb-1">500+</div>
+              <div className="text-3xl font-bold text-[#FD7E14] mb-1">100+</div>
               <div className="text-sm text-[#333333]/80">Partner Universities</div>
             </div>
             <div className="bg-white/95 backdrop-blur-md rounded-xl p-4 border border-[#FD7E14]/20 shadow-[0_4px_16px_rgba(253,126,20,0.15)]">
@@ -63,7 +63,7 @@ export function Hero() {
               <div className="text-sm text-[#333333]/80">Visa Success Rate</div>
             </div>
             <div className="bg-white/95 backdrop-blur-md rounded-xl p-4 border border-[#FD7E14]/20 shadow-[0_4px_16px_rgba(253,126,20,0.15)]">
-              <div className="text-3xl font-bold text-[#FD7E14] mb-1">50+</div>
+              <div className="text-3xl font-bold text-[#FD7E14] mb-1">45+</div>
               <div className="text-sm text-[#333333]/80">Countries</div>
             </div>
           </div>

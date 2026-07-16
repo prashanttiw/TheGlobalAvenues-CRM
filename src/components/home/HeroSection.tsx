@@ -7,21 +7,21 @@ import { COMPANY } from '@/data/company';
 const HERO_SLIDES = [
   {
     image: '/hero/university-hall-hero.jpg',
-    headline: 'Your Dream University.',
-    highlight: 'One Platform Away.',
-    sub: 'Navigate admissions, visa, counselling - all in one place. Built for students from South Asia.',
+    headline: 'Your Dream University',
+    highlight: 'One Platform Away',
+    sub: 'Explore admissions, visas and counselling in one place with guidance designed for students',
   },
   {
     image: '/hero/library-study-hero.jpg',
-    headline: `${COMPANY.stats.partnerUniversities}+ Partner Universities.`,
-    highlight: `Across ${COMPANY.stats.countries}+ Countries.`,
-    sub: 'From exclusive MOU partners to a global network - find your perfect institution.',
+    headline: `${COMPANY.stats.partnerUniversities}+ Partner Universities`,
+    highlight: `Across ${COMPANY.stats.countries}+ Countries`,
+    sub: 'Explore trusted institutions worldwide and find the right university for your goals',
   },
   {
     image: '/universities/elmhurst-university-hero.jpg',
-    headline: '98% Visa Success Rate.',
-    highlight: 'Expert Guidance.',
-    sub: `ICEF certified counsellors with ${COMPANY.stats.yearsExperience}+ years of experience in international education.`,
+    headline: 'Expert Guidance',
+    highlight: 'At Every Step',
+    sub: `Work with ICEF-certified counsellors backed by ${COMPANY.stats.yearsExperience}+ years of international education experience`,
   },
 ];
 
@@ -171,7 +171,7 @@ export function HeroSection() {
             <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-[#FFC107] opacity-75" />
             <span className="relative inline-flex rounded-full h-2 w-2 bg-[#FFC107]" />
           </span>
-          <span className="min-w-0 whitespace-normal text-xs font-medium leading-snug text-white/90 sm:text-sm">Asia's Trusted Global Education Partner . ICEF Certified</span>
+          <span className="min-w-0 whitespace-normal text-xs font-medium leading-snug text-white/90 sm:text-sm">Trusted by Students Worldwide | ICEF Certified</span>
         </motion.div>
 
         <div className="mb-5 flex min-h-[132px] flex-col items-center justify-center sm:mb-6 sm:min-h-[160px] md:min-h-[200px]">

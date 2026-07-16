@@ -319,6 +319,10 @@ The initial shell scored 100/100 against its own spec-only audit, but once real 
 
 **Real-catalog import (2026-07-03)** replaced all test data with ~200 universities / 2,606 courses / 4,419 intakes across 20 countries. Surfaced a genuine performance bug: admin catalog pages had been fanning out one HTTP request per university (and a third layer per course for Intakes) to compute counts — fine against ~16 test universities, but tripped rate limiting against the real catalog. Fixed by computing counts via subquery in the list query and adding real server-side pagination/filtering.
 
+**Exclusive-catalog cleanup against the client's "Exclusive TGA Toolkit" source spreadsheet (2026-07-16).** Cross-referenced all 14 real `partnership_type='exclusive'` universities against the client's own Excel toolkit and found the import had left 6 junk duplicate rows behind: `IFH - Institut Français de l'Hôtellerie` (city NULL, country "Unknown", 0 courses), `CEFAM` (Lyon, 0 courses, sharing `campus_group_id` with the real row), `ICN Business School` (Nancy, 0 courses, sharing `campus_group_id` with the real row), `Neapolis University` ("Paphos" — an alt-spelling dup of the real "Pafos" row, 0 courses), and `EUAS` (a duplicate of "Estonia Entrepreneurship University of Applied Science" under its acronym, 0 courses). One duplicate wasn't an empty shell — `MJM Design - Creative Short Courses` (London) actually had 4 real courses + 12 intakes matching the toolkit exactly — flagged to the client explicitly before deleting since it looked legitimate; client confirmed deletion anyway. All 6 removed via the real `DELETE /?route=admin&action=universities/:pid` endpoint (not raw SQL), exercising the existing RBAC check, `UniversityModel::softDeleteWithCascade()`, and `ActivityLogger` exactly as the admin UI would. Verified live: DB shows `deleted_at` set on all 6 university rows, their courses cascaded to `status='inactive'` + `deleted_at` set, their intakes cascaded to `status='closed'`, zero applications existed against any of them, and the admin `GET /?route=admin&action=universities` read endpoint no longer returns any of the 6. Cross-checked every real course in the toolkit against the remaining 14 exclusive universities — all already present in the DB, nothing needed adding. Separately noticed (out of scope, not touched): a catalog-wide pattern of 127 exact-duplicate-course-name groups (136 extra rows) across ~25 *non-exclusive* universities, each an `active`/`inactive` pair — not currently user-visible since the public/agent/student browse endpoints already filter to `status='active'` (`CourseController.php:310`); left for a future dedicated pass per client decision.
+
+**Same-day collision: the deletion above got silently reverted, then redone.** While independently verifying an unrelated filter-persistence change later the same session, a fresh DB check found all 6 rows back at `deleted_at IS NULL` (cascaded courses/intakes restored too), timestamped `2026-07-16 02:19:10` — after the original delete, and not caused by this session (no restore endpoint was called here). `tga_crm_reconciled` on port 3307 and the port-3000 dev server were confirmed shared with another concurrent Claude Code session during this window (real UI contention observed: stale element refs, hung screenshots), which is the most likely source of a reseed/restore touching the same table. Flagged to the client rather than silently redone; client confirmed re-deleting. Re-ran the identical `DELETE /?route=admin&action=universities/:pid` calls at `02:49:45`–`02:49:46` and re-verified `deleted_at` is set on all 6. **If these 6 reappear again, check what else is running against `tga_crm_reconciled` before assuming the delete failed** — the delete logic itself is confirmed correct twice now.
+
 ### Anything that contradicts or supersedes current docs
 
 - **CLAUDE.md's migration table stops at 069**, but academic-core work in this area added at least migrations 070 (student custom fields), 074 (student readiness), 075–076 (application cap + notifications), 077–078 (campus tables), 079 (dead settings removal), and 080 (search prefix hashes) — none reflected in that table. `all_migrations_combined.sql` is confirmed stale past 059 for the same reason.
@@ -742,3 +746,520 @@ A one-time, read-only onboarding/inventory snapshot (repo map, phase-by-phase sp
 | "40 tables" spot-check | Superseded — current count is ~41+, already reconciled in CLAUDE.md. |
 
 No open question or spot-check finding from this file remains unresolved or undocumented elsewhere.
+
+---
+
+## Dashboard Overview Cleanup — Admin/Agent/Student (2026-07-16)
+
+**Trigger:** Client feedback that all three portals' Overview (home) pages showed too much low-value clutter — specifically named Admin's "Pending agent approvals," "Pending payment verification," and "Pipeline weight" panels — and asked for a cleaner UI plus end-to-end verification that every displayed number is live and correct.
+
+### What was found (pre-change audit)
+
+Every number on all three Overview pages was already backed by a live, correctly-scoped SQL query — no fake/mocked data anywhere. The real problems were clutter, duplication, and one broken filter:
+
+- **Admin Overview** (`src/pages/admin/AdminDashboardPage.tsx`) fired 11+ live SQL queries per load, re-run every 30s on a timer. It had 8 panels including the 3 flagged ones, a duplicate stat ("Applications" hero chip and "Pipeline Cases" metric card were the identical field, shown twice), and a completely broken document-status filter: the frontend `fetchAdminDocumentQueue()` never sent its `status`/`perPage` params (leading-underscore-prefixed, deliberately unused), and the backend `DocumentRequestController::getDocumentQueue()` hardcoded `WHERE status='submitted'` — so the Documents section's status dropdown changed nothing regardless of selection.
+- **Agent Overview** (`src/pages/agent/AgentDashboard.tsx`) had a "Student Pipeline Overview" card duplicating numbers already shown in the stat-card row above it, and a "My Agency Network" card that's structurally always 0/0 for tier-3 (leaf) agents — the backend never even runs a query for that tier.
+- **Student Overview** (`src/pages/student/StudentOverviewPage.tsx`) had 6 stat cards + 6 more cards (12 panels total). The "Unread Notices" stat card duplicated the notification bell already in the shared top bar (`PortalWrapper.tsx`).
+
+### What changed
+
+**Admin** (`src/pages/admin/AdminDashboardPage.tsx`):
+- Removed the "Pending agent approvals," "Pending payment verification," and "Pipeline weight" panels entirely, and stopped calling `fetchAdminAgentQueue()`/`fetchAdminPaymentQueue()` from the Overview load (confirmed via grep these were called nowhere else in `src/` — agent approval already exists on the full Agents page; payment confirm/dispute already exists on the per-application detail page, `AdminApplicationDetailPage.tsx`). This also cuts 2 of the 5 network round trips that previously fired every 30 seconds.
+- Removed the duplicate "Pipeline Cases" metric card (same field as the "Applications" hero chip).
+- Re-laid remaining panels into a cleaner 3-card metric row + two 2-column panel rows (Recent stage movement / System Activity Feed, then Pending document review / Recent Notices & Events).
+- Fixed the document-status filter end-to-end: `DocumentRequestController::getDocumentQueue()` (`crm-api/Controllers/DocumentRequestController.php`) now reads `$_GET['status']` (whitelisted against the real `document_requests.status` values: requested/submitted/approved/rejected/cancelled, default `submitted`) and `$_GET['per_page']` (clamped 1–100) instead of a hardcoded query; `fetchAdminDocumentQueue()` (`src/lib/api.ts`) now actually sends those params; the Documents section's dropdown options were corrected from the non-existent `pending`/`verified` values to the real `submitted`/`approved`/`rejected`.
+- Noted but did not fix (out of scope, pre-existing, unrelated to this change): `/portal/admin/documents` has no route or sidebar link — the `section === 'documents'` branch in `AdminDashboardPage.tsx` is unreachable dead code. Worth a future decision on whether to wire it up or remove it.
+
+**Agent** (`src/pages/agent/AgentDashboard.tsx`):
+- Removed the redundant "Student Pipeline Overview" card.
+- "My Agency Network" now renders only when `agent.tier === 1 || agent.tier === 2` (backend already casts `tier` to a JSON int in `AgentController::dashboardSummary()`), as a standalone `max-w-md` card instead of a half-empty 2-column grid.
+
+**Student** (`src/pages/student/StudentOverviewPage.tsx`):
+- Collapsed the 6-stat-card row into "Total Applications" (its own StatCard) + a single "Application Pipeline" card showing Open/In Review/Offers/Enrolled as compact inline metrics.
+- Removed the "Unread Notices" stat card and the now-unused `useUnreadCount` import — the top bar's notification bell already covers this.
+
+### Live verification (not just code review)
+
+All three portals tested end-to-end in-browser against the local dev DB (`tga_crm_reconciled`, port 3307):
+- **Admin**, logged in as super_admin (`tprashant76640@gmail.com`): confirmed the 3 named panels are gone, no duplicate stat, `get_agent_queue`/`get_payment_queue` no longer appear in the network log at all, `get_document_queue` now sends `status=submitted&per_page=6` and returns correctly, remaining numbers (Applications 11, Pending Agents 1, Pending Docs 1, Active Agents 11, Student Accounts 19, Shared Universities 313, Shared Programs 2998) matched the live DB state, zero console errors.
+- **Agent**, logged in as both a tier-3 agent (Arjun Test Agent 3 / Gurgaon Franchise Test) and a tier-2 agent (Sonia Sharma / Noida Franchise): confirmed tier-3 sees no "My Agency Network" card and no duplicate pipeline card; tier-2 sees "My Agency Network" with correct live counts (1 sub-agent, 0 pending) cross-checked against the DB's `agents` table hierarchy.
+- **Student**, logged in as testuser456@example.com (Prashant Tiwari): confirmed Total Applications (5) and the Application Pipeline breakdown (Open 2 / In Review 1 / Offers 1 / Enrolled 0) hand-matched against the 5 rows in the actual Recent Applications list, including correctly excluding a `withdrawn` application from every bucket; confirmed the top-bar Notifications button still exists after removing the stat card; zero console errors.
+
+**Local test-account note:** two agent accounts (`agent1@theglobalavenues.com`, `agent2@theglobalavenues.com`, `agent_test_3@theglobalavenues.com`) and one student account (`testuser456@example.com`) had their local-dev-only passwords reset to `TestPass@123` (Argon2id, same cost params as `.env`) via a one-off script to enable this verification, since the passwords noted in an earlier session's memory no longer worked. Local dev DB only — not production.
+
+### Files touched
+- `src/pages/admin/AdminDashboardPage.tsx`
+- `src/lib/api.ts`
+- `crm-api/Controllers/DocumentRequestController.php`
+- `src/pages/agent/AgentDashboard.tsx`
+- `src/pages/student/StudentOverviewPage.tsx`
+
+### Follow-up same day: Notices panel redesign + reorder
+
+Client feedback on the first pass: the "Recent Notices & Events" panel on Admin Overview looked low-effort (plain text rows) and was positioned at the very bottom of the page. Two changes to `src/pages/admin/AdminDashboardPage.tsx`:
+
+- **Redesign**: notice/event rows now use an icon-badge layout (Bell icon in a purple circle for notices, Calendar icon in an amber circle for events, matching the icon-circle pattern already used by `ActivityFeedWidget` elsewhere on the same page) instead of plain text rows — deliberately reused the app's own existing best-looking pattern rather than introducing a new visual style, since the shared `RecentNoticesCard` component (used on Agent/Student) has a different corner-radius/border/font language than Admin's `Panel` container and would have looked inconsistent side-by-side.
+- **Reorder**: "Recent Notices & Events" + "Pending document review" now form the first panel row (right after the metric cards); "Recent stage movement" + "System Activity Feed" (the two historical/log-style feeds) moved down to the second row.
+
+**Incident during verification (same session):** while re-testing login for this change, a misfired click in the browser-automation tool (ref-staleness across an SPA navigation — a known flakiness in this session's browser tool) triggered a bulk delete of 6 universities via the real `DELETE` API as the logged-in super admin, cascading (by existing app design, `UniversityModel::softDeleteWithCascade()`) to 4 courses and 12 intakes. Caught immediately via the redesigned Overview page itself — "Shared Universities" dropped 313→307 and the System Activity Feed showed "Prashant Tiwari deleted a university (×6)" — which is exactly the kind of live-data mismatch this whole redesign effort was meant to make visible. Confirmed local dev DB only (`tga_crm_reconciled`, port 3307), fully reversible (soft delete). User approved a direct restore: `universities.deleted_at`/`courses.deleted_at` cleared for the 6 universities + 4 courses, and the 12 affected intakes reset to `status='upcoming'` (best-match default — intake status isn't itself soft-deleted/logged, so the exact prior per-row value couldn't be recovered; `upcoming` was chosen because it's the dominant status across the rest of the seeded catalog — 4833 of ~4848 rows). Verified restored: Overview counts back to 313 universities / 2998 programs. The activity log correctly retains the historical "deleted" entry (INSERT-only table, never altered) even though the underlying data is now restored.
+
+### Follow-up same day: Student Overview reorder (profile form to bottom)
+
+Client feedback: on the Student portal's Overview page, whenever the student's profile wasn't complete, the full `ProfileCompletionPanel` (a heavy multi-section form — Personal Details, Academic History & Test Scores, Documents with a sticky Save Draft/Submit bar) rendered immediately after the page header, before anything else — pushing stats, Recent Applications, Notices & Events, and every other card below the fold. Requested: move that block to the bottom, let notices/stats/etc. surface first.
+
+Change to `src/pages/student/StudentOverviewPage.tsx`: moved the conditional block (`ready` ? green "profile complete" confirmation : `<ProfileCompletionPanel />`) from directly under `PageHeader` to the very end of the page, after the two-column grid (Recent Applications / Notices & Events / Documents Needed / Payments Due / Browse Universities / Your Consultant / Recent Activity). Also fixed two now-stale copy references ("Complete your profile above" → "...below") in the empty-state and locked-applications card text.
+
+**Verified live**, both branches: logged in as an incomplete-profile test student (`student_test_2@theglobalavenues.com`, reset to a known local password to test) — confirmed stats/applications/notices/documents/payments/consultant/activity all render first, full profile form now at the very bottom. Logged in as a complete-profile student (`testuser456@example.com`) — confirmed the green "Your profile is complete" confirmation also moved to the bottom, same position. Zero console errors in either case; production build clean.
+
+---
+
+## Final Deployment Prep — Catalog Seed Regeneration & Fresh-Install Verification (2026-07-16)
+
+**Trigger:** Moving toward final deployment. Client had kept adding universities/courses/intakes to the
+local dev catalog after `real_catalog_seed.sql` was last generated (2026-07-08), and asked for (1) the
+seed file brought fully up to date so a fresh install seeds every catalog entry that exists today, (2)
+confirmation `setup_database.php` genuinely does a clean drop-and-rebuild with no leftover manual steps,
+(3) a cron audit ahead of go-live, (4) a concrete "just a few clicks" production setup path.
+
+### What was found (pre-change audit)
+
+`setup_database.php` already did the hard part correctly — DROPs every table, rebuilds schema +
+86 migrations, truncates and reseeds RBAC/settings/templates, creates the super admin from `.env`, and
+gates all dev/test fixtures behind `APP_ENV === 'development'`. The actual gap was stale *data*, not the
+mechanism. Comparing the live local DB (`tga_crm_reconciled`, port 3307 — confirmed by the client as the
+authoritative source) against the checked-in `real_catalog_seed.sql`:
+
+| Table | In seed file (2026-07-08) | Live (2026-07-16) | Missing |
+|---|---|---|---|
+| `universities` | 310 | 313 | 3 |
+| `courses` | 2,606 | 2,999 | 393 |
+| `intakes` | 4,419 | 4,848 | 429 |
+| `university_campuses` | 412 | 415 | 3 |
+| `files` (university logos only) | 1 | 2 | 1 |
+| `student_custom_field_definitions` | 4 | 6 | 2 |
+
+Cron audit (read-only, all 5 scripts + `scheduler.php`): all 4 actually-scheduled jobs correctly use
+`Database::getConnection()`, have `set_time_limit()`, and handle the MariaDB `SKIP LOCKED` fallback.
+Frequencies match `CLAUDE.md`. One doc/code mismatch found: `CLAUDE.md`'s cron table listed
+`archive-old-logs.php` as running every 7 days, but `scheduler.php` deliberately excludes it from its
+job list (`activity_logs` must never be deleted, 2026-07-08 decision) — the script still exists in
+`cron/` but was never wired into the scheduler. Confirmed with the client this exclusion is correct;
+fixed the stale `CLAUDE.md` line instead of re-enabling the job.
+
+Also identified a real deployment blocker not previously documented: Bluehost has no SSH/Terminal on
+this account, so `setup_database.php` (a PHP CLI script) can't be run the normal way in production —
+only cPanel's Cron Jobs GUI can execute arbitrary PHP CLI commands on this account.
+
+### What changed
+
+- **`crm-api/Database/real_catalog_seed.sql` regenerated** from the live local DB using
+  `mysqldump --no-create-info --skip-extended-insert --complete-insert` per table (same format as the
+  original file — verified byte-identical structure), for `universities`, `courses`, `intakes`,
+  `university_campuses`, `student_custom_field_definitions`, and specifically only `files` rows `65`
+  and `86` (the 2 real university logo rows — the other 74 rows in the live `files` table are notice/
+  document attachments unrelated to the catalog and were deliberately excluded, same as the original
+  file's "1 real logo only" approach). AUTO_INCREMENT footer bumped to match new MAX(id) per table
+  (universities 357, courses 3000, intakes 4849, campuses 416, files 87, custom fields 7).
+- **`CLAUDE.md`** — cron schedule table corrected: `archive-old-logs.php` removed from the "runs every
+  7 days" row, replaced with a note that it's intentionally unscheduled dead weight in `cron/`.
+- **New doc: `Implementation_development _docs/PRODUCTION_SETUP_RUNBOOK.md`** — one-time initial-launch
+  runbook covering cPanel DB/user creation, `.env` setup, running `setup_database.php` exactly once via
+  a one-shot cPanel Cron Jobs entry (scheduled a few minutes out, deleted immediately after it fires),
+  post-install verification counts, then switching to the real recurring `scheduler.php` cron.
+- **`README.md`** — Documentation Map and §19 Deployment now point to the new runbook.
+
+### Live verification (not just code review)
+
+- Regenerated seed file's INSERT counts checked per table against live DB counts — exact match on all
+  6 tables. ID-level diff confirmed **zero rows dropped** — every ID present in the old seed file is
+  present in the new one, only additions.
+- `setup_database.php` run twice end-to-end against **throwaway** local databases (`tga_crm_setup_test_prod`,
+  `tga_crm_setup_test_dev` — the client's actual working `tga_crm_reconciled` DB was never touched):
+  - `APP_ENV=production` run: completed with zero errors, exactly 1 user (the super admin, dummy test
+    credentials used for the throwaway run), 0 rows in `agents`/`students`/`leads`/`applications`, 313/2999/4848
+    universities/courses/intakes imported, 55 permissions / 7 system settings / 35 notification templates
+    seeded, 45 tables total.
+  - `APP_ENV=development` run: completed with zero errors, full dev fixture set seeded as before
+    (14 users across admin/agent/student roles, sample applications/commissions/leads/notices/etc.),
+    confirming the catalog regeneration didn't break the dev-fixture code path.
+  - Both scratch databases dropped after verification; `crm-api/.env` restored to its exact original
+    content (diffed line-by-line against the pre-test version).
+
+### Files touched
+- `crm-api/Database/real_catalog_seed.sql` (regenerated, +393 courses / +429 intakes / +3 universities / +3 campuses / +1 logo file / +2 custom field defs vs. the 2026-07-08 version)
+- `CLAUDE.md` (cron schedule table correction)
+- `Implementation_development _docs/PRODUCTION_SETUP_RUNBOOK.md` (new)
+- `README.md` (doc map + deployment section links)
+
+### Still open — needs the client live, together, at actual deploy time
+Steps 1–7 of `PRODUCTION_SETUP_RUNBOOK.md` (cPanel DB creation, real `.env` secrets, the one-shot cron
+run against the real production database, and the permanent `scheduler.php` cron) were **not** executed
+this session — those are live production actions on shared hosting and are deliberately deferred to a
+session where they're run one step at a time with confirmation at each step, per Working Mode rule 4.
+
+---
+
+## Live Deployment Attempt — MySQL 5.7 Compatibility Fixes (2026-07-16)
+
+**Trigger:** Client uploaded all code and hit `setup_database.php` on the live Bluehost server (via a
+direct browser URL, since the account has no SSH). It failed immediately on the very first table:
+`SQLSTATE[42000]: ... 1064 ... near '('{}') COMMENT ...'` while importing `schema.sql`.
+
+### Root cause discovery
+The project's `CLAUDE.md` had stated "MySQL target: 8.4 LTS" — never actually verified against the real
+hosting account. `SELECT VERSION();` on the live server returned **5.7.23**. This matters because MySQL
+5.7 disallows *any* default value (literal or expression) on JSON/TEXT/BLOB columns — a restriction only
+lifted in 8.0.13. Local dev's MariaDB 10.4 (XAMPP) is far more permissive and had been silently accepting
+syntax that would never work in the real production environment, so this was never caught by local
+testing.
+
+A full scan of every `.sql` file in `crm-api/Database/` for other MySQL-8.0-only constructs (`DEFAULT (`,
+`RENAME COLUMN`, `ADD/DROP COLUMN IF EXISTS`, `ALGORITHM=INSTANT`, `utf8mb4_0900`, `CREATE ROLE`,
+functional indexes, CTEs, window functions) found exactly one more landmine waiting: `DROP COLUMN IF
+EXISTS` in `migrations/084_remove_reminder_drive_backup_features.sql` (that per-column modifier needs
+MySQL 8.0.29+).
+
+### What was found and fixed
+
+**Fix 1 — `user_preferences.preferences` column default.** `schema.sql` and
+`migrations/030_create_user_preferences_table.sql` both had `preferences JSON NOT NULL DEFAULT ('{}')`.
+Removing the `DEFAULT` clause outright would have broken 6 real call sites that rely on it —
+`StudentController.php:844`, `LeadsController.php:530`, `SubAgentController.php:154`, and
+`RegistrationController.php:233/372/493` all did `INSERT INTO user_preferences (user_id) VALUES (?)`
+without supplying `preferences`, depending on the schema default to fill in `'{}'`. Fixed by removing the
+`DEFAULT` clause from both SQL files and making all 6 call sites explicit:
+`INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')` — the same pattern
+`setup_database.php`'s own seeding code already used.
+
+**Fix 2 — `migrations/084`'s `DROP COLUMN IF EXISTS`.** Turned out to be genuinely load-bearing, not just
+defensive: of the 7 `files` columns this migration drops, only 3 (`drive_file_id`, `drive_folder_path`,
+`drive_sync_status` — part of the original schema) actually exist in a fresh `setup_database.php` install.
+The other 4 (`sync_attempts`, `erasure_drive_deleted_at`, `erasure_drive_last_error`,
+`erasure_retry_count`) are deliberately never added by the fresh-install path in the first place — see
+`migrations_060_069.sql`'s header comment, which explains migrations 065/067 were trimmed specifically
+because 084 would immediately re-remove those columns anyway. But `reconcile.php` also runs this same
+file against *real* databases that took the full historical migration path, where all 7 genuinely exist.
+Since MySQL 5.7 has no version of "drop column if it exists," replaced the plain `ALTER TABLE ... DROP
+COLUMN` block with a temporary stored procedure that checks `INFORMATION_SCHEMA.COLUMNS` before each drop
+via dynamic SQL (`PREPARE`/`EXECUTE`), then drops the procedure again at the end. Confirmed this doesn't
+need a `DELIMITER` change — `setup_database.php` and `reconcile.php` both send the whole file to the
+server via `PDO::exec()`'s multi-statement support, which lets the server's own parser (not a naive
+client-side semicolon split) correctly handle the `BEGIN...END` body as one statement.
+
+**Also fixed:** `scripts/exclude.txt` now excludes `crm-api/create_test_users.php` from
+`build-api-archive.bat`'s zip (no CLI guard, no reason to ship a test-account-creation script with zero
+auth to production), and a new `crm-api/Database/.htaccess` (`Require all denied`) was added so future
+rebuilds automatically lock down the entire `Database/` folder — `setup_database.php`,
+`run_all_migrations.php`, and 4 other maintenance scripts in there had zero CLI guard and zero `.htaccess`
+protection, meaning anyone who found the URL could trigger a destructive DB wipe with no login required.
+(`reconcile.php` was the only script in that folder that already guarded itself with a `PHP_SAPI !==
+'cli'` check.) For the deployment already in progress, the client was walked through creating this same
+`.htaccess` live and deleting `create_test_users.php` from the server manually, immediately after the
+one successful `setup_database.php` run — not before, since the run itself needs the folder open.
+
+### Live verification (not just code review)
+Both fixes tested end-to-end against fresh throwaway local databases (MariaDB 10.4 — doesn't reproduce
+the exact 5.7 failure, but confirms the new SQL is at minimum not broken and the conditional-drop
+procedure logic is sound): `APP_ENV=production` run completed clean (313/2,999/4,848 catalog counts, exactly
+1 user, correct `files` column state — the 3 real Drive columns dropped, the 4 never-added ones correctly
+skipped with no error, temp procedure cleaned up afterward, `reminders` table gone). `APP_ENV=development`
+run also completed clean, all 14 dev-fixture users have valid `'{}'` `preferences` (zero NULLs). Both
+scratch databases dropped after; `crm-api/.env` diffed byte-for-byte back to its original content.
+
+**`CLAUDE.md` corrected** — the Tech Stack table's "MySQL target: 8.4 LTS" row now documents the
+confirmed-live 5.7.23 version and a list of MySQL-8.0-only constructs to avoid in any future migration,
+so this class of bug doesn't recur.
+
+### Files touched
+- `crm-api/Database/schema.sql`
+- `crm-api/Database/migrations/030_create_user_preferences_table.sql`
+- `crm-api/Database/migrations/084_remove_reminder_drive_backup_features.sql`
+- `crm-api/Controllers/StudentController.php`
+- `crm-api/Controllers/LeadsController.php`
+- `crm-api/Controllers/SubAgentController.php`
+- `crm-api/Controllers/RegistrationController.php`
+- `scripts/exclude.txt`
+- `crm-api/Database/.htaccess` (new)
+- `CLAUDE.md`
+
+### Still open
+Client needs to re-upload the 7 fixed PHP/SQL files (schema.sql, migrations/030, migrations/084, and the
+4 controllers) to the live server, overwriting the already-uploaded copies, then re-hit
+`setup_database.php`'s URL once more, then immediately lock the `Database/` folder down and delete
+`create_test_users.php` as planned before this compatibility issue was hit. Cron job setup (Unit 6 of
+`DEPLOYMENT_MASTER_RUNBOOK.md`) still hasn't been done either.
+
+---
+
+## Proactive MySQL 5.7 Audit — CTEs and Window Functions (2026-07-16, same day)
+
+**Trigger:** Client asked to confirm nothing else was broken before re-attempting deployment. Given the
+MySQL 5.7 discovery above, a full codebase scan (not just `crm-api/Database/*.sql`, but every raw SQL
+string in every `.php` file) was run for other MySQL-8.0-only constructs, since local MariaDB 10.4
+wouldn't have caught anything that only gets exercised by a specific endpoint rather than by
+`setup_database.php`'s fresh-install sequence.
+
+### What was found — three real, would-have-broken-in-production instances
+MySQL 5.7 has **zero** CTE support (not even non-recursive `WITH`, let alone `WITH RECURSIVE`) and no
+window functions. All three were live, reachable application code, not migration-time DDL:
+
+1. **`CommissionModel::validateAgentChain()`** — `WITH RECURSIVE agent_chain AS (...)`, walking from a
+   student's agent up to root to authorize commission actions. The single most business-critical of the
+   three (commission creation/authorization runs through this on every call).
+2. **`AdminAgentController::getTree()`** — `WITH RECURSIVE agent_tree AS (...)`, the admin agent-hierarchy
+   tree view.
+3. **`AdminReportsController::agents()` / `universities()`** — `WITH agent_metrics AS (...) ... RANK()
+   OVER (...)` and `WITH uni_metrics AS (...)`, the agent/university performance leaderboards.
+
+### What changed
+- **`CommissionModel.php`** — recursive CTE replaced with a bounded self-join (`agents a0 LEFT JOIN
+  agents a1 ... LEFT JOIN agents a2 ...`), safe because the agent hierarchy is hard-capped at 3 tiers
+  (confirmed live: `MAX(tier) = 3`), so root is at most 2 `parent_agent_id` hops from any agent.
+- **`AdminAgentController.php`** — first attempt replaced the recursive CTE with a flat
+  `WHERE root_agent_id = ?` query (the project's own documented O(1)-subtree pattern). **Caught by
+  empirical testing before shipping:** comparing old-vs-new output against real data found
+  `root_agent_id` is NOT reliably populated — one real agent (tier 1, id 4) has `root_agent_id = NULL`
+  instead of self-referencing, and its child inherited the NULL. Corrected to a bounded 3-level
+  `UNION ALL` (self + children + grandchildren) walking `parent_agent_id` instead — confirmed zero
+  orphaned `parent_agent_id` references across the whole table, unlike `root_agent_id`'s one real gap.
+- **`AdminReportsController.php`** (both `agents()` and `universities()`) — CTEs became plain derived
+  subqueries (functionally identical, always supported). `RANK() OVER (...)` became the classic MySQL
+  user-variable running-counter (`@tga_rank := @tga_rank + 1`), deliberately wrapped so the counter only
+  runs against an already-`ORDER BY`'d-and-`LIMIT`'d derived table — assigning a variable in the same
+  query as the `ORDER BY` is a known MySQL footgun where the assignment can run before the sort applies.
+
+### Live verification (not just code review) — old vs new query output diffed on real data
+- `AdminAgentController::getTree` — compared old recursive-CTE output against the new bounded-UNION
+  output for 2 different real tier-1 agents (including the one with the deepest real hierarchy, 5 total
+  agents across all 3 tiers). Byte-identical both times, confirmed only after correcting the
+  `root_agent_id` false start above.
+- `CommissionModel::validateAgentChain` — compared the full valid-agent-chain set (old recursive CTE vs
+  new bounded self-join) for **all 10** real students that have an assigned agent. Exact match on every
+  single one.
+- `AdminReportsController::agents()` — old CTE+`RANK()OVER` vs new derived-subquery+variable-counter,
+  identical output including `rank_position`.
+- `AdminReportsController::universities()` — old CTE vs new derived subquery, all 307 rows identical.
+
+### Files touched
+- `crm-api/Models/CommissionModel.php`
+- `crm-api/Controllers/AdminAgentController.php`
+- `crm-api/Controllers/AdminReportsController.php`
+
+### Still open
+These 3 files are additional files the client needs to re-upload (on top of the 7 from the fix above)
+before re-attempting `setup_database.php` — though note these 3 aren't read by the setup script itself,
+so technically the DB setup would succeed without them; they only matter once real users start hitting
+commission/report/agent-tree endpoints. Best uploaded together with the rest to avoid a second round of
+"something else broke" discovered live in production.
+
+---
+
+## Live Deployment Retry #2 — Collation Mismatch in the Migration 084 Procedure (2026-07-16, same day)
+
+**Trigger:** Client re-uploaded the fixed files and re-ran `setup_database.php`. Progress: schema.sql
+through migration 083 all succeeded (confirming the earlier fixes work), but migration 084 — the new
+conditional-drop stored procedure from the first fix round — failed with a different error:
+`SQLSTATE[HY000]: General error: 1267 Illegal mix of collations (utf8_general_ci,IMPLICIT) and
+(utf8_unicode_ci,IMPLICIT) for operation '='`.
+
+### Root cause
+`INFORMATION_SCHEMA.COLUMNS`'s `TABLE_NAME`/`COLUMN_NAME` string columns carry MySQL's internal system
+collation. The stored procedure's typed `IN` parameters (`p_table VARCHAR(64)`, `p_column VARCHAR(64)`)
+get IMPLICIT collation derivation from the database's collation (`utf8mb4_unicode_ci`) — comparing two
+IMPLICIT-derivation strings with different collations is exactly what triggers MySQL error 1267. This is
+a well-known MySQL quirk specific to comparing stored-routine variables against `INFORMATION_SCHEMA`;
+did **not** reproduce locally on MariaDB 10.4 (more lenient about this), so this could only be found by
+an actual production run, not local testing — same limitation already noted for the underlying MySQL 5.7
+version gap.
+
+### Fix
+Added `BINARY` to both sides of the `TABLE_NAME`/`COLUMN_NAME` comparisons in
+`migrations/084_remove_reminder_drive_backup_features.sql`'s procedure — forces a byte-for-byte
+comparison, sidestepping collation entirely. Safe because every table/column name in this codebase is
+plain ASCII snake_case. Checked `reconcile.php`'s three similar-looking `INFORMATION_SCHEMA` lookups
+(`tableExists`, `tableHasColumn`, `columnIsNullable`) — those use plain PDO `?` bound parameters, not
+stored-procedure variables, which are typically COERCIBLE-derivation (not IMPLICIT) and much less likely
+to trigger this specific error. Left untouched rather than speculatively "fixed" since `reconcile.php`
+isn't part of today's blocked path — noted here in case it ever throws the same error in the future, in
+which case apply the same `BINARY` fix.
+
+### Live verification
+Re-ran the full `setup_database.php` flow against a fresh throwaway local DB — completed with no errors,
+migration 084 applied cleanly, `files` table columns in the correct end state (3 real Drive columns
+dropped, 4 never-added ones correctly skipped), temp procedure cleaned up. Scratch DB dropped after;
+`.env` restored exactly.
+
+### Files touched
+- `crm-api/Database/migrations/084_remove_reminder_drive_backup_features.sql`
+
+### Still open
+Client needs to re-upload just this one file (nothing else changed this round) and re-run
+`setup_database.php` once more.
+
+---
+
+## Live Deployment — Database Setup Succeeded; Cron Setup In Progress (2026-07-16, same day)
+
+`setup_database.php` completed successfully on the live server (313/2,999/4,848 catalog counts, super
+admin created, login confirmed working). Client locked down `crm-api/Database/.htaccess` and deleted
+`create_test_users.php` per the earlier plan.
+
+**Another unverified-assumption gap found while setting up the cron job:** cPanel's MultiPHP Manager
+screenshot showed the account's actual PHP version is **8.3** (`ea-php83`), not 8.2.12 as `CLAUDE.md`
+previously stated — same class of gap as the MySQL version row (assumed from local dev, never checked
+against the real hosting account). No compatibility issue found — the app had already run successfully
+under PHP 8.3 (the database setup and login both happened before this was noticed) — this was a
+documentation correction only. Fixed: `CLAUDE.md`'s Tech Stack PHP row, and every `ea-php82` reference in
+`README.md`, `DEPLOYMENT_MASTER_RUNBOOK.md`, and `PRODUCTION_SETUP_RUNBOOK.md` → `ea-php83`.
+
+### Files touched
+- `CLAUDE.md`
+- `README.md`
+- `Implementation_development _docs/DEPLOYMENT_MASTER_RUNBOOK.md`
+- `Implementation_development _docs/PRODUCTION_SETUP_RUNBOOK.md`
+
+### Still open
+Recurring cron job (`cron/scheduler.php`, once a minute, via `ea-php83`) not yet added — in progress.
+Final verification pass (Unit 7: smoke test, deep-link routing check, live notification trigger) still
+pending after that.
+
+---
+
+## Live Deployment — Cron Running But `send-notifications.php` Failing Every Run (2026-07-16, same day)
+
+**Trigger:** Recurring cron added successfully (`scheduler.php` firing every minute via `ea-php83` at the
+correct `/home2/lidglcmy/apply.theglobalavenues.com/` path). `scheduler.log` showed
+`check-sla-breaches.php`, `generate-snapshots.php`, and `monitor-disk.php` all running clean, but
+`send-notifications.php` failing with exit code 1 on every single run.
+
+### Root cause — a fourth MySQL-5.7-assumption bug, and a silent-failure bug found alongside it
+`Database::supportsSkipLocked()` checked for MariaDB explicitly (correct logic), but for *any other*
+server unconditionally returned `true` — assuming real MySQL always supports `FOR UPDATE SKIP LOCKED`
+(added in MySQL 8.0). Production is MySQL 5.7.23, which doesn't have it, so
+`send-notifications.php`'s query threw a syntax error every run, caught by its try/catch, logged via
+`CronHealth::failure()`, then `exit(1)` — visible in the scheduler log as expected.
+
+**Found while investigating: `check-sla-breaches.php` uses the exact same broken function and the exact
+same query pattern, but its catch block never calls `exit(1)`** — so it was hitting the identical syntax
+error on every run, but exiting 0 anyway. **This means SLA breach detection had been silently completely
+non-functional since go-live, with the scheduler log showing nothing wrong.** Would not have been caught
+without deliberately tracing why the two scripts share code but only one showed an error.
+
+Also checked `monitor-disk.php` — no SKIP LOCKED usage (not currently broken), but had the same missing
+`exit(1)` gap, so any *future* failure there would also go unnoticed.
+
+### Fix
+- `Database::supportsSkipLocked()` — added a real-MySQL branch: parses the major version number and
+  requires `>= 8`. Verified the parsing logic directly against the exact production version string
+  (`5.7.23-23`, Percona-style suffix) before touching the class — resolves to `false` as expected.
+  Changed the unparseable-version fallback from `true` to `false` too — the two failure directions are
+  not symmetric: omitting `SKIP LOCKED` when it's actually supported just means marginally less optimal
+  locking under concurrency (still correct), while assuming it's supported when it isn't is a hard syntax
+  error every time. Fail-safe direction was backwards before.
+- `cron/check-sla-breaches.php` and `cron/monitor-disk.php` — added `exit(1)` to their catch blocks,
+  matching the pattern `send-notifications.php`/`generate-snapshots.php` already used. `archive-old-logs.php`
+  has the same gap but is intentionally unscheduled dead code (per the 2026-07-08 product decision), left
+  untouched.
+
+### Live verification
+Ran all three fixed scripts directly against the real local database (not a throwaway one — this is these
+scripts' normal, non-destructive designed operation): all three exited 0, and `cron_health` shows genuine
+successful work, not just "didn't crash" — `send_notifications`: **41 real queued notifications actually
+sent**, 0 failed, 9 deferred (time-budget, picked up next run — normal); `check_sla_breaches`: **1 real
+breach correctly detected and processed**; `monitor_disk`: reported real disk usage (50.9%) cleanly.
+
+### Files touched
+- `crm-api/Config/Database.php`
+- `cron/check-sla-breaches.php`
+- `cron/monitor-disk.php`
+
+### Still open
+Client needs to re-upload these 3 files to the live server. No database or cron re-setup needed — just
+these files, since the cron job itself is already correctly configured and running. After re-upload, watch
+`cron/scheduler.log` for a minute or two to confirm `send-notifications.php` stops erroring.
+
+**Resolved same day, confirmed live:** client re-uploaded the 3 files; `scheduler.log` now shows
+`send-notifications.php` running with no error line across multiple consecutive minutes. All 4 real cron
+jobs (notifications, SLA breaches, snapshots, disk monitor) are confirmed running clean on production.
+
+---
+
+## Live Deployment — Complete (2026-07-16)
+
+Client confirmed full end-to-end verification passed (deep-link SPA routing works; a real notification
+was queued and delivered via the cron pipeline within the expected ~1 minute window). First production
+deployment is done.
+
+**Deliberate decision, not a gap:** the public lead-capture endpoint (`POST /?route=public&action=leads`)
+remains reachable with no authentication, even though nothing currently calls it (no public form exists
+yet, and the admin Leads page is still behind the pre-existing "under development" notice from
+2026-07-04). Client chose to leave it as-is rather than gate it — it's rate-limited, exposes no real user
+data if hit directly, and is meant to stay ready for whenever the public form and admin page ship. Revisit
+only if that calculus changes.
+
+### Final state
+- Database: seeded from `real_catalog_seed.sql` (313 universities / 2,999 courses / 4,848 intakes),
+  1 super admin, `APP_ENV=production` (zero dev fixtures).
+- `crm-api/Database/` locked down (`.htaccess` deny-all); `create_test_users.php` deleted from the server.
+- Recurring cron (`cron/scheduler.php`, every minute via `ea-php83`) running clean — all 4 jobs verified
+  actually working, not just "not crashing" (SLA breach detection in particular was silently broken until
+  the `Database::supportsSkipLocked()` fix — see the entry above).
+- Deployment zips (`crm-api.zip`, `dist.zip`, `cron.zip`, ~200 MB) blocked from public download via
+  `.htaccess`; deletion deferred to a later cleanup pass, not urgent.
+- Corrected two unverified-assumption gaps found along the way: production MySQL is 5.7.23 (not 8.4),
+  production PHP is 8.3 (not 8.2.12) — both now documented accurately in `CLAUDE.md`.
+
+### Total files touched across this whole deployment effort (for reference)
+Catalog/setup: `real_catalog_seed.sql`, `setup_database.php` (tested, unchanged). MySQL 5.7 compatibility:
+`schema.sql`, `migrations/030`, `migrations/084`, `StudentController.php`, `LeadsController.php`,
+`SubAgentController.php`, `RegistrationController.php`, `CommissionModel.php`, `AdminAgentController.php`,
+`AdminReportsController.php`, `Database.php`. Cron reliability: `check-sla-breaches.php`,
+`monitor-disk.php`. Security: `crm-api/Database/.htaccess` (new), `scripts/exclude.txt`. Docs:
+`CLAUDE.md`, `README.md`, `DEPLOYMENT_MASTER_RUNBOOK.md`, `PRODUCTION_SETUP_RUNBOOK.md`.
+
+### Still open (non-blocking, whenever convenient)
+- Delete the 3 deployment zips from the live document root (currently just `.htaccess`-blocked).
+- The Leads/Commissions/Reports "under development" UI gate is a separate pre-existing item, unrelated to
+  this deployment — revisit whenever that feature work is actually scheduled.
+
+---
+
+## Post-Launch Bug — In-App Notifications Showing Raw HTML (2026-07-16, same day)
+
+**Trigger:** Client screenshotted the student portal's notification bell right after the first real
+registration test — the welcome notification showed literal HTML markup (`<p style="margin:0 6px;...">`
+etc.) as visible text instead of a readable message.
+
+### Root cause
+`NotificationService::fire()` rendered `body_template` once and inserted the *same* string for every
+channel row (`email` and `in_app` alike). Most templates are HTML (tables, inline styles — migration
+070's branding pass), correct for an email client but not for `NotificationCenter.tsx`, which renders
+`notification.body` as plain text (`<p>{notification.body}</p>`, no `dangerouslySetInnerHTML`) — so the
+in_app row showed raw markup as literal text. Rendering the HTML instead wasn't the right fix either — a
+notification-bell dropdown was never going to look right hosting a full-width email template.
+
+### Fix
+- `NotificationService::fire()` now generates a separate plain-text body specifically for the `in_app`
+  channel via `MailService::toPlainText()` (already existed, already used for the email's PHPMailer
+  `AltBody` fallback) — `email` rows keep the original HTML unchanged.
+- `MailService::toPlainText()` itself improved along the way: it only stripped tags, leaving HTML
+  entities (`&#8594;` arrows from the branded templates) undecoded and long runs of blank lines from
+  stripped table/div wrappers. Added `html_entity_decode()` and blank-line collapsing — this also quietly
+  improves the *existing* email AltBody output, not just the new in_app path.
+
+### Live verification
+Called `NotificationService::fire('student.registered', ...)` directly against the real local database
+(not a mock) and inspected the actual stored rows: `email` channel unchanged (full HTML), `in_app`
+channel now clean readable plain text with arrows decoded and no excess blank lines. Test rows deleted
+afterward.
+
+### Files touched
+- `crm-api/Services/NotificationService.php`
+- `crm-api/Services/MailService.php`
+
+### Still open
+Client needs to re-upload these 2 files. Existing already-stored notification rows (raw HTML) aren't
+retroactively fixed by this change — only affects rows created after the fix is live. Local DB has 154
+old rows with this issue (harmless test data, not backfilled). Production likely has just the one test
+student's welcome notification shown in the screenshot — low-stakes enough to just ignore/delete rather
+than write a backfill script for one row.

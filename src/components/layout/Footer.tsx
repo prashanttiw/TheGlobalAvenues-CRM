@@ -2,22 +2,10 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, Facebook, Instagram, Linkedin, Mail, MapPin, Phone, Youtube } from 'lucide-react';
 import { COMPANY } from '@/data/company';
 
-const columns = [
-  {
-    title: 'Connect',
-    links: [
-      { label: 'Contact', href: '/contact' },
-      { label: 'Apply Now', href: '/apply' },
-    ],
-  },
-  {
-    title: 'Portal',
-    links: [
-      { label: 'Student Login', href: '/portal/login' },
-      { label: 'Student Dashboard', href: '/portal/student' },
-      { label: 'Agent Dashboard', href: '/portal/agent' },
-    ],
-  },
+const navigationLinks = [
+  { label: 'Home', href: '/' },
+  { label: 'Contact', href: '/contact' },
+  { label: 'Portal Login', href: '/portal/login' },
 ];
 
 const socials = [
@@ -50,7 +38,7 @@ export function Footer() {
       </div>
 
       <div className="mx-auto max-w-7xl px-6 py-12">
-        <div className="grid gap-10 lg:grid-cols-[1.4fr_2fr]">
+        <div className="grid gap-10 lg:grid-cols-[1.5fr_0.75fr] lg:gap-20">
           <div>
             <img src={COMPANY.logoFooterUrl} alt={`${COMPANY.name} logo`} className="h-12 w-auto max-w-[300px] object-contain" />
             <p className="mt-5 max-w-md text-sm leading-7 text-white/62">
@@ -65,22 +53,18 @@ export function Footer() {
             </div>
           </div>
 
-          <div className="grid gap-8 sm:grid-cols-2">
-            {columns.map((column) => (
-              <div key={column.title}>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/82">{column.title}</h3>
-                <ul className="mt-5 space-y-3">
-                  {column.links.map((link) => (
-                    <li key={link.href}>
-                      <Link to={link.href} className="text-sm text-white/56 transition-colors hover:text-[#FFB36B]">
-                        {link.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
+          <nav aria-label="Footer navigation">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-white/82">Explore</h3>
+            <ul className="mt-5 space-y-3">
+              {navigationLinks.map((link) => (
+                <li key={link.href}>
+                  <Link to={link.href} className="text-sm text-white/56 transition-colors hover:text-[#FFB36B]">
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </nav>
         </div>
 
         <div className="mt-10 grid gap-4 border-t border-white/10 pt-6 lg:grid-cols-[1fr_auto] lg:items-center">
@@ -89,7 +73,7 @@ export function Footer() {
               <Mail className="h-4 w-4 text-[#FD7E14]" />
               {COMPANY.email}
             </a>
-            <a href={`tel:${COMPANY.phone}`} className="inline-flex items-center gap-2 transition-colors hover:text-white">
+            <a href={'tel:' + COMPANY.phone.replace(/[^\d+]/g, '')} className="inline-flex items-center gap-2 transition-colors hover:text-white">
               <Phone className="h-4 w-4 text-[#FD7E14]" />
               {COMPANY.phone}
             </a>
@@ -115,16 +99,8 @@ export function Footer() {
           </div>
         </div>
 
-        <div className="mt-7 flex flex-col gap-3 border-t border-white/10 pt-5 text-xs text-white/38 md:flex-row md:items-center md:justify-between">
+        <div className="mt-7 border-t border-white/10 pt-5 text-xs text-white/38">
           <p>Copyright {new Date().getFullYear()} The Global Avenues. All rights reserved.</p>
-          <div className="flex gap-5">
-            <a href="https://theglobalavenues.com" target="_blank" rel="noopener noreferrer" className="hover:text-white/70">
-              Main Website
-            </a>
-            <Link to="/contact" className="hover:text-white/70">
-              Support
-            </Link>
-          </div>
         </div>
       </div>
     </footer>

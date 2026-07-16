@@ -212,7 +212,7 @@ export function CostOfLivingSlider() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               transition={{ duration: 0.3 }}
-              className="bg-gradient-to-br from-[#1A0A00] to-[#FD7E14] rounded-3xl p-8 text-white shadow-2xl"
+              className="bg-gradient-to-br from-[#1A0A00] to-[#FD7E14] rounded-3xl p-5 text-white shadow-2xl sm:p-8"
             >
               <div className="text-center mb-8">
                 <p className="text-white/80 mb-2">Estimated Monthly Cost in</p>
@@ -224,7 +224,7 @@ export function CostOfLivingSlider() {
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ type: 'spring', damping: 10 }}
-                    className="text-7xl font-bold mb-2"
+                    className="text-5xl font-bold mb-2 sm:text-6xl lg:text-7xl"
                   >
                     {selectedCity.currency}{currentCosts.total.toLocaleString()}
                   </motion.div>

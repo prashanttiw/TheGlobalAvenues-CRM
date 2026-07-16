@@ -31,7 +31,7 @@ export function Header() {
       <div className={`hidden xl:block border-b transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'border-[#FD7E14]/10 bg-[#FFFCF5]' : 'border-white/10 bg-black/20'}`}>
         <div className="max-w-[88rem] mx-auto px-6 lg:px-8 py-1.5 flex items-center justify-between">
           <div className="flex items-center gap-6 text-xs">
-            <a href={`tel:${COMPANY.phone}`} className={`flex items-center gap-1.5 transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'text-[#666] hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
+            <a href={'tel:' + COMPANY.phone.replace(/[^\d+]/g, '')} className={`flex items-center gap-1.5 transition-all duration-500 ease-in-out ${scrolled || !isHome ? 'text-[#666] hover:text-[#FD7E14]' : 'text-white/80 hover:text-white'}`}>
               <Phone className="w-3 h-3" />
               {COMPANY.phone}
             </a>
@@ -122,7 +122,7 @@ export function Header() {
       </div>
 
       {mobileOpen && (
-        <div className="max-h-[calc(100dvh-64px)] overflow-y-auto overscroll-contain border-t border-[#FD7E14]/10 bg-white xl:hidden">
+        <div className="max-h-[calc(100dvh-61px)] overflow-y-auto overscroll-contain border-t border-[#FD7E14]/10 bg-white sm:max-h-[calc(100dvh-73px)] xl:hidden">
           <div className="mx-auto max-w-[88rem] space-y-1 px-4 py-4 sm:px-6">
             {NAV_LINKS.map((link) => (
               <Link

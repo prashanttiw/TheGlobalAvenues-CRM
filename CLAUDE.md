@@ -71,10 +71,10 @@ RBAC: `roles` + `permissions` + `role_permissions` tables; checks in `AuthMiddle
 ### Backend
 | Item | Detail |
 |------|--------|
-| PHP | ^8.1 required; prod runs 8.2.12 |
+| PHP | ^8.1 required; **production actually runs PHP 8.3** (`ea-php83`, confirmed 2026-07-16 via cPanel MultiPHP Manager — the "8.2.12" this row used to say was the local XAMPP version, never verified against the real hosting account, same class of unverified-assumption gap as the MySQL version row above). Local dev still runs 8.2.12 via XAMPP. The app has run cleanly on production 8.3 with no compatibility issues found so far. |
 | Framework | **None** (deliberate — avoids Composer complexity on shared hosting) |
 | Composer deps | `openspout/openspout` 4.0 (XLSX streaming), `dompdf/dompdf` ^3.1 (PDF) |
-| MySQL target | 8.4 LTS |
+| MySQL target | **Production is actually MySQL 5.7.23** (confirmed 2026-07-16 via `SELECT VERSION()` on the live Bluehost account — the "8.4 LTS" this row used to say was never verified against the real hosting account). Local dev runs MariaDB 10.4 via XAMPP, which is far more permissive and will NOT catch MySQL-8.0-only syntax. **Any new migration must be written for MySQL 5.7 compatibility, not tested-on-local-and-assumed-fine.** Known things 5.7 lacks that already bit this project once: no `DEFAULT` value of any kind (literal or expression) on JSON/TEXT/BLOB columns, no `DROP COLUMN IF EXISTS` / `ADD COLUMN IF NOT EXISTS` (needs 8.0.29+), no CTEs (`WITH`), no window functions, no `CREATE ROLE`, no functional/expression indexes. Generated/virtual columns and the native `JSON` type itself are fine (5.7.6+ / 5.7.8+). When in doubt, use an `INFORMATION_SCHEMA`-driven conditional (stored procedure + dynamic SQL, no `DELIMITER` needed since PHP sends the whole file via `PDO::exec()`'s multi-statement support) rather than a version-gated DDL modifier. |
 | Email | PHPMailer (via MailService wrapper) |
 | File backup | Google Drive API — service account, resumable chunked uploads |
 
@@ -355,7 +355,12 @@ actual values from the code — they differ from some phase doc descriptions:
 | `check-sla-breaches.php` | Every **15 min** | SLA breach detection |
 | `generate-snapshots.php` | Every **24 hr** | Pre-compute all report metrics → `report_snapshots` |
 | `monitor-disk.php` | Every **12 hr** | Disk usage alerts at 80%/95% |
-| `archive-old-logs.php` | Every **7 days** | Move `activity_logs` rows > 2yr → archive table |
+
+`archive-old-logs.php` still exists in `cron/` but is **intentionally not in `scheduler.php`'s job
+list** (verified 2026-07-16) — `activity_logs` must never be deleted (product decision 2026-07-08),
+and its only other job (pruning `security_events`) wasn't judged worth running alone. It is dead
+weight in the directory, not a scheduled job; don't add it back to `$jobs` without a product decision
+to revisit log retention.
 
 All scripts: `set_time_limit(110)`, `PHPMailer Timeout=10`. MariaDB < 10.6: SKIP LOCKED stripped.
 

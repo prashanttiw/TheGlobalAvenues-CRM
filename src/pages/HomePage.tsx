@@ -13,14 +13,8 @@ const StatsSection = lazy(() =>
 const TestimonialsSection = lazy(() =>
   import('@/components/home/TestimonialsSection').then((module) => ({ default: module.TestimonialsSection }))
 );
-const CostOfLivingSlider = lazy(() =>
-  import('@/app/components/cost-of-living-slider').then((module) => ({ default: module.CostOfLivingSlider }))
-);
 const ComparisonLab = lazy(() =>
   import('@/app/components/comparison-lab').then((module) => ({ default: module.ComparisonLab }))
-);
-const DailyDrillWidget = lazy(() =>
-  import('@/app/components/daily-drill-widget').then((module) => ({ default: module.DailyDrillWidget }))
 );
 const DocumentButler = lazy(() =>
   import('@/app/components/document-butler').then((module) => ({ default: module.DocumentButler }))
@@ -48,9 +42,7 @@ export function HomePage() {
         <AIMatcherWidget />
         <StatsSection />
         <TestimonialsSection />
-        <CostOfLivingSlider />
         <ComparisonLab />
-        <DailyDrillWidget />
         <DocumentButler />
         <StudentDashboardPreview />
         <CTABanner />

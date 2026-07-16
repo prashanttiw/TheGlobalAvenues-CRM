@@ -41,7 +41,7 @@ function AnimatedCounter({ value, suffix, color }: { value: number; suffix: stri
   }, [isInView, value]);
 
   return (
-    <div ref={ref} className="text-5xl md:text-6xl font-black" style={{ color }}>
+    <div ref={ref} className="text-4xl font-black sm:text-5xl lg:text-6xl" style={{ color }}>
       {count.toLocaleString()}{suffix}
     </div>
   );
@@ -49,29 +49,29 @@ function AnimatedCounter({ value, suffix, color }: { value: number; suffix: stri
 
 export function StatsSection() {
   return (
-    <section className="py-20 bg-gradient-to-br from-[#FD7E14] via-[#C94D1B] to-[#D32F2F] relative overflow-hidden">
+    <section className="relative overflow-hidden bg-gradient-to-br from-[#FD7E14] via-[#C94D1B] to-[#D32F2F] py-16 sm:py-20">
       {/* Background pattern */}
       <div className="absolute inset-0 opacity-10" style={{
         backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)',
         backgroundSize: '40px 40px'
       }} />
 
-      <div className="max-w-7xl mx-auto px-6 relative z-10">
+      <div className="relative z-10 mx-auto max-w-7xl px-4 sm:px-6">
         <motion.div
-          className="text-center mb-14"
+          className="mb-10 text-center sm:mb-14"
           initial={{ opacity: 0, y: 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
         >
-          <h2 className="text-3xl md:text-4xl font-bold text-white mb-3">
+          <h2 className="mb-3 text-3xl font-bold text-white md:text-4xl">
             Numbers That Speak for Themselves
           </h2>
-          <p className="text-white/70 text-lg">
+          <p className="text-base text-white/70 sm:text-lg">
             ICEF Certified · AIRC Member · Trusted across South Asia
           </p>
         </motion.div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 gap-3 sm:gap-5 md:grid-cols-4 lg:gap-6">
           {STATS.map((stat, i) => (
             <motion.div
               key={stat.label}
@@ -79,10 +79,10 @@ export function StatsSection() {
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: i * 0.1 }}
-              className="text-center bg-white/10 backdrop-blur-md rounded-2xl p-6 border border-white/20"
+              className="rounded-2xl border border-white/20 bg-white/10 p-4 text-center backdrop-blur-md sm:p-5 lg:p-6"
             >
               <AnimatedCounter value={stat.value} suffix={stat.suffix} color="white" />
-              <div className="text-white font-bold mt-2 text-lg">{stat.label}</div>
+              <div className="mt-2 text-base font-bold leading-snug text-white sm:text-lg">{stat.label}</div>
               <div className="text-white/60 text-sm mt-1">{stat.description}</div>
             </motion.div>
           ))}
