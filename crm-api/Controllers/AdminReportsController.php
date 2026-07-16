@@ -134,33 +134,39 @@ final class AdminReportsController
             return;
         }
 
+        // No CTE, no window function — production MySQL is 5.7, which has neither. The CTE becomes
+        // a plain derived subquery (functionally identical). RANK() OVER (...) becomes the classic
+        // MySQL user-variable running-counter, but the counter only runs in the OUTER query against
+        // an already-ORDER-BY'd-and-LIMIT'd derived table `x` — assigning it in the same query as
+        // the ORDER BY is a known MySQL gotcha (the assignment can run before the sort is applied).
         $agents = $this->pdo->query("
-            WITH agent_metrics AS (
+            SELECT x.*, @tga_rank := @tga_rank + 1 AS rank_position
+            FROM (
                 SELECT
-                  rs.dimension_id AS agent_public_id,
-                  MAX(CASE WHEN rs.metric_key = 'agent_students'
-                      THEN rs.metric_value ELSE 0 END) AS students,
-                  MAX(CASE WHEN rs.metric_key = 'agent_enrollments'
-                      THEN rs.metric_value ELSE 0 END) AS enrollments,
-                  MAX(CASE WHEN rs.metric_key = 'agent_conversion_rate'
-                      THEN rs.metric_value ELSE 0 END) AS conversion_rate,
-                  MAX(CASE WHEN rs.metric_key = 'agent_commissions_paid'
-                      THEN rs.metric_value ELSE 0 END) AS commissions_paid
-                FROM report_snapshots rs
-                WHERE rs.dimension_type = 'agent'
-                  AND rs.snapshot_date = '{$latestDate}'
-                GROUP BY rs.dimension_id
-            )
-            SELECT
-              am.*,
-              ag.full_name, ag.agency_name, ag.tier, ag.status,
-              RANK() OVER (ORDER BY am.{$sort} {$order}) AS rank_position
-            FROM agent_metrics am
-            JOIN agents ag ON ag.public_id = am.agent_public_id
-            WHERE ag.deleted_at IS NULL
-              AND am.students >= 5
-            ORDER BY am.{$sort} {$order}
-            LIMIT 100
+                  am.*,
+                  ag.full_name, ag.agency_name, ag.tier, ag.status
+                FROM (
+                    SELECT
+                      rs.dimension_id AS agent_public_id,
+                      MAX(CASE WHEN rs.metric_key = 'agent_students'
+                          THEN rs.metric_value ELSE 0 END) AS students,
+                      MAX(CASE WHEN rs.metric_key = 'agent_enrollments'
+                          THEN rs.metric_value ELSE 0 END) AS enrollments,
+                      MAX(CASE WHEN rs.metric_key = 'agent_conversion_rate'
+                          THEN rs.metric_value ELSE 0 END) AS conversion_rate,
+                      MAX(CASE WHEN rs.metric_key = 'agent_commissions_paid'
+                          THEN rs.metric_value ELSE 0 END) AS commissions_paid
+                    FROM report_snapshots rs
+                    WHERE rs.dimension_type = 'agent'
+                      AND rs.snapshot_date = '{$latestDate}'
+                    GROUP BY rs.dimension_id
+                ) am
+                JOIN agents ag ON ag.public_id = am.agent_public_id
+                WHERE ag.deleted_at IS NULL
+                  AND am.students >= 5
+                ORDER BY am.{$sort} {$order}
+                LIMIT 100
+            ) x, (SELECT @tga_rank := 0) r
         ")->fetchAll(PDO::FETCH_ASSOC);
 
         Response::success('Agents data fetched', [
@@ -181,8 +187,10 @@ final class AdminReportsController
             return;
         }
 
+        // CTE replaced with a plain derived subquery — production MySQL is 5.7, no CTE support.
         $unis = $this->pdo->query("
-            WITH uni_metrics AS (
+            SELECT um.*, u.name, u.country, u.city
+            FROM (
                 SELECT dimension_id AS uni_public_id,
                   MAX(CASE WHEN metric_key='uni_applications'   THEN metric_value ELSE 0 END) AS applications,
                   MAX(CASE WHEN metric_key='uni_offers'         THEN metric_value ELSE 0 END) AS offers,
@@ -192,9 +200,7 @@ final class AdminReportsController
                 FROM report_snapshots
                 WHERE dimension_type = 'university' AND snapshot_date = '{$latestDate}'
                 GROUP BY dimension_id
-            )
-            SELECT um.*, u.name, u.country, u.city
-            FROM uni_metrics um
+            ) um
             JOIN universities u ON u.public_id = um.uni_public_id
             WHERE u.deleted_at IS NULL
             ORDER BY um.offer_rate DESC

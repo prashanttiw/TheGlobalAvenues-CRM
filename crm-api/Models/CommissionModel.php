@@ -17,23 +17,28 @@ final class CommissionModel
      */
     public static function validateAgentChain(int $agentId, int $studentId, PDO $pdo): bool
     {
-        // Recursively traverse from the student's direct agent up to the root
+        // Bounded self-join instead of a recursive CTE — production MySQL is 5.7, which has no
+        // CTE support at all (recursive or otherwise). Safe to bound at 2 parent hops because the
+        // agent hierarchy is hard-capped at 3 tiers (tier 3 cannot create further sub-agents — see
+        // SubAgentController), so root is at most 2 parent_agent_id hops from any agent.
         $stmt = $pdo->prepare(
-            "WITH RECURSIVE agent_chain AS (
-                 SELECT id, parent_agent_id
-                 FROM agents
-                 WHERE id = (SELECT agent_id FROM students WHERE id = ? AND deleted_at IS NULL)
-                 
-                 UNION ALL
-                 
-                 SELECT a.id, a.parent_agent_id
-                 FROM agents a
-                 JOIN agent_chain ac ON a.id = ac.parent_agent_id
-             )
-             SELECT 1 FROM agent_chain WHERE id = ?"
+            "SELECT a0.id AS l0, a1.id AS l1, a2.id AS l2
+             FROM agents a0
+             LEFT JOIN agents a1 ON a1.id = a0.parent_agent_id
+             LEFT JOIN agents a2 ON a2.id = a1.parent_agent_id
+             WHERE a0.id = (SELECT agent_id FROM students WHERE id = ? AND deleted_at IS NULL)"
         );
-        $stmt->execute([$studentId, $agentId]);
-        return (bool) $stmt->fetchColumn();
+        $stmt->execute([$studentId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            return false;
+        }
+        foreach ([$row['l0'], $row['l1'], $row['l2']] as $chainId) {
+            if ($chainId !== null && (int) $chainId === $agentId) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

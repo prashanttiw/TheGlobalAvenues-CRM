@@ -534,28 +534,41 @@ final class AdminAgentController
             Response::error('Agent not found', 'NOT_FOUND', 404);
         }
 
-        // Recursive CTE query to get entire subtree under root agent
-        $sql = "WITH RECURSIVE agent_tree AS (
+        // Bounded 3-level UNION instead of a recursive CTE — production MySQL is 5.7, which has no
+        // CTE support at all. Safe to bound at self + children + grandchildren because the agent
+        // hierarchy is hard-capped at 3 tiers (confirmed live: MAX(tier) = 3 across all agents).
+        // Deliberately walks parent_agent_id (not root_agent_id) — root_agent_id has a confirmed
+        // real data gap (an existing agent has tier > 1 with root_agent_id NULL), whereas
+        // parent_agent_id has zero orphaned references, so it's the reliable traversal key, same
+        // as the recursive CTE this replaces was already using.
+        $sql = "SELECT t.id, t.public_id, t.parent_agent_id, t.root_agent_id, t.tier, t.full_name,
+                       t.agency_name, t.country, t.referral_code, t.status, t.created_at, t.user_id,
+                       u.email AS encrypted_email,
+                       ap.public_id AS parent_public_id, ar.public_id AS root_public_id
+                FROM (
                     SELECT id, public_id, parent_agent_id, root_agent_id, tier, full_name, agency_name, country, referral_code, status, created_at, user_id
                     FROM agents
                     WHERE id = ? AND deleted_at IS NULL
-                    
+
                     UNION ALL
-                    
-                    SELECT a.id, a.public_id, a.parent_agent_id, a.root_agent_id, a.tier, a.full_name, a.agency_name, a.country, a.referral_code, a.status, a.created_at, a.user_id
-                    FROM agents a
-                    JOIN agent_tree t ON a.parent_agent_id = t.id
-                    WHERE a.deleted_at IS NULL
-                )
-                SELECT t.*, u.email AS encrypted_email,
-                       ap.public_id AS parent_public_id, ar.public_id AS root_public_id
-                FROM agent_tree t
+
+                    SELECT id, public_id, parent_agent_id, root_agent_id, tier, full_name, agency_name, country, referral_code, status, created_at, user_id
+                    FROM agents
+                    WHERE parent_agent_id = ? AND deleted_at IS NULL
+
+                    UNION ALL
+
+                    SELECT id, public_id, parent_agent_id, root_agent_id, tier, full_name, agency_name, country, referral_code, status, created_at, user_id
+                    FROM agents
+                    WHERE parent_agent_id IN (SELECT id FROM agents WHERE parent_agent_id = ? AND deleted_at IS NULL)
+                      AND deleted_at IS NULL
+                ) t
                 JOIN users u ON u.id = t.user_id
                 LEFT JOIN agents ap ON ap.id = t.parent_agent_id
                 LEFT JOIN agents ar ON ar.id = t.root_agent_id";
 
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute([$rootId]);
+        $stmt->execute([$rootId, $rootId, $rootId]);
         $flatAgents = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($flatAgents as &$agent) {
