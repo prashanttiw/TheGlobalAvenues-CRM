@@ -156,15 +156,23 @@ HTML;
     }
 
     /**
-     * Plain-text fallback (PHPMailer AltBody) for clients that can't render HTML.
+     * Plain-text fallback (PHPMailer AltBody) for clients that can't render HTML — also reused by
+     * NotificationService::fire() for the in_app channel's stored body.
      */
     public static function toPlainText(string $rawBody): string
     {
-        return strip_tags(str_replace(
+        $text = strip_tags(str_replace(
             ['<br>', '<br/>', '<br />', '</p>', '</tr>'],
             "\n",
             $rawBody
         ));
+        // strip_tags() only removes tags, not entities (e.g. the &#8594; arrows in migration 070's
+        // HTML templates) — decode those too, then collapse the run of blank lines left behind by
+        // stripped table/div wrapper tags down to at most one.
+        $text = html_entity_decode($text, ENT_QUOTES, 'UTF-8');
+        $text = preg_replace('/[ \t]+\n/', "\n", $text);
+        $text = preg_replace('/\n{3,}/', "\n\n", $text);
+        return trim($text);
     }
 
     /**

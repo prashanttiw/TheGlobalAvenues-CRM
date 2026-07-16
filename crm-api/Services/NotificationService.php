@@ -25,6 +25,16 @@ final class NotificationService
         $body    = self::render($template['body_template'], $vars);
         $channels = array_map('trim', explode(',', $template['channels']));
 
+        // Most templates are HTML (tables, inline styles — see migration 070's HTML branding pass),
+        // meant for an email client to render. The in_app row was reusing that exact same HTML
+        // string, but NotificationCenter.tsx renders notification.body as plain text (no
+        // dangerouslySetInnerHTML) — so the notification bell showed raw markup as literal text
+        // instead of a message. Reusing MailService::toPlainText() (already used for the email's
+        // AltBody fallback) gives in_app a real plain-text version instead. Safe no-op for the
+        // handful of templates that are already plain text (application.status_changed, document.*)
+        // — strip_tags()/the tag-to-newline replacements just find nothing to do on those.
+        $inAppBody = MailService::toPlainText($body);
+
         $pdo = Database::getConnection();
         $stmt = $pdo->prepare("
             INSERT INTO notifications
@@ -36,11 +46,12 @@ final class NotificationService
         foreach ($recipientUserIds as $userId) {
             if (!$userId) continue;
             foreach ($channels as $channel) {
+                $channelBody = $channel === 'in_app' ? $inAppBody : $body;
                 $stmt->execute([
                     UlidGenerator::generate(),
                     $eventKey, $userId, $channel,
                     $template['category'] ?? null,
-                    $subject, $body,
+                    $subject, $channelBody,
                     $vars['entity_type'] ?? null,
                     $vars['entity_id']   ?? null,
                 ]);
