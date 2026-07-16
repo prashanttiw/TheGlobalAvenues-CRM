@@ -13,6 +13,8 @@ import { toast } from 'sonner'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { fetchAdminReassignmentRequests, approveReassignment, denyReassignment } from '../../lib/api'
 import { AgentCombobox, type AgentOption } from '../../shared/components/ui/AgentCombobox'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 export default function AdminReassignmentsPage() {
   const queryClient = useQueryClient()
@@ -20,18 +22,34 @@ export default function AdminReassignmentsPage() {
   // Default to the actionable "pending" view, but when arriving from a specific
   // student's row (e.g. AdminStudentsPage's "Reassign Agent" action) show all
   // statuses so an already-decided request isn't hidden behind the default filter.
-  const [statusFilter, setStatusFilter] = React.useState(searchParams.get('student') ? '' : 'pending')
-  const [search, setSearch] = React.useState(searchParams.get('student') ?? '')
-  const [debouncedSearch, setDebouncedSearch] = React.useState(searchParams.get('student') ?? '')
-  const [page, setPage] = React.useState(1)
+  // Computed once from the URL this page was first loaded with — useUrlFilters only honors
+  // the very first `defaults` object it's given (via useRef), so a fresh object each render
+  // is fine here; it just never overrides that first snapshot.
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    status: searchParams.get('student') ? '' : 'pending',
+    student: '',
+    page: '1',
+  })
+  const statusFilter = filters.status
+  const page = Number(filters.page) || 1
+  const setStatusFilter = (v: string) => setFilters({ status: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
+
+  const [search, setSearch] = React.useState(filters.student)
+  const debouncedSearch = filters.student
+  useDebouncedFilterSync(search, (v) => setFilters({ student: v, page: '1' }))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
+
   const [actionTarget, setActionTarget] = React.useState<{ request: any; mode: 'approve' | 'deny' } | null>(null)
   const [overrideAgent, setOverrideAgent] = React.useState<AgentOption | null>(null)
   const [notes, setNotes] = React.useState('')
-
-  React.useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
-    return () => clearTimeout(t)
-  }, [search])
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: ['admin', 'reassignments', statusFilter, debouncedSearch, page],
@@ -192,7 +210,7 @@ export default function AdminReassignmentsPage() {
             />
             <select
               value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }}
+              onChange={(e) => setStatusFilter(e.target.value)}
               className="px-3 py-1.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
             >
               <option value="pending">Pending</option>
@@ -200,6 +218,7 @@ export default function AdminReassignmentsPage() {
               <option value="denied">Denied</option>
               <option value="">All Statuses</option>
             </select>
+            {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
           </div>
         </CardHeader>
         <CardContent className="mt-4">

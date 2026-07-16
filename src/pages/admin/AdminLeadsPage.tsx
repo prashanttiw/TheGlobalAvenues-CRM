@@ -14,6 +14,8 @@ import { usePermission } from '../../hooks/usePermission'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice'
 import { AgentCombobox, type AgentOption } from '../../shared/components/ui/AgentCombobox'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 interface Lead {
   public_id: string
@@ -154,14 +156,18 @@ export default function AdminLeadsPage() {
   const canWrite = usePermission('leads', 'edit')
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const [convertingLead, setConvertingLead] = React.useState<Lead | null>(null)
-  const [showArchive, setShowArchive] = React.useState(false)
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useUrlFilters({ search: '', archive: '' })
+  const showArchive = filters.archive === '1'
+  const setShowArchive = (v: boolean) => setFilter('archive', v ? '1' : '')
 
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilter('search', v))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
 
   // Convert Form State
   const [convertForm, setConvertForm] = React.useState({ password: '', nationality: '', date_of_birth: '' })
@@ -277,13 +283,16 @@ export default function AdminLeadsPage() {
         }
       />
 
-      <SearchInput
-        value={search}
-        onChange={setSearch}
-        isLoading={isFetching}
-        placeholder="Search by name or email…"
-        className="max-w-sm"
-      />
+      <div className="flex items-center gap-3">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          isLoading={isFetching}
+          placeholder="Search by name or email…"
+          className="max-w-sm"
+        />
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
+      </div>
 
       {isLoading ? (
         <div className="flex justify-center p-12"><Activity className="w-8 h-8 animate-spin text-brand-orange-accessible" /></div>

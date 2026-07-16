@@ -18,6 +18,8 @@ import { Pagination } from '../../shared/components/ui/Pagination'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
 import { usePermission } from '../../hooks/usePermission'
 import { toast } from 'sonner'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 const PER_PAGE = 20
 
@@ -34,10 +36,26 @@ export default function AdminUniversitiesPage() {
   const queryClient = useQueryClient()
   const canWrite = usePermission('universities', 'edit')
   const [viewMode, setViewMode] = React.useState<'grid' | 'table'>(readStoredViewMode)
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
-  const [partnershipFilter, setPartnershipFilter] = React.useState('')
-  const [page, setPage] = React.useState(1)
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    search: '', partnership: '', page: '1',
+  })
+  const partnershipFilter = filters.partnership
+  const page = Number(filters.page) || 1
+  const setPartnershipFilter = (v: string) => setFilters({ partnership: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
+
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilters({ search: v, page: '1' }))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
+
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [editingUniversity, setEditingUniversity] = React.useState<any | null>(null)
   const [form, setForm] = React.useState(EMPTY_FORM)
@@ -48,11 +66,6 @@ export default function AdminUniversitiesPage() {
     setViewMode(mode)
     try { localStorage.setItem(VIEW_MODE_KEY, mode) } catch {}
   }
-
-  React.useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
-    return () => clearTimeout(t)
-  }, [search])
 
   // Search and course counts are both resolved server-side in a single request now --
   // this used to fan out one extra request per university just to count its courses,
@@ -198,13 +211,14 @@ export default function AdminUniversitiesPage() {
         <SearchInput value={search} onChange={setSearch} placeholder="Search by name, location, course, or intake…" className="sm:max-w-sm" />
         <select
           value={partnershipFilter}
-          onChange={(e) => { setPartnershipFilter(e.target.value); setPage(1) }}
+          onChange={(e) => setPartnershipFilter(e.target.value)}
           className="w-full sm:w-48 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
         >
           <option value="">All Partnerships</option>
           <option value="exclusive">Exclusive</option>
           <option value="non_exclusive">Non-exclusive</option>
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
         <div className="sm:ml-auto flex rounded-lg border border-border-warm overflow-hidden self-start">
           <button
             type="button"

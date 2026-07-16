@@ -10,6 +10,8 @@ import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { renderApplicationStatus } from '../../shared/components/applications/applicationStatusBadge'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 interface AdminApplicationRecord {
   public_id: string
@@ -31,16 +33,24 @@ function formatDate(value?: string | null) {
 
 export default function AdminApplicationsPage() {
   const navigate = useNavigate()
-  const [statusFilter, setStatusFilter] = React.useState('')
-  const [univFilter, setUnivFilter] = React.useState('')
-  const [yearFilter, setYearFilter] = React.useState('')
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useUrlFilters({
+    status: '', university: '', year: '', search: '',
+  })
+  const statusFilter = filters.status
+  const univFilter = filters.university
+  const yearFilter = filters.year
+  const setStatusFilter = (v: string) => setFilter('status', v)
+  const setUnivFilter = (v: string) => setFilter('university', v)
+  const setYearFilter = (v: string) => setFilter('year', v)
 
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilter('search', v))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
 
   const applicationsQuery = useQuery({
     queryKey: ['admin', 'applications', debouncedSearch],
@@ -144,6 +154,7 @@ export default function AdminApplicationsPage() {
               <option key={year} value={String(year)}>{year}</option>
             ))}
           </select>
+          {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
         </div>
       </div>
 

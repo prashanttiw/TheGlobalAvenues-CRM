@@ -7,6 +7,8 @@ import { StatusBadge, type StatusType } from '../../shared/components/ui/Badge';
 import { Card, CardHeader, CardTitle, CardContent } from '../../shared/components/ui/Card';
 import { Button } from '../../shared/components/ui/Button';
 import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice';
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters';
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton';
 import { User, Calendar, ArrowRightLeft, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchAgentCommissions, fetchAgentCommissionsSummary } from '../../lib/api';
@@ -15,8 +17,16 @@ export default function AgentCommissionsPage() {
   const [commissions, setCommissions] = useState<any[]>([]);
   const [summary, setSummary] = useState<any>(null);
   const [meta, setMeta] = useState<any>(null);
-  const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    status: '', page: '1',
+  });
+  const statusFilter = filters.status;
+  const page = Number(filters.page) || 1;
+  const setStatusFilter = (v: string) => setFilters({ status: v, page: '1' });
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater;
+    setFilters({ page: String(next) });
+  };
   const [loading, setLoading] = useState(true);
 
   async function loadCommissionsData() {
@@ -230,16 +240,19 @@ export default function AgentCommissionsPage() {
             <CardTitle className="text-base font-semibold text-brand-navy">Direct Placement Commissions</CardTitle>
             <p className="text-xs text-muted-foreground">Commission records directly owned by your agency. Grouped in local currency (INR).</p>
           </div>
-          <select 
-            value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-            className="px-3 py-1.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
-          >
-            <option value="">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="paid">Paid</option>
-          </select>
+          <div className="flex items-center gap-2">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="px-3 py-1.5 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
+            >
+              <option value="">All Statuses</option>
+              <option value="pending">Pending</option>
+              <option value="confirmed">Confirmed</option>
+              <option value="paid">Paid</option>
+            </select>
+            {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
+          </div>
         </CardHeader>
         <CardContent className="mt-4">
           {loading ? (

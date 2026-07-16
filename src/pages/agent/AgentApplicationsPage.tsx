@@ -9,6 +9,8 @@ import { Button } from '../../shared/components/ui/Button'
 import { Badge, StatusBadge, type StatusType } from '../../shared/components/ui/Badge'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 interface AgentApplicationRecord {
   public_id: string
@@ -67,9 +69,18 @@ function formatDate(value?: string | null): string {
 
 export default function AgentApplicationsPage() {
   const { user } = useAuth()
-  const [statusFilter, setStatusFilter] = React.useState('')
-  const [agentFilter, setAgentFilter] = React.useState('')
-  const [page, setPage] = React.useState(1)
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    status: '', agent: '', page: '1',
+  })
+  const statusFilter = filters.status
+  const agentFilter = filters.agent
+  const page = Number(filters.page) || 1
+  const setStatusFilter = (v: string) => setFilters({ status: v, page: '1' })
+  const setAgentFilter = (v: string) => setFilters({ agent: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
 
   const ownerPid = agentFilter === '__self__' ? user?.publicId : agentFilter || undefined
 
@@ -160,10 +171,7 @@ export default function AgentApplicationsPage() {
         <div className="flex flex-1 gap-2 flex-col sm:flex-row sm:flex-wrap w-full">
           <select
             value={statusFilter}
-            onChange={(event) => {
-              setStatusFilter(event.target.value)
-              setPage(1)
-            }}
+            onChange={(event) => setStatusFilter(event.target.value)}
             className="w-full sm:w-44 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
           >
             <option value="">All Statuses</option>
@@ -177,10 +185,7 @@ export default function AgentApplicationsPage() {
 
           <select
             value={agentFilter}
-            onChange={(event) => {
-              setAgentFilter(event.target.value)
-              setPage(1)
-            }}
+            onChange={(event) => setAgentFilter(event.target.value)}
             className="w-full sm:w-56 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
             disabled={teamQuery.isLoading}
           >
@@ -192,6 +197,7 @@ export default function AgentApplicationsPage() {
               </option>
             ))}
           </select>
+          {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
         </div>
       </div>
 

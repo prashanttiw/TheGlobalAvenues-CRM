@@ -17,6 +17,8 @@ import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
 import { Modal, ModalAction, ModalCancel, ModalContent, ModalDescription, ModalFooter, ModalHeader, ModalTitle } from '../../shared/components/ui/Modal'
 import { usePermission } from '../../hooks/usePermission'
 import { toast } from 'sonner'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 const PER_PAGE = 20
 
@@ -44,21 +46,31 @@ export default function AdminCoursesPage() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const canWrite = usePermission('courses', 'edit')
-  const [universityFilter, setUniversityFilter] = React.useState('')
-  const [campusFilter, setCampusFilter] = React.useState('')
-  const [searchQuery, setSearchQuery] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
-  const [page, setPage] = React.useState(1)
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    university: '', campus: '', search: '', page: '1',
+  })
+  const universityFilter = filters.university
+  const campusFilter = filters.campus
+  const page = Number(filters.page) || 1
+  const setUniversityFilter = (v: string) => setFilters({ university: v, campus: '', page: '1' })
+  const setCampusFilter = (v: string) => setFilters({ campus: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
+
+  const [searchQuery, setSearchQuery] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(searchQuery, (v) => setFilters({ search: v, page: '1' }))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearchQuery('')
+  }
+
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [form, setForm] = React.useState({ universityPublicId: '', campusPublicId: '', name: '', degree_level: 'masters', duration_months: 24, language: 'English' })
   const [deleteTarget, setDeleteTarget] = React.useState<CourseRow | null>(null)
-
-  React.useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(searchQuery); setPage(1) }, 350)
-    return () => clearTimeout(t)
-  }, [searchQuery])
-
-  React.useEffect(() => { setPage(1) }, [universityFilter, campusFilter])
 
   // Institution-level (grouped) picker — one option per institution, not per campus row. Also
   // fixes a real bug: the old flat picker capped at per_page=250 while the catalog holds 313+
@@ -237,7 +249,7 @@ export default function AdminCoursesPage() {
 
       <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 bg-surface-card p-4 rounded-xl border border-border-warm items-center justify-between">
         <div className="flex gap-2 flex-wrap w-full sm:w-auto">
-          <select value={universityFilter} onChange={(e) => { setUniversityFilter(e.target.value); setCampusFilter('') }} className="w-full sm:w-64 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">
+          <select value={universityFilter} onChange={(e) => setUniversityFilter(e.target.value)} className="w-full sm:w-64 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none">
             <option value="">All Universities</option>
             {universities.map((u) => <option key={u.public_id} value={u.public_id}>{universityOptionLabel(u)}</option>)}
           </select>
@@ -247,6 +259,7 @@ export default function AdminCoursesPage() {
               {filterCampusPicker.campuses.map((c) => <option key={c.public_id} value={c.public_id}>{campusOptionLabel(c)}</option>)}
             </select>
           )}
+          {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
         </div>
         <div className="relative w-full sm:w-72"><Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" /><input type="text" placeholder="Search courses..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full pl-9 pr-4 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none" /></div>
       </div>

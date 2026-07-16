@@ -4,12 +4,27 @@ import { fetchSuperActivityLogs } from '../../lib/api'
 import { PageHeader } from '../../shared/components/layout/PageHeader'
 import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { ActivityLogTable } from '../../shared/components/activity/ActivityLogTable'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 export default function AdminSuperLogsPage() {
-  const [actorTypeFilter, setActorTypeFilter] = React.useState('')
-  const [dateFrom, setDateFrom] = React.useState('')
-  const [dateTo, setDateTo] = React.useState('')
-  const [searchQuery, setSearchQuery] = React.useState('')
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useUrlFilters({
+    actorType: '', from: '', to: '', search: '',
+  })
+  const actorTypeFilter = filters.actorType
+  const dateFrom = filters.from
+  const dateTo = filters.to
+  const setActorTypeFilter = (v: string) => setFilter('actorType', v)
+  const setDateFrom = (v: string) => setFilter('from', v)
+  const setDateTo = (v: string) => setFilter('to', v)
+
+  const [searchQuery, setSearchQuery] = React.useState(filters.search)
+  useDebouncedFilterSync(searchQuery, (v) => setFilter('search', v))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearchQuery('')
+  }
 
   const logsQuery = useQuery({
     queryKey: ['admin', 'super-activity-logs', actorTypeFilter, dateFrom, dateTo],
@@ -83,6 +98,7 @@ export default function AdminSuperLogsPage() {
           className="w-full sm:w-44 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
           aria-label="To date"
         />
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
       </div>
 
       <ActivityLogTable

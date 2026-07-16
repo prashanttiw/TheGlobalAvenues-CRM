@@ -21,6 +21,8 @@ import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Button } from '../../shared/components/ui/Button'
 import { StatCard } from '../../shared/components/ui/StatCard'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { UserAvatar } from '../../shared/components/ui/Avatar'
 import {
@@ -657,15 +659,22 @@ export default function AdminUsers() {
   const canCreate = usePermission('user_management', 'create')
   const canEdit = usePermission('user_management', 'edit')
 
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState('')
-  const [roleFilter, setRoleFilter] = React.useState('')
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useUrlFilters({
+    search: '', status: '', role: '',
+  })
+  const statusFilter = filters.status
+  const roleFilter = filters.role
+  const setStatusFilter = (v: string) => setFilter('status', v)
+  const setRoleFilter = (v: string) => setFilter('role', v)
 
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilter('search', v))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
 
   const [createOpen, setCreateOpen] = React.useState(false)
   const [editUser, setEditUser] = React.useState<AdminUserSummary | null>(null)
@@ -775,6 +784,7 @@ export default function AdminUsers() {
           <option value="">All Roles</option>
           <option value="super_admin">Super Admin</option>
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
       </div>
 
       {/* ── Table ── */}

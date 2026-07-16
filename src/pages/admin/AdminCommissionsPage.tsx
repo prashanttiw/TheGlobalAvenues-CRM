@@ -13,6 +13,8 @@ import { DollarSign, Check, Trash2, Edit, ArrowLeft, ArrowRight, Calendar, Coins
 import { toast, Toaster } from 'sonner'
 import { usePermission } from '../../hooks/usePermission'
 import { UnderDevelopmentNotice } from '../../shared/components/ui/UnderDevelopmentNotice'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 import {
   fetchAdminCommissions, 
   fetchAdminCommissionsSummary, 
@@ -28,19 +30,32 @@ export default function AdminCommissionsPage() {
   const [summary, setSummary] = useState<any>(null)
   const [agents, setAgents] = useState<any[]>([])
   
-  const [agentFilter, setAgentFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [fromFilter, setFromFilter] = useState('')
-  const [toFilter, setToFilter] = useState('')
-  const [search, setSearch] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    agent: '', status: '', from: '', to: '', search: '', page: '1',
+  })
+  const agentFilter = filters.agent
+  const statusFilter = filters.status
+  const fromFilter = filters.from
+  const toFilter = filters.to
+  const page = Number(filters.page) || 1
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
+  const setAgentFilter = (v: string) => setFilters({ agent: v, page: '1' })
+  const setStatusFilter = (v: string) => setFilters({ status: v, page: '1' })
+  const setFromFilter = (v: string) => setFilters({ from: v, page: '1' })
+  const setToFilter = (v: string) => setFilters({ to: v, page: '1' })
 
-  useEffect(() => {
-    const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 350)
-    return () => clearTimeout(t)
-  }, [search])
+  const [search, setSearch] = useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilters({ search: v, page: '1' }))
 
-  const [page, setPage] = useState(1)
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
+
   const [meta, setMeta] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   
@@ -391,10 +406,7 @@ export default function AdminCommissionsPage() {
             <label className="text-xs font-semibold text-brand-navy">Agent / Agency</label>
             <select 
               value={agentFilter}
-              onChange={(e) => {
-                setAgentFilter(e.target.value)
-                setPage(1)
-              }}
+              onChange={(e) => setAgentFilter(e.target.value)}
               className="w-full px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
             >
               <option value="">All Agent Partners</option>
@@ -410,10 +422,7 @@ export default function AdminCommissionsPage() {
             <label className="text-xs font-semibold text-brand-navy">Status</label>
             <select 
               value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value)
-                setPage(1)
-              }}
+              onChange={(e) => setStatusFilter(e.target.value)}
               className="w-full px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
             >
               <option value="">All Statuses</option>
@@ -428,10 +437,7 @@ export default function AdminCommissionsPage() {
             <input 
               type="date"
               value={fromFilter}
-              onChange={(e) => {
-                setFromFilter(e.target.value)
-                setPage(1)
-              }}
+              onChange={(e) => setFromFilter(e.target.value)}
               className="w-full px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
             />
           </div>
@@ -441,32 +447,14 @@ export default function AdminCommissionsPage() {
             <input 
               type="date"
               value={toFilter}
-              onChange={(e) => {
-                setToFilter(e.target.value)
-                setPage(1)
-              }}
+              onChange={(e) => setToFilter(e.target.value)}
               className="w-full px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
             />
           </div>
         </div>
 
-        {(agentFilter || statusFilter || fromFilter || toFilter || search) && (
-          <div className="flex justify-end pt-1">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setAgentFilter('')
-                setStatusFilter('')
-                setFromFilter('')
-                setToFilter('')
-                setSearch('')
-                setDebouncedSearch('')
-                setPage(1)
-              }}
-            >
-              Reset Filters
-            </Button>
-          </div>
+        {(hasActiveFilters || search) && (
+          <ClearFiltersButton className="flex justify-end pt-1" onClick={handleClearFilters} />
         )}
       </div>
 

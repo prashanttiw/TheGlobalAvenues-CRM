@@ -3,13 +3,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import {
   ArrowUpRight,
   BadgeCheck,
+  Bell,
   BookOpenCheck,
   Building2,
   CheckCircle2,
   ChevronRight,
   Clock3,
   FileCheck2,
-  FileSearch,
   GraduationCap,
   Shield,
   UserCog,
@@ -29,7 +29,6 @@ import {
   AdminApplicationDetail,
   AdminDashboardStats,
   AdminDocumentQueueItem,
-  AdminPaymentQueueItem,
   AdminPipelineItem,
   AdminProgramRecord,
   AdminUniversityRecord,
@@ -38,20 +37,17 @@ import {
   AuditLogEntry,
   approveAdminAgent,
   rejectAdminAgent,
-  adminVerifyPayment,
   createAdminProgram,
   createAdminUniversity,
   deleteAdminProgram,
   deleteAdminUniversity,
   eraseAdminFile,
-  fetchAdminAgentQueue,
   fetchAdminAgents,
   fetchAdminApplicationDetail,
   fetchAdminAuditLog,
   fetchAdminDashboardStats,
   fetchAdminDocumentQueue,
   fetchAdminNoticesFeed,
-  fetchAdminPaymentQueue,
   fetchAdminPipeline,
   fetchAdminPrograms,
   fetchAdminUniversities,
@@ -124,7 +120,6 @@ export function AdminDashboardPage() {
   const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
   const [agents, setAgents] = useState<any[]>([]);
   const [documents, setDocuments] = useState<AdminDocumentQueueItem[]>([]);
-  const [pendingPayments, setPendingPayments] = useState<AdminPaymentQueueItem[]>([]);
   const [recentNotices, setRecentNotices] = useState<any[]>([]);
   const [universities, setUniversities] = useState<AdminUniversityRecord[]>([]);
   const [programs, setPrograms] = useState<AdminProgramRecord[]>([]);
@@ -135,7 +130,7 @@ export function AdminDashboardPage() {
 
   const [pipelineQuery, setPipelineQuery] = useState('');
   const [pipelineStatus, setPipelineStatus] = useState('');
-  const [documentStatus, setDocumentStatus] = useState('pending');
+  const [documentStatus, setDocumentStatus] = useState('submitted');
   // Defaults to 'agent' (not '') so this widget doesn't request the full admin roster —
   // decrypted emails/phones/page grants — until the viewer explicitly picks an admin-scoped
   // filter, which the backend only allows for callers with user_management.view.
@@ -199,19 +194,15 @@ export function AdminDashboardPage() {
       setDashboard(stats);
 
       if (section === 'overview') {
-        // Dedicated dashboard-only queue endpoints — every admin sees these three regardless of
-        // their individual page grants (only the action buttons are permission-gated), so this
-        // never 403s for a restricted admin the way the shared, page-gated fetchAdminAgents()
-        // (used by the full Agents management page) would.
-        const [agentQueue, documentResult, paymentQueue, noticesResult] = await Promise.all([
-          fetchAdminAgentQueue(),
-          fetchAdminDocumentQueue({ status: 'pending', perPage: 6 }),
-          fetchAdminPaymentQueue(),
+        // Dedicated dashboard-only queue endpoint — every admin sees this regardless of their
+        // individual page grants (only the action buttons are permission-gated), so this never
+        // 403s for a restricted admin the way the shared, page-gated fetchAdminAgents() (used by
+        // the full Agents management page) would.
+        const [documentResult, noticesResult] = await Promise.all([
+          fetchAdminDocumentQueue({ status: 'submitted', perPage: 6 }),
           fetchAdminNoticesFeed({ page: 1, per_page: 6, sort: 'desc' }),
         ]);
-        setAgents(agentQueue);
         setDocuments(documentResult.documents);
-        setPendingPayments(paymentQueue);
         setRecentNotices(noticesResult.notices);
       }
 
@@ -418,21 +409,6 @@ export function AdminDashboardPage() {
     }
   }
 
-  async function decidePayment(paymentId: string, decision: 'confirmed' | 'disputed') {
-    setBusy(true);
-
-    try {
-      const note = decision === 'disputed' ? window.prompt('Dispute reason', 'Amount or reference does not match.') ?? '' : '';
-      await adminVerifyPayment(paymentId, { status: decision, note });
-      toast.success(`Payment ${decision}.`);
-      await loadSectionData();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to review payment.');
-    } finally {
-      setBusy(false);
-    }
-  }
-
   async function submitUniversity() {
     setBusy(true);
 
@@ -628,95 +604,44 @@ export function AdminDashboardPage() {
         <>
           {section === 'overview' && canUseSection && dashboard && (
             <div className="space-y-6">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <MetricCard icon={FileSearch} label="Pipeline Cases" value={dashboard.totalApplications} tone="purple" detail="All applications in CRM" />
+              <div className="grid gap-4 md:grid-cols-3">
                 <MetricCard icon={Users2} label="Student Accounts" value={dashboard.activeStudents} tone="gold" detail="Active student records" />
                 <MetricCard icon={Building2} label="Shared Universities" value={dashboard.activeUniversities} tone="green" detail="Visible catalog institutions" />
                 <MetricCard icon={BookOpenCheck} label="Shared Programs" value={dashboard.activePrograms} tone="blue" detail="Public + portal programs" />
               </div>
 
-              <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr_0.9fr]">
-                <Panel
-                  title="Recent stage movement"
-                  subtitle="Latest operational movement across the application pipeline."
-                >
+              <div className="grid gap-6 xl:grid-cols-2">
+                <Panel title="Recent Notices & Events" subtitle="Latest announcements and events published across the portal.">
                   <div className="space-y-3">
-                    {dashboard.recentStageMovement.length === 0 && <EmptyState label="No stage movement yet." />}
-                    {dashboard.recentStageMovement.map((item) => (
-                      <div key={item.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <div className="text-sm font-black text-gray-900">{item.student_name}</div>
-                            <div className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mt-1">
-                              {item.reference_number}
+                    {recentNotices.length === 0 && <EmptyState label="No notices or events yet." />}
+                    {recentNotices.map((notice) => {
+                      const isEvent = notice.notice_type === 'event';
+                      return (
+                        <div
+                          key={notice.public_id}
+                          className="flex items-start gap-3 rounded-2xl border border-gray-100 bg-white p-4 transition-colors hover:border-[#FD7E14]/25 hover:bg-[#FFF8F0]"
+                        >
+                          <div className={`mt-0.5 shrink-0 rounded-full p-2 ${isEvent ? 'bg-amber-100 text-amber-700' : 'bg-[#EEE9FF] text-[#2D1B69]'}`}>
+                            {isEvent ? <Calendar className="h-4 w-4" /> : <Bell className="h-4 w-4" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-black text-gray-900">{notice.title}</div>
+                            <div className="mt-1 text-[11px] text-gray-400">
+                              {isEvent && notice.event_date
+                                ? `Event · ${new Date(notice.event_date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                                : `Notice · ${new Date(notice.published_at || notice.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="text-xs font-bold text-[#2D1B69]">{formatStage(item.to_status)}</div>
-                            <div className="text-[11px] text-gray-400">{formatDate(item.created_at)}</div>
+                          <div
+                            className={`shrink-0 rounded-full px-3 py-1 text-[10px] font-black uppercase tracking-wide ${
+                              isEvent ? 'bg-[#FFF6D9] text-[#A06C00]' : 'bg-[#EEE9FF] text-[#2D1B69]'
+                            }`}
+                          >
+                            {isEvent ? 'Event' : 'Notice'}
                           </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                </Panel>
-
-                <Panel
-                  title="System Activity Feed"
-                  subtitle="Live roll-up of operational actions across modules."
-                >
-                  <ActivityFeedWidget rolePrefix="admin" />
-                </Panel>
-
-                <Panel
-                  title="Pipeline weight"
-                  subtitle="Current case distribution by stage."
-                >
-                  <div className="space-y-3">
-                    {dashboard.applicationsByStage.map((item) => (
-                      <div key={item.status} className="flex items-center justify-between rounded-2xl border border-gray-100 p-3">
-                        <div className="text-sm font-bold text-gray-700">{formatStage(item.status)}</div>
-                        <div className="rounded-full bg-[#EEE9FF] px-3 py-1 text-xs font-black text-[#2D1B69]">
-                          {Number(item.total)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Panel>
-              </div>
-
-              <div className="grid gap-6 xl:grid-cols-3">
-                <Panel title="Pending agent approvals" subtitle="New partner agencies waiting for internal review.">
-                  <div className="space-y-3">
-                    {agents.length === 0 && <EmptyState label="No pending agent approvals." />}
-                    {agents.map((agent) => (
-                      <div key={agent.public_id ?? agent.id} className="rounded-2xl border border-gray-100 p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                          <div>
-                            <div className="text-sm font-black text-gray-900">{agent.agency_name}</div>
-                            <div className="mt-1 text-xs text-gray-500">
-                              {agent.agency_country ?? agent.country} · {agent.email} · {agent.tier}
-                            </div>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              disabled={busy || !permissions?.canApproveAgents}
-                              onClick={() => void decideAgent(agent.public_id, 'approved')}
-                              className="rounded-xl bg-[#2D1B69] px-4 py-2 text-xs font-black text-white disabled:opacity-50"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              disabled={busy || !permissions?.canApproveAgents}
-                              onClick={() => void decideAgent(agent.public_id, 'rejected')}
-                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </Panel>
 
@@ -753,68 +678,41 @@ export function AdminDashboardPage() {
                     ))}
                   </div>
                 </Panel>
+              </div>
 
-                <Panel title="Pending payment verification" subtitle="Students who marked a payment as paid, awaiting confirmation.">
+              <div className="grid gap-6 xl:grid-cols-2">
+                <Panel
+                  title="Recent stage movement"
+                  subtitle="Latest operational movement across the application pipeline."
+                >
                   <div className="space-y-3">
-                    {pendingPayments.length === 0 && <EmptyState label="No payments awaiting verification." />}
-                    {pendingPayments.map((payment) => (
-                      <div key={payment.public_id} className="rounded-2xl border border-gray-100 p-4">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    {dashboard.recentStageMovement.length === 0 && <EmptyState label="No stage movement yet." />}
+                    {dashboard.recentStageMovement.map((item) => (
+                      <div key={item.id} className="rounded-2xl border border-gray-100 bg-[#F8F7FF] p-4">
+                        <div className="flex items-center justify-between gap-4">
                           <div>
-                            <div className="text-sm font-black text-gray-900">{payment.student_name}</div>
-                            <div className="mt-1 text-xs text-gray-500">
-                              {payment.label} · {payment.currency} {Number(payment.amount ?? 0).toLocaleString()} · {payment.application_reference}
+                            <div className="text-sm font-black text-gray-900">{item.student_name}</div>
+                            <div className="text-[11px] uppercase tracking-[0.18em] text-gray-400 mt-1">
+                              {item.reference_number}
                             </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              disabled={busy || !permissions?.canReviewDocuments}
-                              onClick={() => void decidePayment(payment.public_id, 'confirmed')}
-                              className="rounded-xl bg-green-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              disabled={busy || !permissions?.canReviewDocuments}
-                              onClick={() => void decidePayment(payment.public_id, 'disputed')}
-                              className="rounded-xl border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700 disabled:opacity-50"
-                            >
-                              Dispute
-                            </button>
+                          <div className="text-right">
+                            <div className="text-xs font-bold text-[#2D1B69]">{formatStage(item.to_status)}</div>
+                            <div className="text-[11px] text-gray-400">{formatDate(item.created_at)}</div>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
                 </Panel>
-              </div>
 
-              <Panel title="Recent Notices & Events" subtitle="Latest announcements and events published across the portal.">
-                <div className="space-y-3">
-                  {recentNotices.length === 0 && <EmptyState label="No notices or events yet." />}
-                  {recentNotices.map((notice) => (
-                    <div key={notice.public_id} className="rounded-2xl border border-gray-100 p-4">
-                      <div className="flex items-center justify-between gap-4">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-black text-gray-900">{notice.title}</div>
-                          <div className="mt-1 text-xs text-gray-500">
-                            {notice.notice_type === 'event' && notice.event_date
-                              ? `Event · ${new Date(notice.event_date).toLocaleDateString()}`
-                              : `Notice · ${new Date(notice.published_at || notice.created_at).toLocaleDateString()}`}
-                          </div>
-                        </div>
-                        <div
-                          className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${
-                            notice.notice_type === 'event' ? 'bg-[#FFF6D9] text-[#A06C00]' : 'bg-[#EEE9FF] text-[#2D1B69]'
-                          }`}
-                        >
-                          {notice.notice_type === 'event' ? 'Event' : 'Notice'}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </Panel>
+                <Panel
+                  title="System Activity Feed"
+                  subtitle="Live roll-up of operational actions across modules."
+                >
+                  <ActivityFeedWidget rolePrefix="admin" />
+                </Panel>
+              </div>
             </div>
           )}
 
@@ -1330,8 +1228,8 @@ export function AdminDashboardPage() {
                   onChange={(event) => setDocumentStatus(event.target.value)}
                   className="rounded-2xl border border-gray-200 bg-[#F8F7FF] px-4 py-3 text-sm outline-none"
                 >
-                  <option value="pending">Pending</option>
-                  <option value="verified">Verified</option>
+                  <option value="submitted">Awaiting review</option>
+                  <option value="approved">Approved</option>
                   <option value="rejected">Rejected</option>
                 </select>
                 <button onClick={() => void loadSectionData()} className="rounded-2xl bg-[#2D1B69] px-5 py-3 text-sm font-black text-white">

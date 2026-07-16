@@ -11,7 +11,6 @@ import {
   Globe,
   Inbox,
   Lock,
-  Mail,
   Phone,
   Sparkles,
   UserCheck,
@@ -27,7 +26,6 @@ import { ActivityFeedWidget } from '../../shared/components/ui/ActivityFeedWidge
 import { RecentNoticesCard } from '../../shared/components/ui/RecentNoticesCard'
 import { ProfileCompletionPanel } from '../../shared/components/student/ProfileCompletionPanel'
 import { useAuth } from '../../shared/hooks/useAuth'
-import { useUnreadCount } from '../../shared/hooks/useNotifications'
 import {
   fetchReadiness,
   fetchStudentAgentInfo,
@@ -101,8 +99,6 @@ export default function StudentOverviewPage() {
     onError: (err: unknown) => toast.error(err instanceof Error ? err.message : 'Failed to mark payment as paid.'),
   })
 
-  const unreadQuery = useUnreadCount()
-
   const applications = applicationsQuery.data ?? []
   const ready = isProfileReady(readinessQuery.data?.profile_status)
   const documentsNeeded = (documentRequestsQuery.data ?? []).filter((d: any) => d.status === 'requested')
@@ -132,30 +128,54 @@ export default function StudentOverviewPage() {
         subtitle="Here's where your study-abroad journey stands right now."
       />
 
-      {readinessQuery.isLoading ? null : ready ? (
-        <div className="flex items-start gap-3 rounded-card border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 shadow-sm">
-          <CheckCircle2 className="h-5 w-5 shrink-0" />
-          <div>
-            <p className="font-semibold">Your profile is complete.</p>
-            <p className="text-xs text-emerald-700 mt-0.5">
-              Personal details and documents are on your{' '}
-              <button type="button" className="font-semibold underline" onClick={() => navigate('/portal/student/profile')}>
-                Profile page
-              </button>. You can now apply to any program.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <ProfileCompletionPanel />
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Total Applications" value={stats.total} icon={FileText} color="navy" isLoading={applicationsQuery.isLoading} />
-        <StatCard label="Open / In Progress" value={stats.open} icon={Inbox} color="amber" isLoading={applicationsQuery.isLoading} />
-        <StatCard label="In Review" value={stats.inReview} icon={Sparkles} color="orange" isLoading={applicationsQuery.isLoading} />
-        <StatCard label="Offers Received" value={stats.offers} icon={CheckCircle2} color="green" isLoading={applicationsQuery.isLoading} />
-        <StatCard label="Enrolled" value={stats.enrolled} icon={GraduationCap} color="green" isLoading={applicationsQuery.isLoading} />
-        <StatCard label="Unread Notices" value={unreadQuery.data?.count ?? 0} icon={Mail} color="navy" isLoading={unreadQuery.isLoading} />
+
+        <Card className="sm:col-span-2">
+          <CardContent className="p-5 sm:p-6">
+            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Application Pipeline
+            </span>
+            <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-current/10 bg-brand-amber/10 text-brand-amber">
+                  <Inbox className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="font-display text-xl font-bold leading-none text-brand-navy">{applicationsQuery.isLoading ? '—' : stats.open}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">Open</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-current/10 bg-brand-orange-accessible/10 text-brand-orange-accessible">
+                  <Sparkles className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="font-display text-xl font-bold leading-none text-brand-navy">{applicationsQuery.isLoading ? '—' : stats.inReview}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">In Review</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-current/10 bg-emerald-500/10 text-emerald-600">
+                  <CheckCircle2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="font-display text-xl font-bold leading-none text-brand-navy">{applicationsQuery.isLoading ? '—' : stats.offers}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">Offers</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-current/10 bg-emerald-500/10 text-emerald-600">
+                  <GraduationCap className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="font-display text-xl font-bold leading-none text-brand-navy">{applicationsQuery.isLoading ? '—' : stats.enrolled}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">Enrolled</div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
@@ -174,7 +194,7 @@ export default function StudentOverviewPage() {
               <EmptyState
                 icon={FileText}
                 heading="No applications yet"
-                description={ready ? 'Browse universities and submit your first application.' : 'Complete your profile above, then browse universities to apply.'}
+                description={ready ? 'Browse universities and submit your first application.' : 'Complete your profile below, then browse universities to apply.'}
                 action={
                   <Button onClick={() => navigate('/portal/student/universities')}>
                     Browse Universities
@@ -290,7 +310,7 @@ export default function StudentOverviewPage() {
                     <p className="text-sm font-semibold">Applications locked</p>
                   </div>
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    You can still browse universities and programs, but complete your profile above before applying.
+                    You can still browse universities and programs, but complete your profile below before applying.
                   </p>
                   <Button className="w-full mt-4" variant="secondary" onClick={() => navigate('/portal/student/universities')}>
                     Browse Universities
@@ -337,6 +357,23 @@ export default function StudentOverviewPage() {
           </Card>
         </div>
       </div>
+
+      {readinessQuery.isLoading ? null : ready ? (
+        <div className="flex items-start gap-3 rounded-card border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 shadow-sm">
+          <CheckCircle2 className="h-5 w-5 shrink-0" />
+          <div>
+            <p className="font-semibold">Your profile is complete.</p>
+            <p className="text-xs text-emerald-700 mt-0.5">
+              Personal details and documents are on your{' '}
+              <button type="button" className="font-semibold underline" onClick={() => navigate('/portal/student/profile')}>
+                Profile page
+              </button>. You can now apply to any program.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <ProfileCompletionPanel />
+      )}
     </PageWrapper>
   )
 }

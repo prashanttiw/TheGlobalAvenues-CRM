@@ -34,6 +34,8 @@ import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { Dialog, DialogContent, DialogTitle } from '../../shared/components/ui/Dialog'
 import { UserAvatar } from '../../shared/components/ui/Avatar'
 import { AgentTreeNode, type AgentNode } from '../../components/agent/AgentTreeNode'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 const SECTIONS = [
   { key: 'registered', label: 'Registered' },
@@ -65,22 +67,34 @@ const DOC_LABELS: Record<string, string> = {
 
 export default function AdminAgentsPage() {
   const queryClient = useQueryClient()
-  const [section, setSection] = React.useState<SectionKey>('pending')
-  const [statusFilter, setStatusFilter] = React.useState('')
-  const [tierFilter, setTierFilter] = React.useState('')
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const { filters, setFilter, setFilters } = useUrlFilters({
+    section: 'pending', status: '', tier: '', search: '',
+  })
+  const section = filters.section as SectionKey
+  const setSection = (v: SectionKey) => setFilter('section', v)
+  const statusFilter = filters.status
+  const tierFilter = filters.tier
+  const setStatusFilter = (v: string) => setFilter('status', v)
+  const setTierFilter = (v: string) => setFilter('tier', v)
+
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilter('search', v))
+
+  // Only the "All Agents" table's own filters count here — `section` (which tab) isn't a filter
+  // to clear, and this button only ever renders inside the `section === 'all'` block anyway.
+  const hasActiveFilters = Boolean(statusFilter || tierFilter || search)
+  const handleClearFilters = () => {
+    setFilters({ status: '', tier: '', search: '' })
+    setSearch('')
+  }
+
   const [reviewPid, setReviewPid] = React.useState<string | null>(null)
   const [rejectReason, setRejectReason] = React.useState('')
   const [hierarchyRootPid, setHierarchyRootPid] = React.useState<string>('')
 
   const canApprove = usePermission('agents', 'approve')
   const canSuspend = usePermission('agents', 'delete')
-
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
 
   const invalidateAll = () =>
     queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'admin-agents' })
@@ -380,6 +394,7 @@ export default function AdminAgentsPage() {
                 <option value="2">Sub-Agent</option>
                 <option value="3">Sub-Sub-Agent</option>
               </select>
+              {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
             </div>
           </div>
 

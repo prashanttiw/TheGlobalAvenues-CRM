@@ -21,6 +21,8 @@ import {
 } from '../../shared/components/ui/PreviewDrawer'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { CustomFieldsManagerPanel } from '../../shared/components/students/CustomFieldsManagerPanel'
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 import { Calendar, Edit, Eye, FileUp, Globe, ListPlus, Mail, Phone, User, UserCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
@@ -64,9 +66,15 @@ function renderStatus(status: string) {
 
 export default function AdminStudentsPage() {
   const navigate = useNavigate()
-  const [searchTerm, setSearchTerm] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState('')
-  const [agentFilter, setAgentFilter] = React.useState('')
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useUrlFilters({
+    search: '', status: '', agent: '',
+  })
+  const searchTerm = filters.search
+  const statusFilter = filters.status
+  const agentFilter = filters.agent
+  const setSearchTerm = (v: string) => setFilter('search', v)
+  const setStatusFilter = (v: string) => setFilter('status', v)
+  const setAgentFilter = (v: string) => setFilter('agent', v)
   const [selectedStudent, setSelectedStudent] = React.useState<AdminStudent | null>(null)
   const [isManageFieldsOpen, setIsManageFieldsOpen] = React.useState(false)
 
@@ -187,6 +195,7 @@ export default function AdminStudentsPage() {
             <option value="direct">Direct Students</option>
             <option value="assigned">Agent Assisted</option>
           </select>
+          {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
         </div>
       </div>
 

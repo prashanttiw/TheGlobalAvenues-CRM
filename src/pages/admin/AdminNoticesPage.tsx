@@ -17,6 +17,8 @@ import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { SlideOverPanel } from '../../shared/components/ui/SlideOverPanel'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 interface Notice {
   public_id: string
@@ -65,12 +67,19 @@ function readStoredViewMode(): 'grid' | 'table' {
 
 // ── Non-creator admin: read-only feed with toggle ────────────────────────────
 function AdminNoticesFeed() {
-  const [filter, setFilter] = React.useState<'all' | 'notice' | 'event'>('all')
-  const [sortDir, setSortDir] = React.useState<'desc' | 'asc'>('desc')
-  const [page, setPage] = React.useState(1)
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    type: 'all', sort: 'desc', page: '1',
+  })
+  const filter = filters.type as 'all' | 'notice' | 'event'
+  const sortDir = filters.sort as 'desc' | 'asc'
+  const page = Number(filters.page) || 1
+  const setFilter = (v: 'all' | 'notice' | 'event') => setFilters({ type: v, page: '1' })
+  const setSortDir = (v: 'desc' | 'asc') => setFilters({ sort: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
   const [viewMode, setViewMode] = React.useState<'grid' | 'table'>(readStoredViewMode)
-
-  React.useEffect(() => { setPage(1) }, [filter, sortDir])
 
   const handleViewMode = (mode: 'grid' | 'table') => {
     setViewMode(mode)
@@ -117,6 +126,7 @@ function AdminNoticesFeed() {
           <option value="desc">Latest First</option>
           <option value="asc">Oldest First</option>
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
         {meta?.total > 0 && (
           <span className="text-xs text-muted-foreground whitespace-nowrap">
             {meta.total} total · page {meta.current_page}/{totalPages}
@@ -206,24 +216,33 @@ export default function AdminNoticesPage() {
     return <AdminNoticesFeed />
   }
 
-  const [page, setPage] = React.useState(1)
-  const [typeFilter, setTypeFilter] = React.useState<'all' | 'notice' | 'event'>('all')
-  const [sortDir, setSortDir] = React.useState<'desc' | 'asc'>('desc')
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    page: '1', type: 'all', sort: 'desc', search: '',
+  })
+  const page = Number(filters.page) || 1
+  const typeFilter = filters.type as 'all' | 'notice' | 'event'
+  const sortDir = filters.sort as 'desc' | 'asc'
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
+  const setTypeFilter = (v: 'all' | 'notice' | 'event') => setFilters({ type: v, page: '1' })
+  const setSortDir = (v: 'desc' | 'asc') => setFilters({ sort: v, page: '1' })
+
   const [isPanelOpen, setIsPanelOpen] = React.useState(false)
   const [panelMode, setPanelMode] = React.useState<'create' | 'edit'>('create')
   const [editingId, setEditingId] = React.useState<string | null>(null)
   const [form, setForm] = React.useState(defaultForm)
   const [pendingFile, setPendingFile] = React.useState<File | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement>(null)
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilters({ search: v, page: '1' }))
 
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
-
-  React.useEffect(() => { setPage(1) }, [typeFilter, sortDir, debouncedSearch])
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
 
   const { data: listResponse, isLoading, isFetching } = useQuery<{ data: Notice[]; meta: ListMeta }>({
     queryKey: ['admin', 'notices', { page, sortDir, typeFilter, debouncedSearch }],
@@ -751,6 +770,7 @@ export default function AdminNoticesPage() {
           <option value="desc">Latest First</option>
           <option value="asc">Oldest First</option>
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
         {meta && (
           <span className="ml-auto text-xs text-muted-foreground">
             {meta.total} total · page {meta.current_page} of {meta.total_pages}

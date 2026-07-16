@@ -8,6 +8,8 @@ import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { Button } from '../../shared/components/ui/Button'
 import { Card, CardContent } from '../../shared/components/ui/Card'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 const PER_PAGE = 20
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
@@ -18,12 +20,19 @@ function readStoredViewMode(): 'grid' | 'table' {
 }
 
 export default function StudentNoticesPage() {
-  const [filter, setFilter] = React.useState<'all' | 'notice' | 'event'>('all')
-  const [sortDir, setSortDir] = React.useState<'desc' | 'asc'>('desc')
-  const [page, setPage] = React.useState(1)
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    type: 'all', sort: 'desc', page: '1',
+  })
+  const filter = filters.type as 'all' | 'notice' | 'event'
+  const sortDir = filters.sort as 'desc' | 'asc'
+  const page = Number(filters.page) || 1
+  const setFilter = (v: 'all' | 'notice' | 'event') => setFilters({ type: v, page: '1' })
+  const setSortDir = (v: 'desc' | 'asc') => setFilters({ sort: v, page: '1' })
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
   const [viewMode, setViewMode] = React.useState<'grid' | 'table'>(readStoredViewMode)
-
-  React.useEffect(() => { setPage(1) }, [filter, sortDir])
 
   const handleViewMode = (mode: 'grid' | 'table') => {
     setViewMode(mode)
@@ -79,6 +88,7 @@ export default function StudentNoticesPage() {
           <option value="desc">Latest First</option>
           <option value="asc">Oldest First</option>
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
 
         {/* Meta count */}
         {meta && meta.total > 0 && (

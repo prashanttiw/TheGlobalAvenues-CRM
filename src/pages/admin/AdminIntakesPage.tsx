@@ -27,6 +27,8 @@ import { EditableField } from '../../shared/components/ui/EditableField'
 import { UniversityLogo } from '../../shared/components/catalog/UniversityLogo'
 import { Modal, ModalAction, ModalCancel, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '../../shared/components/ui/Modal'
 import { toast } from 'sonner'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 const PER_PAGE = 20
 
@@ -122,12 +124,27 @@ function validNextStatuses(status: string): string[] {
 
 export default function AdminIntakesPage() {
   const queryClient = useQueryClient()
-  const [universityFilter, setUniversityFilter] = React.useState('')
-  const [campusFilter, setCampusFilter] = React.useState('')
-  const [courseFilter, setCourseFilter] = React.useState('')
-  const [statusFilter, setStatusFilter] = React.useState('')
-  const [search, setSearch] = React.useState('')
-  const [debouncedSearch, setDebouncedSearch] = React.useState('')
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    university: '', campus: '', course: '', status: '', search: '', page: '1',
+  })
+  const universityFilter = filters.university
+  const campusFilter = filters.campus
+  const courseFilter = filters.course
+  const statusFilter = filters.status
+  const setUniversityFilter = (v: string) => setFilters({ university: v, campus: '', course: '', page: '1' })
+  const setCampusFilter = (v: string) => setFilters({ campus: v, course: '', page: '1' })
+  const setCourseFilter = (v: string) => setFilters({ course: v, page: '1' })
+  const setStatusFilter = (v: string) => setFilters({ status: v, page: '1' })
+
+  const [search, setSearch] = React.useState(filters.search)
+  const debouncedSearch = filters.search
+  useDebouncedFilterSync(search, (v) => setFilters({ search: v, page: '1' }))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearch('')
+  }
+
   const [isAddOpen, setIsAddOpen] = React.useState(false)
   const [form, setForm] = React.useState<IntakeFormState>(INITIAL_FORM)
   const [cloningIntake, setCloningIntake] = React.useState<IntakeRow | null>(null)
@@ -150,13 +167,11 @@ export default function AdminIntakesPage() {
   const canEdit = usePermission('intakes', 'edit')
   const canDelete = usePermission('intakes', 'delete')
 
-  const [page, setPage] = React.useState(1)
-  React.useEffect(() => { setPage(1) }, [universityFilter, campusFilter, courseFilter, statusFilter, debouncedSearch])
-
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 350)
-    return () => clearTimeout(t)
-  }, [search])
+  const page = Number(filters.page) || 1
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater
+    setFilters({ page: String(next) })
+  }
 
   // Institution-level (grouped) picker — one option per institution, not per campus row. Also
   // fixes a real bug: the old flat picker capped at per_page=250 while the catalog holds 313+
@@ -429,11 +444,7 @@ export default function AdminIntakesPage() {
         />
         <select
           value={universityFilter}
-          onChange={(e) => {
-            setUniversityFilter(e.target.value)
-            setCampusFilter('')
-            setCourseFilter('')
-          }}
+          onChange={(e) => setUniversityFilter(e.target.value)}
           className="w-full lg:w-64 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
         >
           <option value="">All Universities</option>
@@ -445,7 +456,7 @@ export default function AdminIntakesPage() {
         {filterCampusPicker.needsCampusStep && (
           <select
             value={campusFilter}
-            onChange={(e) => { setCampusFilter(e.target.value); setCourseFilter('') }}
+            onChange={(e) => setCampusFilter(e.target.value)}
             className="w-full lg:w-56 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
           >
             <option value="">Select campus…</option>
@@ -476,6 +487,7 @@ export default function AdminIntakesPage() {
           <option value="open">Open</option>
           <option value="closed">Closed</option>
         </select>
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
       </div>
 
       <p className="text-xs text-muted-foreground">Double-click the intake name, deadline, or fee to edit in place. Use "Edit Intake" in the Actions menu to change status or edit every field at once.</p>

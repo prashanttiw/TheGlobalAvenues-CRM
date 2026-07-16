@@ -7,6 +7,8 @@ import { PageWrapper } from '../../shared/components/layout/PageWrapper'
 import { DataTable, type ColumnDef } from '../../shared/components/ui/DataTable'
 import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { Button } from '../../shared/components/ui/Button'
+import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton'
 
 interface SecurityEvent {
   id: number
@@ -116,9 +118,21 @@ function formatUserAgent(userAgent: string | null): string {
 }
 
 export default function AdminSecurityPage() {
-  const [eventTypeFilter, setEventTypeFilter] = React.useState('')
-  const [severityFilter, setSeverityFilter] = React.useState<'' | Severity>('')
-  const [searchQuery, setSearchQuery] = React.useState('')
+  const { filters, setFilter, clearFilters, hasActiveFilters } = useUrlFilters({
+    eventType: '', severity: '', search: '',
+  })
+  const eventTypeFilter = filters.eventType
+  const severityFilter = filters.severity as '' | Severity
+  const setEventTypeFilter = (v: string) => setFilter('eventType', v)
+  const setSeverityFilter = (v: '' | Severity) => setFilter('severity', v)
+
+  const [searchQuery, setSearchQuery] = React.useState(filters.search)
+  useDebouncedFilterSync(searchQuery, (v) => setFilter('search', v))
+
+  const handleClearFilters = () => {
+    clearFilters()
+    setSearchQuery('')
+  }
 
   const eventsQuery = useQuery({
     queryKey: ['admin', 'security-events', eventTypeFilter],
@@ -269,11 +283,7 @@ export default function AdminSecurityPage() {
           className="w-full sm:w-80 px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
         />
 
-        {severityFilter && (
-          <Button variant="outline" size="sm" onClick={() => setSeverityFilter('')}>
-            Clear severity filter
-          </Button>
-        )}
+        {hasActiveFilters && <ClearFiltersButton className="" onClick={handleClearFilters} />}
       </div>
 
       {eventsQuery.isError ? (

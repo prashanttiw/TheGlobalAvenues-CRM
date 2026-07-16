@@ -124,31 +124,11 @@ export default function AgentDashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-          <h3 className="text-lg font-black text-gray-900 mb-2">Student Pipeline Overview</h3>
-          <p className="text-sm text-gray-500 mb-6">Distribution of students associated with your subtree chain.</p>
-          
-          <div className="space-y-4">
-            <div className="flex justify-between items-center pb-2 border-b border-gray-50">
-              <span className="text-sm text-gray-600">Registered</span>
-              <span className="font-bold text-gray-900">{students.new}</span>
-            </div>
-            <div className="flex justify-between items-center pb-2 border-b border-gray-50">
-              <span className="text-sm text-gray-600">In Progress</span>
-              <span className="font-bold text-gray-900">{students.in_progress}</span>
-            </div>
-            <div className="flex justify-between items-center pb-2">
-              <span className="text-sm text-gray-600">Enrolled (Admitted)</span>
-              <span className="font-bold text-emerald-600">{students.enrolled}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+      {(agent.tier === 1 || agent.tier === 2) && (
+        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm max-w-md">
           <h3 className="text-lg font-black text-gray-900 mb-2">My Agency Network</h3>
           <p className="text-sm text-gray-500 mb-6">Overview of sub-agents under your tree hierarchy.</p>
-          
+
           <div className="space-y-4">
             <div className="flex justify-between items-center pb-2 border-b border-gray-50">
               <span className="text-sm text-gray-600">Total Sub-Agents</span>
@@ -166,7 +146,7 @@ export default function AgentDashboard() {
             <ChevronRight className="ml-1.5 h-3.5 w-3.5" />
           </Button>
         </div>
-      </div>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         <Card>

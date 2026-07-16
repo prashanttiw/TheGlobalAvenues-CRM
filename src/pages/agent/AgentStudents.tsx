@@ -17,21 +17,32 @@ import {
 } from '../../shared/components/ui/PreviewDrawer';
 import { Globe, Calendar, Eye, ShieldAlert, ArrowLeft, ArrowRight, UserPlus } from 'lucide-react';
 import { toast } from 'sonner';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { fetchAgentStudents, fetchAgentTeam } from '../../lib/api';
+import { useUrlFilters } from '../../shared/hooks/useUrlFilters';
+import { ClearFiltersButton } from '../../shared/components/ui/ClearFiltersButton';
 
 export default function AgentStudents() {
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
-  const urlAgentPid = searchParams.get('agent_pid') || '';
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [agentFilter, setAgentFilter] = useState<string>(urlAgentPid);
+  const { filters, setFilters, clearFilters, hasActiveFilters } = useUrlFilters({
+    search: '', status: '', agent_pid: '', page: '1',
+  });
+  const searchTerm = filters.search;
+  const statusFilter = filters.status;
+  const agentFilter = filters.agent_pid;
+  const page = Number(filters.page) || 1;
+  const setSearchTerm = (v: string) => setFilters({ search: v, page: '1' });
+  const setStatusFilter = (v: string) => setFilters({ status: v, page: '1' });
+  const setAgentFilter = (v: string) => setFilters({ agent_pid: v, page: '1' });
+  const setPage = (updater: number | ((p: number) => number)) => {
+    const next = typeof updater === 'function' ? (updater as (p: number) => number)(page) : updater;
+    setFilters({ page: String(next) });
+  };
+
   const [team, setTeam] = useState<any[]>([]);
   const [students, setStudents] = useState<any[]>([]);
   const [meta, setMeta] = useState<any>(null);
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [selectedStudent, setSelectedStudent] = useState<any>(null);
 
@@ -148,16 +159,16 @@ export default function AgentStudents() {
       />
 
       <div className="flex flex-col md:flex-row gap-4 justify-between items-center bg-surface-card p-4 rounded-xl border border-border-warm">
-        <SearchInput 
-          value={searchTerm} 
-          onChange={(val) => { setSearchTerm(val); setPage(1); }} 
-          placeholder="Search students..." 
+        <SearchInput
+          value={searchTerm}
+          onChange={setSearchTerm}
+          placeholder="Search students..."
           className="w-full md:max-w-xs"
         />
-        <div className="flex flex-wrap gap-2 w-full md:w-auto">
-          <select 
+        <div className="flex flex-wrap gap-2 w-full md:w-auto items-center">
+          <select
             value={statusFilter}
-            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            onChange={(e) => setStatusFilter(e.target.value)}
             className="px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none"
           >
             <option value="">All Statuses</option>
@@ -166,9 +177,9 @@ export default function AgentStudents() {
             <option value="rejected">Rejected</option>
           </select>
 
-          <select 
+          <select
             value={agentFilter}
-            onChange={(e) => { setAgentFilter(e.target.value); setPage(1); }}
+            onChange={(e) => setAgentFilter(e.target.value)}
             className="px-3 py-2 bg-surface-warm border border-border-warm rounded-md text-sm text-brand-navy focus:outline-none max-w-[200px]"
           >
             <option value="">All Agents</option>
@@ -178,6 +189,7 @@ export default function AgentStudents() {
               </option>
             ))}
           </select>
+          {hasActiveFilters && <ClearFiltersButton className="" onClick={clearFilters} />}
         </div>
       </div>
 
