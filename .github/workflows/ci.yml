@@ -56,7 +56,12 @@ jobs:
 
       - name: Install composer dependencies
         working-directory: crm-api
-        run: composer install --no-progress --no-interaction
+        # openspout/openspout 4.0.0's own metadata declares support only for PHP ~8.0/~8.1 (a real,
+        # pre-existing gap against this project's actual PHP 8.2/8.3 environments) — the deploy process
+        # never runs `composer install` on the server itself (vendor/ ships pre-built in build-api.zip),
+        # so this never bites in production, but it does block a plain `composer install` here.
+        # --ignore-platform-reqs lets CI still verify the code itself on both real PHP versions.
+        run: composer install --no-progress --no-interaction --ignore-platform-reqs
 
       - name: PHP syntax lint (crm-api + cron)
         run: |
@@ -90,7 +95,7 @@ jobs:
 
       - name: Install composer dependencies
         working-directory: crm-api
-        run: composer install --no-progress --no-interaction
+        run: composer install --no-progress --no-interaction --ignore-platform-reqs
 
       - name: Wait for MySQL to be ready
         run: |
