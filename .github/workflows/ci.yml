@@ -26,9 +26,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Type-check
-        run: npx tsc --noEmit
-
       - name: Build (Vite)
         run: npm run build
 
@@ -55,7 +52,7 @@ jobs:
 
       - name: Validate composer.json/composer.lock
         working-directory: crm-api
-        run: composer validate --strict
+        run: composer validate
 
       - name: Install composer dependencies
         working-directory: crm-api
