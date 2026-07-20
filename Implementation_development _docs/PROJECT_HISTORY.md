@@ -1263,3 +1263,74 @@ retroactively fixed by this change — only affects rows created after the fix i
 old rows with this issue (harmless test data, not backfilled). Production likely has just the one test
 student's welcome notification shown in the screenshot — low-stakes enough to just ignore/delete rather
 than write a backfill script for one row.
+
+---
+
+## CI/CD — GitHub Actions Build Verification Pipeline (2026-07-20)
+
+**Trigger:** No automated check existed anywhere between "code compiles locally" and "it's live on
+Bluehost." Client asked for CI/CD that eases the workflow and gives visible proof of work, without risking
+production — deployment stays 100% manual per `DEPLOYMENT_MASTER_RUNBOOK.md` (no SSH on Bluehost, only
+cPanel File Manager), so automating the actual deploy was explicitly ruled out for now.
+
+### What was built
+New `.github/workflows/ci.yml`, triggered on push/PR to `main` plus manual `workflow_dispatch`. Five jobs:
+- `frontend-build` — `npm ci` + `npm run build` (Vite), uploads `dist/` as a workflow artifact
+- `backend-verify` — matrix over PHP 8.2 (local dev) and 8.3 (production), `composer validate` +
+  `composer install` + `php -l` syntax lint across every file in `crm-api/` and `cron/`
+- `mysql-5-7-schema-check` — spins up a real `mysql:5.7` service container and runs
+  `crm-api/Database/setup_database.php` (full schema 001–081 + real catalog seed) against it end to end.
+  Targets this project's single most repeated bug category (MySQL-8-only syntax slipping through because
+  local dev runs MariaDB — see the four 2026-07-16 entries above)
+- `package-api-archive` — replicates `scripts/build-api-archive.bat` / `scripts/exclude.txt` exactly,
+  uploads `build-api.zip` as a workflow artifact once lint + schema checks pass
+- README badge added showing live CI status
+
+### Two real bugs found while wiring this up (neither was a CI mistake)
+1. **`typescript` isn't a dependency of this project at all.** `npx tsc --noEmit` silently resolved to an
+   unrelated npm package (`tsc@2.0.4`, a joke package, not the compiler) instead of failing loudly. Forcing
+   the real compiler in (pinned, since unpinned `npx --package typescript` grabbed TypeScript 7.0.2 — a
+   bleeding-edge major version that rejects this project's `tsconfig.json` outright over a removed
+   `baseUrl` option) surfaced **90 pre-existing type errors** across `src/`. Vite's build never
+   type-checks (esbuild just strips types), which is why none of this has ever blocked anything. A strict
+   `tsc` gate was deliberately **not** added to CI — it would go permanently red for reasons unrelated to
+   any future change, and fixing 90 type errors is a separate, much larger piece of work than "set up
+   CI." CI verifies `npm run build` only, matching what the project actually relies on today.
+2. **`openspout/openspout` 4.0.0's own `composer.json` declares support only for PHP `~8.0.0 || ~8.1.0`** —
+   not 8.2 or 8.3, both of which are real environments here (local dev, production). A plain
+   `composer install` fails immediately on either. This is latent, not currently live, because the deploy
+   process never runs `composer install` on the Bluehost server — `vendor/` ships pre-built inside
+   `build-api.zip`. CI uses `--ignore-platform-reqs` to work around it without touching `composer.json`/
+   `composer.lock` (an application dependency decision, out of scope for this change). Worth a deliberate
+   decision later: bump openspout, or confirm/pin that the installed version genuinely works fine on 8.2/8.3
+   despite its own metadata.
+
+### Verification
+Built and iterated on a scratch branch (`ci/github-actions-setup`) via a throwaway PR specifically so
+the workflow could be proven green before ever touching `main` — not a shift to a PR-based habit going
+forward, just how a first-time CI file gets safely tested. All 5 jobs went green three times in a row
+(twice on the PR after the two fixes above, once more on `main` itself after merging, confirming the
+push-triggered path works independently of the PR-triggered path). Downloaded `build-api.zip` from a green
+run and diffed its contents against `scripts/exclude.txt` byte-for-byte — 250 files, no `.env`, `.git`,
+`tests/`, or `create_test_users.php` leaked in. `frontend-dist` artifact upload also succeeded (its own
+job step passed); local inspection was skipped after repeated sandbox network timeouts, since `npm run
+build` has no partial-success state — it either produces valid output or the job fails outright, and the
+job passed. PR #11 merged as a fast-forward, scratch branch deleted (local + remote).
+
+### Files touched
+- `.github/workflows/ci.yml` (new)
+- `README.md` (CI badge added)
+
+### Explicitly not done (by design, confirmed with client first)
+- No FTP/SSH auto-deploy to Bluehost — deployment stays fully manual per the runbook
+- No branch protection / required PRs — client keeps pushing directly to `main`; CI just reports
+  pass/fail after the fact
+- No new lint tooling (no ESLint config exists in this project; not introduced here)
+- `composer.json`/`composer.lock` not modified despite the openspout finding above
+
+### Noticed, not touched
+- `pnpm-lock.yaml` is stale (older than `package-lock.json`; nothing in the documented workflow uses pnpm)
+- Three `claude/*` branches in the repo all point to old commit `0b69852`, already superseded on `main` —
+  look abandoned
+- README's pre-existing MySQL badge still says "8.4" (already flagged as stale in `CLAUDE.md`; unrelated
+  to this change, only noticed while editing the adjacent badge row)
