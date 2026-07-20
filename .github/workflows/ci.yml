@@ -1,0 +1,166 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-build:
+    name: Frontend build (Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (Vite)
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist-${{ github.sha }}
+          path: dist/
+          retention-days: 30
+
+  backend-verify:
+    name: Backend verify (PHP ${{ matrix.php-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        php-version: ['8.2', '8.3']
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          tools: composer:v2
+
+      - name: Validate composer.json/composer.lock
+        working-directory: crm-api
+        run: composer validate
+
+      - name: Install composer dependencies
+        working-directory: crm-api
+        # openspout/openspout 4.0.0's own metadata declares support only for PHP ~8.0/~8.1 (a real,
+        # pre-existing gap against this project's actual PHP 8.2/8.3 environments) — the deploy process
+        # never runs `composer install` on the server itself (vendor/ ships pre-built in build-api.zip),
+        # so this never bites in production, but it does block a plain `composer install` here.
+        # --ignore-platform-reqs lets CI still verify the code itself on both real PHP versions.
+        run: composer install --no-progress --no-interaction --ignore-platform-reqs
+
+      - name: PHP syntax lint (crm-api + cron)
+        run: |
+          set -e
+          find crm-api cron -name "*.php" -print0 | xargs -0 -n1 -I{} php -l {}
+
+  mysql-5-7-schema-check:
+    name: MySQL 5.7 schema check
+    runs-on: ubuntu-latest
+    needs: backend-verify
+    services:
+      mysql:
+        image: mysql:5.7
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_password
+          MYSQL_DATABASE: tga_crm_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci_root_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+
+      - name: Install composer dependencies
+        working-directory: crm-api
+        run: composer install --no-progress --no-interaction --ignore-platform-reqs
+
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in $(seq 1 30); do
+            mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -pci_root_password --silent && break
+            echo "Waiting for MySQL... ($i)"
+            sleep 2
+          done
+
+      - name: Write throwaway CI .env
+        working-directory: crm-api
+        run: |
+          ENCRYPTION_KEY=$(php -r "echo base64_encode(random_bytes(32));")
+          cat > .env <<EOF
+          APP_ENV=development
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_NAME=tga_crm_ci
+          DB_USER=root
+          DB_PASS=ci_root_password
+          DB_CHARSET=utf8mb4
+          ENCRYPTION_KEY=${ENCRYPTION_KEY}
+          SUPER_ADMIN_EMAIL=ci-admin@example.com
+          SUPER_ADMIN_PHONE=+910000000000
+          SUPER_ADMIN_PASSWORD=CiThrowaway@12345
+          SUPER_ADMIN_NAME=CI Super Admin
+          EOF
+
+      - name: Run full schema + seed against MySQL 5.7
+        working-directory: crm-api
+        run: php Database/setup_database.php
+
+  package-api-archive:
+    name: Package API archive
+    runs-on: ubuntu-latest
+    needs: [backend-verify, mysql-5-7-schema-check]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage crm-api + cron (mirrors scripts/exclude.txt)
+        run: |
+          set -e
+          mkdir -p dist-api/crm-api dist-api/cron
+          rsync -a \
+            --exclude '.env' \
+            --exclude '.env.example' \
+            --exclude '.env.production' \
+            --exclude 'php_errors.log' \
+            --exclude '.git/' \
+            --exclude '.idea/' \
+            --exclude '.vscode/' \
+            --exclude 'tests/' \
+            --exclude 'create_test_users.php' \
+            crm-api/ dist-api/crm-api/
+          rsync -a cron/ dist-api/cron/
+
+      - name: Zip archive
+        run: |
+          cd dist-api
+          zip -r ../build-api.zip crm-api cron > /dev/null
+          cd ..
+
+      - name: Upload API archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-api-${{ github.sha }}
+          path: build-api.zip
+          retention-days: 30
