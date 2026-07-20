@@ -4,6 +4,7 @@
 > education consultancy in New Delhi, India. Manages the full student lifecycle — lead capture →
 > registration → application → enrollment — plus agent partner management and commission tracking.
 
+[![CI](https://github.com/prashanttiw/TheGlobalAvenues-CRM/actions/workflows/ci.yml/badge.svg)](https://github.com/prashanttiw/TheGlobalAvenues-CRM/actions/workflows/ci.yml)
 [![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react&logoColor=white)](https://react.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org)
 [![Vite](https://img.shields.io/badge/Vite-6.x-646CFF?logo=vite&logoColor=white)](https://vitejs.dev)
