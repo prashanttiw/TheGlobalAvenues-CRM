@@ -84,6 +84,7 @@ final class AdminRoutes
         RouteRegistry::post('admin', 'agents/:publicId/reject', [$agentController, 'reject']);
         RouteRegistry::post('admin', 'agents/:publicId/suspend', [$agentController, 'suspend']);
         RouteRegistry::get('admin', 'agents', [$agentController, 'listAll']);
+        RouteRegistry::post('admin', 'agents', [$agentController, 'create']);
         RouteRegistry::get('admin', 'agents/:pid/tree', [$agentController, 'getTree']);
         RouteRegistry::get('admin', 'agents/:pid/detail', [$agentController, 'getDetail']);
         RouteRegistry::get('admin', 'students', [$studentController, 'listAll']);

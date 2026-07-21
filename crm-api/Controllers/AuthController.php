@@ -1109,7 +1109,7 @@ final class AuthController
         try {
             $this->pdo->beginTransaction();
 
-            $updateStmt = $this->pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?');
+            $updateStmt = $this->pdo->prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?');
             $updateStmt->execute([$hash, $userId]);
 
             // Revoke all OTHER sessions (keep current session active)
@@ -1220,6 +1220,7 @@ final class AuthController
             'user_type' => $userType,
             'utype' => $userType,
             'status' => (string) ($user['status'] ?? 'active'),
+            'must_change_password' => (bool) ($user['must_change_password'] ?? false),
             'emailVerified' => !empty($user['email']),
             'phoneVerified' => !empty($user['phone']),
             'firstName' => $firstName,

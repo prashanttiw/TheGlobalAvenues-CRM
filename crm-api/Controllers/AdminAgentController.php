@@ -10,10 +10,13 @@ use RuntimeException;
 use TGA\CRM\Config\Database;
 use TGA\CRM\Helpers\Paginator;
 use TGA\CRM\Helpers\Response;
+use TGA\CRM\Helpers\UlidGenerator;
 use TGA\CRM\Middleware\AuthMiddleware;
 use TGA\CRM\Middleware\RBACMiddleware;
 use TGA\CRM\Services\ActivityLogger;
+use TGA\CRM\Services\EncryptionService;
 use TGA\CRM\Services\NotificationService;
+use TGA\CRM\Services\PasswordValidator;
 use TGA\CRM\Services\SecurityEventLogger;
 
 final class AdminAgentController
@@ -130,10 +133,12 @@ final class AdminAgentController
                     a.agency_name, a.country, a.address_line, a.city, a.state,
                     a.mobile_number, a.alternate_mobile_number, a.rejected_reason,
                     a.created_at, a.application_submitted_at, u.email AS encrypted_email,
-                    pa.full_name AS parent_agent_name, pa.public_id AS parent_agent_public_id
+                    pa.full_name AS parent_agent_name, pa.public_id AS parent_agent_public_id,
+                    ca.full_name AS created_by_admin_name
              FROM agents a
              JOIN users u ON u.id = a.user_id
              LEFT JOIN agents pa ON pa.id = a.parent_agent_id
+             LEFT JOIN admins ca ON ca.id = a.created_by_admin_id
              WHERE a.public_id = ? AND a.deleted_at IS NULL"
         );
         $stmt->execute([$publicId]);
@@ -199,6 +204,193 @@ final class AdminAgentController
         unset($agent);
     }
 
+    /**
+     * Admin creates a fully-approved agent account directly — no self-registration,
+     * documents, or review step. Used for offline/already-agreed partnerships.
+     */
+    public function create(): void
+    {
+        RBACMiddleware::requirePermission('agents', 'create');
+        $user = AuthMiddleware::user();
+
+        $adminStmt = $this->pdo->prepare("SELECT id FROM admins WHERE user_id = ? LIMIT 1");
+        $adminStmt->execute([(int) $user['sub']]);
+        $adminId = $adminStmt->fetchColumn();
+        if (!$adminId) {
+            Response::error('Only admin accounts can create agents', 'FORBIDDEN', 403);
+        }
+
+        $input = json_decode(file_get_contents('php://input'), true) ?? [];
+
+        $firstName   = trim((string) ($input['first_name'] ?? ''));
+        $lastName    = trim((string) ($input['last_name'] ?? ''));
+        $agencyName  = trim((string) ($input['agency_name'] ?? ''));
+        $email       = trim((string) ($input['email'] ?? ''));
+        $mobile      = trim((string) ($input['mobile_number'] ?? ''));
+        $country     = trim((string) ($input['country'] ?? ''));
+        $addressLine = trim((string) ($input['address_line'] ?? ''));
+        $city        = trim((string) ($input['city'] ?? ''));
+        $state       = trim((string) ($input['state'] ?? ''));
+
+        // Optional
+        $businessRegNumber = trim((string) ($input['business_reg_number'] ?? ''));
+        $altMobile          = trim((string) ($input['alternate_mobile_number'] ?? ''));
+        $partnershipScope   = trim((string) ($input['partnership_scope'] ?? ''));
+
+        $missing = [];
+        foreach ([
+            'first_name' => $firstName, 'last_name' => $lastName, 'agency_name' => $agencyName,
+            'email' => $email, 'mobile_number' => $mobile, 'country' => $country,
+            'address_line' => $addressLine, 'city' => $city, 'state' => $state,
+        ] as $field => $value) {
+            if ($value === '') {
+                $missing[] = $field;
+            }
+        }
+        if (!empty($missing)) {
+            Response::error('Missing required fields: ' . implode(', ', $missing), 'VALIDATION_ERROR', 400);
+        }
+
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            Response::error('Invalid email format', 'VALIDATION_ERROR', 400);
+        }
+
+        $emailHash = EncryptionService::hash(strtolower($email));
+        $checkStmt = $this->pdo->prepare("SELECT COUNT(*) FROM users WHERE email_lookup_hash = ? AND user_type = 'agent' AND deleted_at IS NULL");
+        $checkStmt->execute([$emailHash]);
+        if ((int) $checkStmt->fetchColumn() > 0) {
+            Response::error('This email is already registered as an agent.', 'EMAIL_ALREADY_REGISTERED', 409);
+        }
+
+        $tempPassword = self::generateTempPassword();
+        $fullName = trim($firstName . ' ' . $lastName);
+
+        try {
+            $this->pdo->beginTransaction();
+
+            $userPublicId  = UlidGenerator::generate();
+            $agentPublicId = UlidGenerator::generate();
+
+            $encryptedEmail  = EncryptionService::encrypt(strtolower($email));
+            $encryptedMobile = EncryptionService::encrypt($mobile);
+            $encryptedAlt    = $altMobile !== '' ? EncryptionService::encrypt($altMobile) : null;
+
+            $userStmt = $this->pdo->prepare(
+                "INSERT INTO users (public_id, email, email_lookup_hash, password_hash, user_type, status, must_change_password)
+                 VALUES (?, ?, ?, ?, 'agent', 'active', 1)"
+            );
+            $userStmt->execute([
+                $userPublicId,
+                $encryptedEmail,
+                $emailHash,
+                password_hash($tempPassword, PASSWORD_ARGON2ID, [
+                    'memory_cost' => (int) \TGA\CRM\Config\Environment::get('ARGON2_MEMORY_COST', '19456'),
+                    'time_cost'   => (int) \TGA\CRM\Config\Environment::get('ARGON2_TIME_COST', '2'),
+                    'threads'     => 1,
+                ]),
+            ]);
+            $userId = (int) $this->pdo->lastInsertId();
+
+            $referralCode = $this->generateReferralCode();
+
+            $agentStmt = $this->pdo->prepare(
+                "INSERT INTO agents (public_id, user_id, tier, full_name, first_name, last_name, agency_name, country,
+                                      address_line, city, state, mobile_number, alternate_mobile_number,
+                                      business_reg_number, partnership_scope, referral_code, status,
+                                      approved_by, approved_at, created_by_admin_id)
+                 VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, NOW(), ?)"
+            );
+            $agentStmt->execute([
+                $agentPublicId, $userId, $fullName, $firstName, $lastName, $agencyName, $country,
+                $addressLine, $city, $state, $encryptedMobile, $encryptedAlt,
+                $businessRegNumber ?: null, $partnershipScope ?: null, $referralCode,
+                (int) $user['sub'], $adminId,
+            ]);
+            $agentId = (int) $this->pdo->lastInsertId();
+
+            $this->pdo->prepare("UPDATE agents SET root_agent_id = ? WHERE id = ?")->execute([$agentId, $agentId]);
+            $this->pdo->prepare("INSERT INTO user_preferences (user_id, preferences) VALUES (?, '{}')")->execute([$userId]);
+
+            $this->pdo->commit();
+
+            ActivityLogger::log(
+                'agent.created_by_admin',
+                'agent',
+                $agentId,
+                (int) $user['sub'],
+                [],
+                ['full_name' => $fullName, 'agency_name' => $agencyName, 'referral_code' => $referralCode]
+            );
+
+            NotificationService::fire('agent.created_by_admin', [
+                'full_name'     => $fullName,
+                'email'         => $email,
+                'temp_password' => $tempPassword,
+                'referral_code' => $referralCode,
+            ], [$userId]);
+
+            Response::json([
+                'success' => true,
+                'message' => 'Agent created successfully. A welcome email with login details has been sent.',
+                'agent' => [
+                    'id' => $agentPublicId,
+                    'referral_code' => $referralCode,
+                ],
+            ], 201);
+        } catch (\Exception $e) {
+            if ($this->pdo->inTransaction()) {
+                $this->pdo->rollBack();
+            }
+            throw $e;
+        }
+    }
+
+    /**
+     * 12-char temp password guaranteed to satisfy PasswordValidator's rules (upper, digit,
+     * symbol, 8+ chars) without needing a validate-and-retry loop.
+     */
+    private static function generateTempPassword(): string
+    {
+        $upper   = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+        $lower   = 'abcdefghijkmnpqrstuvwxyz';
+        $digits  = '23456789';
+        $symbols = '!@#$%&*';
+        $all     = $upper . $lower . $digits . $symbols;
+
+        $password = $upper[random_int(0, strlen($upper) - 1)]
+            . $digits[random_int(0, strlen($digits) - 1)]
+            . $symbols[random_int(0, strlen($symbols) - 1)];
+
+        for ($i = 0; $i < 9; $i++) {
+            $password .= $all[random_int(0, strlen($all) - 1)];
+        }
+
+        return str_shuffle($password);
+    }
+
+    private function generateReferralCode(): string
+    {
+        $iterations = 0;
+        $maxIterations = 10;
+        $code = '';
+
+        do {
+            if ($iterations >= $maxIterations) {
+                throw new RuntimeException('Failed to generate unique referral code after 10 attempts');
+            }
+            $iterations++;
+
+            $code = 'TGA-' . strtoupper(substr(str_shuffle('ABCDEFGHJKMNPQRSTVWXYZ'), 0, 3))
+                           . str_pad((string) random_int(0, 999), 3, '0', STR_PAD_LEFT);
+
+            $checkStmt = $this->pdo->prepare("SELECT COUNT(*) FROM agents WHERE referral_code = ?");
+            $checkStmt->execute([$code]);
+            $exists = (int) $checkStmt->fetchColumn() > 0;
+        } while ($exists);
+
+        return $code;
+    }
+
     public function approve(string $publicId): void
     {
         RBACMiddleware::requirePermission('agents', 'approve');
@@ -221,23 +413,7 @@ final class AdminAgentController
                 Response::error('Agent is already approved', 'INVALID_STATE', 400);
             }
 
-            $iterations = 0;
-            $maxIterations = 10;
-            $code = '';
-
-            do {
-                if ($iterations >= $maxIterations) {
-                    throw new RuntimeException('Failed to generate unique referral code after 10 attempts');
-                }
-                $iterations++;
-                
-                $code = 'TGA-' . strtoupper(substr(str_shuffle('ABCDEFGHJKMNPQRSTVWXYZ'), 0, 3))
-                               . str_pad((string)random_int(0, 999), 3, '0', STR_PAD_LEFT);
-                
-                $checkStmt = $this->pdo->prepare("SELECT COUNT(*) FROM agents WHERE referral_code = ?");
-                $checkStmt->execute([$code]);
-                $exists = (int)$checkStmt->fetchColumn() > 0;
-            } while ($exists);
+            $code = $this->generateReferralCode();
 
             $updateAgent = $this->pdo->prepare(
                 "UPDATE agents SET status = 'approved', referral_code = ?, approved_by = ?, approved_at = NOW() WHERE id = ?"
@@ -473,11 +649,13 @@ final class AdminAgentController
                     a.created_at, u.email AS encrypted_email,
                     u.avatar_type, u.avatar_value,
                     ap.public_id AS parent_public_id, ap.full_name AS parent_full_name,
-                    ar.public_id AS root_public_id
+                    ar.public_id AS root_public_id,
+                    ca.full_name AS created_by_admin_name
              FROM agents a
              JOIN users u ON u.id = a.user_id
              LEFT JOIN agents ap ON ap.id = a.parent_agent_id
              LEFT JOIN agents ar ON ar.id = a.root_agent_id
+             LEFT JOIN admins ca ON ca.id = a.created_by_admin_id
              WHERE {$where}
              ORDER BY a.created_at DESC
              LIMIT :limit OFFSET :offset"
