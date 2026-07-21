@@ -411,6 +411,16 @@ try {
     $pdo->exec(file_get_contents($migration086File));
     echo "Migration 086 applied.\n\n";
 
+    // 7i. Migration 087: admin-created agent accounts — agents.created_by_admin_id,
+    // users.must_change_password, and the agent.created_by_admin welcome email template.
+    $migration087File = __DIR__ . '/migrations/087_agent_admin_created.sql';
+    if (!is_file($migration087File)) {
+        throw new \RuntimeException("087_agent_admin_created.sql not found at {$migration087File}");
+    }
+    echo "Applying migration 087...\n";
+    $pdo->exec(file_get_contents($migration087File));
+    echo "Migration 087 applied.\n\n";
+
     // 8. Helper to create a user record with encryption and lookup hashes
     $createUser = function (string $email, string $phone, string $password, string $userType, string $status = 'active') use ($pdo): array {
         $publicId = UlidGenerator::generate();
