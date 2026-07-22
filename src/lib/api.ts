@@ -206,6 +206,7 @@ export type AuthUser = {
   user_type?: string;
   utype?: string;
   status: string;
+  must_change_password?: boolean;
   emailVerified: boolean;
   phoneVerified: boolean;
   firstName: string;
@@ -1383,6 +1384,27 @@ export async function suspendAdminAgent(publicId: string, reason: string): Promi
   });
 }
 
+export async function createAdminAgent(payload: {
+  first_name: string;
+  last_name: string;
+  agency_name: string;
+  email: string;
+  mobile_number: string;
+  country: string;
+  address_line: string;
+  city: string;
+  state: string;
+  business_reg_number?: string;
+  alternate_mobile_number?: string;
+  partnership_scope?: string;
+}): Promise<{ id: string; referral_code: string }> {
+  const response = await request<{ agent: { id: string; referral_code: string } }>(
+    '/?route=admin&action=agents',
+    { method: 'POST', body: JSON.stringify(payload) }
+  );
+  return response.data.agent;
+}
+
 export async function fetchAdminAgentsRegistered(): Promise<{ agents: any[] }> {
   const response = await request<{ agents: any[] }>('/?route=admin&action=agents/registered');
   return { agents: response.data.agents ?? [] };
@@ -1949,6 +1971,7 @@ export type AdminAgentDetail = {
   application_submitted_at: string | null;
   parent_agent_name: string | null;
   parent_agent_public_id: string | null;
+  created_by_admin_name: string | null;
   email: string | null;
   documents: Partial<Record<AgentOnboardingDocType, AgentOnboardingDoc>>;
 };

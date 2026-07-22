@@ -27,6 +27,7 @@ export interface User {
   isSuperAdmin?: boolean
   status?: string
   agentStatus?: string
+  mustChangePassword?: boolean
 }
 
 interface AuthState {
@@ -41,6 +42,7 @@ interface AuthState {
   clearSession: (sessionExpired?: boolean) => void
   logout: () => Promise<void>
   updateAgentStatus: (status: string) => void
+  updateMustChangePassword: (value: boolean) => void
   updateAvatar: (thumbUrl: string | null) => void
   acknowledgeSessionExpired: () => void
 }
@@ -77,6 +79,7 @@ function mapAuthUser(apiUser: AuthUser): User {
     isSuperAdmin,
     status: apiUser.status,
     agentStatus: apiUser.account_status,
+    mustChangePassword: apiUser.must_change_password === true,
     tier: typeof apiUser.tier === 'number' ? apiUser.tier : undefined,
     referralCode: apiUser.referral_code ?? undefined,
   }
@@ -253,6 +256,14 @@ export const useAuth = create<AuthState>((set, get) => ({
     const current = get().user
     if (!current) return
     set({ user: { ...current, agentStatus: status } })
+  },
+
+  // Lets AgentProfilePage release RoleGuard's forced-password-change redirect the instant
+  // the change succeeds, without waiting for the next full session restore.
+  updateMustChangePassword: (value) => {
+    const current = get().user
+    if (!current) return
+    set({ user: { ...current, mustChangePassword: value } })
   },
 
   // Lets the profile page push a fresh avatar into the topbar/sidebar the instant it
