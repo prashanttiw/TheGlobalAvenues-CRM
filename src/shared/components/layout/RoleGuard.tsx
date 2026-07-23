@@ -27,6 +27,14 @@ export function RoleGuard({ allowedRoles, children }: RoleGuardProps) {
     const path = location.pathname
     const isOnboardingPath = path === '/portal/agent/onboarding' || path === '/portal/agent/info'
 
+    // Admin-created agents start with a temp password and must set their own before
+    // touching the rest of the portal. AgentProfilePage clears this via
+    // updateMustChangePassword() the instant the change succeeds, so this redirect
+    // releases immediately without needing a re-login.
+    if (user.mustChangePassword && path !== '/portal/agent/profile') {
+      return <Navigate to="/portal/agent/profile" replace />
+    }
+
     switch (user.agentStatus) {
       case 'registered':
       case 'draft':

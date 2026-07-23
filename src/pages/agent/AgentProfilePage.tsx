@@ -6,7 +6,7 @@ import { Button } from '../../shared/components/ui/Button'
 import { AvatarPicker } from '../../shared/components/ui/AvatarPicker'
 import { useAuth } from '../../shared/hooks/useAuth'
 import { toast } from 'sonner'
-import { User, Shield, Key, Eye, EyeOff, Copy } from 'lucide-react'
+import { User, Shield, Key, Eye, EyeOff, Copy, AlertTriangle } from 'lucide-react'
 import {
   changePassword,
   fetchAgentProfile,
@@ -87,6 +87,7 @@ function PasswordField({
 }
 
 export default function AgentProfilePage() {
+  const mustChangePassword = useAuth((s) => s.user?.mustChangePassword ?? false)
   const [profile, setProfile] = React.useState<AgentProfileResponse | null>(null)
   const [formData, setFormData] = React.useState<ProfileFormState>({ agency_name: '', country: '' })
   const [passwordData, setPasswordData] = React.useState<PasswordFormState>({
@@ -121,6 +122,12 @@ export default function AgentProfilePage() {
   React.useEffect(() => {
     void loadProfile()
   }, [loadProfile])
+
+  React.useEffect(() => {
+    if (mustChangePassword) {
+      setIsPasswordOpen(true)
+    }
+  }, [mustChangePassword])
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target
@@ -180,8 +187,13 @@ export default function AgentProfilePage() {
       setSavingPassword(true)
       await changePassword(passwordData)
       resetPasswordForm()
-      setIsPasswordOpen(false)
-      toast.success('Password changed successfully.')
+      if (mustChangePassword) {
+        useAuth.getState().updateMustChangePassword(false)
+        toast.success('Password updated. Welcome to your agent portal!')
+      } else {
+        setIsPasswordOpen(false)
+        toast.success('Password changed successfully.')
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to change password.')
     } finally {
@@ -222,6 +234,19 @@ export default function AgentProfilePage() {
 
   return (
     <PageWrapper className="space-y-6">
+      {mustChangePassword && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-800">
+          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold">Set a new password to continue</p>
+            <p className="mt-0.5 text-xs leading-relaxed">
+              Your account was created by an administrator with a temporary password. For your
+              security, please set a new password below before continuing to the rest of the portal.
+            </p>
+          </div>
+        </div>
+      )}
+
       <PageHeader
         title={profile.full_name ? `Agency Profile - ${profile.full_name}` : 'Agency Profile'}
         subtitle="Manage your agency details, referral code, and account security."
@@ -386,12 +411,14 @@ export default function AgentProfilePage() {
                   onToggle={() => setShowPassword((prev) => ({ ...prev, confirm_password: !prev.confirm_password }))}
                 />
                 <div className="flex gap-2">
-                  <Button variant="secondary" className="flex-1" onClick={() => {
-                    setIsPasswordOpen(false)
-                    resetPasswordForm()
-                  }} disabled={savingPassword}>
-                    Cancel
-                  </Button>
+                  {!mustChangePassword && (
+                    <Button variant="secondary" className="flex-1" onClick={() => {
+                      setIsPasswordOpen(false)
+                      resetPasswordForm()
+                    }} disabled={savingPassword}>
+                      Cancel
+                    </Button>
+                  )}
                   <Button variant="primary" className="flex-1" onClick={handlePasswordSubmit} isLoading={savingPassword}>
                     Update Password
                   </Button>

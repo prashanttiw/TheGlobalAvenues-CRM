@@ -6,11 +6,14 @@ import {
   Check,
   GitFork,
   Inbox,
+  Plus,
+  ShieldCheck,
   Users,
   X,
 } from 'lucide-react'
 import {
   approveAdminAgent,
+  createAdminAgent,
   fetchAdminAgentDetail,
   fetchAdminAgents,
   fetchAdminAgentsDrafts,
@@ -32,6 +35,14 @@ import { EmptyState } from '../../shared/components/ui/EmptyState'
 import { InlineActions } from '../../shared/components/ui/InlineActions'
 import { SearchInput } from '../../shared/components/ui/SearchInput'
 import { Dialog, DialogContent, DialogTitle } from '../../shared/components/ui/Dialog'
+import {
+  SlideOver,
+  SlideOverContent,
+  SlideOverHeader,
+  SlideOverBody,
+  SlideOverFooter,
+  SlideOverTitle,
+} from '../../shared/components/ui/SlideOverPanel'
 import { UserAvatar } from '../../shared/components/ui/Avatar'
 import { AgentTreeNode, type AgentNode } from '../../components/agent/AgentTreeNode'
 import { useUrlFilters, useDebouncedFilterSync } from '../../shared/hooks/useUrlFilters'
@@ -65,6 +76,164 @@ const DOC_LABELS: Record<string, string> = {
   cv_resume: 'CV / Resume',
 }
 
+// ─── Create Agent Panel (admin-created agent, skips documents/review) ─────────
+
+const defaultCreateAgentForm = {
+  firstName: '',
+  lastName: '',
+  agencyName: '',
+  email: '',
+  mobileNumber: '',
+  country: '',
+  addressLine: '',
+  city: '',
+  state: '',
+  businessRegNumber: '',
+  alternateMobileNumber: '',
+  partnershipScope: '',
+}
+
+function CreateAgentPanel({
+  open,
+  onOpenChange,
+  onSuccess,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onSuccess: () => void
+}) {
+  const [form, setForm] = React.useState(defaultCreateAgentForm)
+  const set = (patch: Partial<typeof defaultCreateAgentForm>) => setForm((prev) => ({ ...prev, ...patch }))
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      createAdminAgent({
+        first_name: form.firstName.trim(),
+        last_name: form.lastName.trim(),
+        agency_name: form.agencyName.trim(),
+        email: form.email.trim(),
+        mobile_number: form.mobileNumber.trim(),
+        country: form.country.trim(),
+        address_line: form.addressLine.trim(),
+        city: form.city.trim(),
+        state: form.state.trim(),
+        business_reg_number: form.businessRegNumber.trim() || undefined,
+        alternate_mobile_number: form.alternateMobileNumber.trim() || undefined,
+        partnership_scope: form.partnershipScope.trim() || undefined,
+      }),
+    onSuccess: (result) => {
+      toast.success(`Agent created — referral code ${result.referral_code}. Welcome email sent.`)
+      setForm(defaultCreateAgentForm)
+      onOpenChange(false)
+      onSuccess()
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create agent.'),
+  })
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    mutation.mutate()
+  }
+
+  const inputCls =
+    'w-full rounded-lg border border-border-warm bg-surface-warm px-3.5 py-2.5 text-sm text-brand-navy placeholder:text-muted-foreground focus:border-brand-orange-accessible focus:outline-none focus:ring-1 focus:ring-brand-orange-accessible/30 transition'
+  const labelCls = 'mb-1 block text-xs font-semibold text-brand-navy'
+  const required = <span className="text-red-500">*</span>
+
+  return (
+    <SlideOver open={open} onOpenChange={onOpenChange}>
+      <SlideOverContent>
+        <SlideOverHeader>
+          <SlideOverTitle>Add Agent</SlideOverTitle>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Creates a fully-approved partner account immediately — no documents or review needed.
+            A welcome email with a temporary password will be sent.
+          </p>
+        </SlideOverHeader>
+
+        <SlideOverBody>
+          <form id="create-agent-form" onSubmit={handleSubmit} className="space-y-5">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>First Name {required}</label>
+                <input className={inputCls} value={form.firstName} onChange={(e) => set({ firstName: e.target.value })} required />
+              </div>
+              <div>
+                <label className={labelCls}>Last Name {required}</label>
+                <input className={inputCls} value={form.lastName} onChange={(e) => set({ lastName: e.target.value })} required />
+              </div>
+            </div>
+
+            <div>
+              <label className={labelCls}>Agency Name {required}</label>
+              <input className={inputCls} value={form.agencyName} onChange={(e) => set({ agencyName: e.target.value })} required />
+            </div>
+
+            <div>
+              <label className={labelCls}>Email Address {required}</label>
+              <input type="email" className={inputCls} value={form.email} onChange={(e) => set({ email: e.target.value })} required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Mobile Number {required}</label>
+                <input type="tel" className={inputCls} value={form.mobileNumber} onChange={(e) => set({ mobileNumber: e.target.value })} required />
+              </div>
+              <div>
+                <label className={labelCls}>Alternate Mobile <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <input type="tel" className={inputCls} value={form.alternateMobileNumber} onChange={(e) => set({ alternateMobileNumber: e.target.value })} />
+              </div>
+            </div>
+
+            <div>
+              <label className={labelCls}>Country {required}</label>
+              <input className={inputCls} value={form.country} onChange={(e) => set({ country: e.target.value })} required />
+            </div>
+
+            <div>
+              <label className={labelCls}>Address {required}</label>
+              <input className={inputCls} value={form.addressLine} onChange={(e) => set({ addressLine: e.target.value })} required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>City {required}</label>
+                <input className={inputCls} value={form.city} onChange={(e) => set({ city: e.target.value })} required />
+              </div>
+              <div>
+                <label className={labelCls}>State {required}</label>
+                <input className={inputCls} value={form.state} onChange={(e) => set({ state: e.target.value })} required />
+              </div>
+            </div>
+
+            <div className="border-t border-border-warm pt-4 space-y-4">
+              <div>
+                <label className={labelCls}>Business Registration Number <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <input className={inputCls} value={form.businessRegNumber} onChange={(e) => set({ businessRegNumber: e.target.value })} />
+              </div>
+              <div>
+                <label className={labelCls}>Partnership Scope <span className="text-muted-foreground font-normal">(optional)</span></label>
+                <textarea
+                  className={inputCls + ' min-h-[70px] resize-none'}
+                  value={form.partnershipScope}
+                  onChange={(e) => set({ partnershipScope: e.target.value })}
+                />
+              </div>
+            </div>
+          </form>
+        </SlideOverBody>
+
+        <SlideOverFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button variant="primary" type="submit" form="create-agent-form" disabled={mutation.isPending}>
+            {mutation.isPending ? 'Creating…' : 'Create Agent'}
+          </Button>
+        </SlideOverFooter>
+      </SlideOverContent>
+    </SlideOver>
+  )
+}
+
 export default function AdminAgentsPage() {
   const queryClient = useQueryClient()
   const { filters, setFilter, setFilters } = useUrlFilters({
@@ -92,9 +261,11 @@ export default function AdminAgentsPage() {
   const [reviewPid, setReviewPid] = React.useState<string | null>(null)
   const [rejectReason, setRejectReason] = React.useState('')
   const [hierarchyRootPid, setHierarchyRootPid] = React.useState<string>('')
+  const [createOpen, setCreateOpen] = React.useState(false)
 
   const canApprove = usePermission('agents', 'approve')
   const canSuspend = usePermission('agents', 'delete')
+  const canCreate = usePermission('agents', 'create')
 
   const invalidateAll = () =>
     queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'admin-agents' })
@@ -263,6 +434,12 @@ export default function AdminAgentsPage() {
           <div>
             <p className="font-semibold text-brand-navy">{row.agency_name || row.full_name}</p>
             <p className="text-xs text-muted-foreground">ID: {row.public_id} | {row.email || 'Email unavailable'}</p>
+            {row.created_by_admin_name && (
+              <p className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                <ShieldCheck className="h-3 w-3" />
+                Added by {row.created_by_admin_name}
+              </p>
+            )}
           </div>
         </div>
       ),
@@ -316,7 +493,18 @@ export default function AdminAgentsPage() {
 
   return (
     <PageWrapper className="space-y-6">
-      <PageHeader title="Agents" subtitle="Registration, onboarding, approvals, and hierarchy — all in one place." />
+      <PageHeader
+        title="Agents"
+        subtitle="Registration, onboarding, approvals, and hierarchy — all in one place."
+        actions={
+          canCreate ? (
+            <Button variant="primary" onClick={() => setCreateOpen(true)}>
+              <Plus className="mr-1.5 h-4 w-4" />
+              Add Agent
+            </Button>
+          ) : undefined
+        }
+      />
 
       <div className="flex gap-1 bg-surface-card border border-border-warm rounded-xl p-1 overflow-x-auto">
         {SECTIONS.map((s) => (
@@ -449,6 +637,8 @@ export default function AdminAgentsPage() {
         </div>
       )}
 
+      <CreateAgentPanel open={createOpen} onOpenChange={setCreateOpen} onSuccess={invalidateAll} />
+
       {/* Review modal */}
       <Dialog open={!!reviewPid} onOpenChange={(open) => { if (!open) { setReviewPid(null); setRejectReason('') } }}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
@@ -515,6 +705,12 @@ function AgentReviewBody({
         </div>
         {agent.parent_agent_name && (
           <p className="text-xs text-muted-foreground mt-1">Sub-agent under {agent.parent_agent_name}</p>
+        )}
+        {agent.created_by_admin_name && (
+          <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Added by admin: {agent.created_by_admin_name}
+          </p>
         )}
       </div>
 
