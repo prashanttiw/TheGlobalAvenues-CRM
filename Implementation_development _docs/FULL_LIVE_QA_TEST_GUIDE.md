@@ -38,6 +38,12 @@ For every feature listed in Section 4 below:
 ### Cross-cutting (Section 4 of the doc)
 - [ ] Student self-registration (email → OTP → password → auto-login)
 - [ ] Agent self-registration → separate login → onboarding form → admin approval
+- [ ] Admin creating an agent directly (Agents page → "Add Agent") — confirm the account lands
+      already `approved` with no document/review queue entry, the welcome email contains a temp
+      password with no clickable links, first login forces a password change before any other
+      page is reachable (including via direct URL, not just the post-login redirect), the guard
+      releases immediately after a successful change with no re-login needed, and the "Added by
+      Admin" marker shows on that agent's row and detail view but not on self-registered agents
 - [ ] Admin creating a new admin account (super admin only)
 - [ ] Agent creating a brand-new student (no OTP, no shared password)
 - [ ] Password login, OTP/passwordless login, admin 2FA, forgot-password flow (confirm it signs out other sessions)
@@ -51,7 +57,7 @@ For every feature listed in Section 4 below:
 - [ ] Settings: change one real setting, confirm the described behavior actually changes; confirm the "recent configuration changes" feed logs it
 
 ### Admin Portal (Section 5) — 18 items
-Dashboard · Universities (incl. multi-campus siblings) · Courses (incl. fee-applies-to-intakes) · Intakes (incl. clone, closed-never-reopens) · Students directory+detail+custom fields · Reassignment requests · Agents (approve/reject/suspend/hierarchy tree) · Applications (status/documents/payments/timeline) · Commissions *(confirm still shows "not yet available")* · Leads *(confirm still shows "not yet available")* · Notices · Reports & Exports *(confirm still shows "not yet available")* · Users & page-access grants · Settings · Activity Log & Super Activity Log · Security Events (incl. name-redaction based on viewer's own permissions) · Global Search · Admin Profile & Avatar
+Dashboard · Universities (incl. multi-campus siblings) · Courses (incl. fee-applies-to-intakes) · Intakes (incl. clone, closed-never-reopens) · Students directory+detail+custom fields · Reassignment requests · Agents (approve/reject/suspend/hierarchy tree/direct admin creation) · Applications (status/documents/payments/timeline) · Commissions *(confirm still shows "not yet available")* · Leads *(confirm still shows "not yet available")* · Notices · Reports & Exports *(confirm still shows "not yet available")* · Users & page-access grants · Settings · Activity Log & Super Activity Log · Security Events (incl. name-redaction based on viewer's own permissions) · Global Search · Admin Profile & Avatar
 
 ### Agent Portal (Section 6) — 13 items
 Onboarding lifecycle · Dashboard · Hierarchy/tier behavior (test all 3 tiers' visibility boundaries directly, not just Tier 1) · Student roster & detail · Registering a new student · Applying on a student's behalf (both existing and brand-new student) · Applications overview · Browsing universities · Commissions *(confirm still shows "not yet available")* · Reassignment notification-only view · Notices · Activity Log (tier-scoped) · Profile & Avatar

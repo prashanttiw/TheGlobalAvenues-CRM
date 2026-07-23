@@ -14,8 +14,12 @@ with the project's documentation.
 document shows a realistic example (Priya Sharma, Rahul Mehta, OTP `482913`, etc.) so the wording
 can be judged. The system fills in the real value automatically every time it actually sends.
 
-**Quick counts:** 35 notification types total — 28 sent by email, 7 in-app only, 4 already wired
+**Quick counts:** 36 notification types total — 29 sent by email, 7 in-app only, 4 already wired
 into the code but with no message written yet (see §12).
+
+**Added 2026-07-26:** one new welcome-email variant, for the new admin-direct agent creation
+feature — see the last row of §2 below. Written in the same no-links branded style as everything
+else on this page; not part of the original 2026-07-14 review.
 
 **Checked end-to-end, not just written (2026-07-14):** every row below was traced through the live
 system — the wording is confirmed to exist and load correctly, and every situation that should send
@@ -55,6 +59,7 @@ Sent once, the moment an account is ready to use.
 | **New Student — added by their Agent** — when an agent registers a student on the student's behalf. Deliberately has no password in it; login is via one-time code or "forgot password". | **Subject:** Your Global Avenues student profile is ready<br><br>Welcome to The Global Avenues, Priya Sharma!<br>Your student profile has been created with The Global Avenues by Rahul Mehta. You can now track your applications, documents, and offers in one place.<br><br>*How to log in:* Use this email address (priya.sharma@example.com) with either:<br>→ One-time passcode (OTP) login — no password needed, or<br>→ "Forgot password" to set your own password<br><br>Warm regards, The Global Avenues Team |
 | **New Admin** — when a Super Admin creates a staff account. Also lists exactly which admin pages this account can access. | **Subject:** Your TGA Admin Account Is Ready<br><br>Welcome to the TGA Admin Portal, Anjali Verma!<br>Your admin account has been created by a super administrator. Below you will find the details of your account access level.<br><br>*[Automatically inserted list of the exact pages/permissions granted]*<br><br>Please change your password upon first login and enable two-factor authentication. If you did not expect this email, contact the TGA system administrator immediately.<br><br>Warm regards, The Global Avenues Team |
 | **New Agent** — self-registered, or a brand-new sub-agent account. | **Subject:** Welcome to The Global Avenues, Rahul Mehta!<br><br>Welcome to The Global Avenues, Rahul Mehta!<br>Your TGA partner account has been created. The final step is to complete your partner application so our team can review it.<br><br>*Next steps:*<br>→ Log in and complete your partner application<br>→ Our team will review it and confirm your partnership<br><br>If you have any questions, contact us at connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
+| **New Agent — created directly by an admin** (2026-07-26). No self-registration, no documents, no review — the account is already approved. Includes login credentials, since this agent never set a password themselves. | **Subject:** Welcome to The Global Avenues, Rahul Mehta!<br><br>Welcome to The Global Avenues, Rahul Mehta!<br>An administrator has created your partner account with The Global Avenues. You can log in right away — no application or document review needed.<br><br>*Your Login Details:*<br>Email: rahul.mehta@example.com<br>Temporary Password: b9VniZ3m!Zdj<br>Referral Code: TGA-RAHUL24<br><br>*⚠ For your security, you will be asked to set a new password immediately after your first login. If you did not expect this email, please contact us right away.*<br><br>If you have any questions, please contact us at connect@theglobalavenues.com.<br><br>Warm regards, The Global Avenues Team |
 
 ---
 

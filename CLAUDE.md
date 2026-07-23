@@ -38,6 +38,15 @@ Role: `agent`. Tiers: `bronze` / `silver` / `gold`. 3-level hierarchy: `root_age
 + `tier`. Subtree membership checked via `root_agent_id` O(1) comparison — no recursive tree walks. Tier 3
 hard cap on sub-agent creation. Cannot approve their own student reassignment requests.
 
+Two ways an agent account is created: self-registration (signup → onboarding form → 3 documents →
+admin review/approve, `AdminAgentController::approve/reject`) or **admin-created** (2026-07-26,
+`AdminAgentController::create()`) — admin fills the profile directly from the Agents page for an
+already-agreed offline partnership, account lands as `status='approved'` immediately with no
+documents/review step, `agents.created_by_admin_id` marks it for the audit trail ("Added by Admin"
+badge on the Agents page), and the agent gets a temp password by email
+(`agent.created_by_admin` template) with a forced password change enforced on first login
+(`users.must_change_password`, checked in `RoleGuard.tsx`).
+
 ### Admin Portal (`/portal/admin/`)
 Roles: `admin` and `super_admin`. `super_admin` can permanently erase records (30-day window post
 soft-delete, requires logged reason) and trigger global JWT revocation via `jwt_min_iat` system setting.
@@ -130,16 +139,16 @@ D:\TheGlobalAvenues-CRM\
 │   └── Helpers/Response.php         # Response::success(), Response::error()
 │
 ├── crm-api/Database/
-│   ├── migrations/                  # 001–081 SQL files (★ 048–052 MISSING — use combined SQL)
+│   ├── migrations/                  # 001–087 SQL files (★ 048–052 MISSING — use combined SQL)
 │   ├── all_migrations_combined.sql  # Covers 038–059 only — loaded by setup_database.php, not standalone
 │   ├── migrations_070_080.sql       # 070–080 concatenated (not in combined SQL) — loaded by setup_database.php
 │   ├── real_catalog_seed.sql        # Real universities/courses/intakes/campuses/logo/custom-fields data-only export
 │   ├── schema.sql                   # Schema snapshot (001–037)
 │   ├── seeds/                       # Empty (.gitkeep only) — old quiz/programs/universities seed files were dead (2026-07-04, referenced tables/columns that never shipped)
 │   ├── run_all_migrations.php       # Patches an existing DB with 060–089 — NOT a fresh-install tool
-│   └── setup_database.php           # ★ USE THIS for fresh environment setup — one command: full schema (001–081) + RBAC/config + real super admin + real catalog, zero test/stale data on APP_ENV=production
+│   └── setup_database.php           # ★ USE THIS for fresh environment setup — one command: full schema (001–087) + RBAC/config + real super admin + real catalog, zero test/stale data on APP_ENV=production
 │
-├── cron/                            # 9 cron scripts + master scheduler
+├── cron/                            # 5 job scripts (1 unscheduled, see §Cron Schedule) + master scheduler
 │   └── scheduler.php                # cPanel entry: every minute via flock()
 │
 ├── storage/
@@ -270,20 +279,21 @@ Actual table count: ~41+ (original "40 tables" spec predates Phase 9 additions).
 
 ## Backend Services Map
 
-`crm-api/Services/` — 24 files:
+`crm-api/Services/` — 22 files:
 
 | Service | Owns |
 |---------|------|
 | `ActivityLogger` | INSERT to `activity_logs` — columns: `actor_user_id`, `action`, `target_type`, `target_id` |
+| `AdminPageAccessService` | Maps admin UI page keys ↔ DB permissions by access level (read/write); powers the page-access grid on Users management and admin creation |
+| `AgentAccessService` | Resolves the calling agent's own row + subtree-membership checks (`root_agent_id` comparisons) |
 | `ApplicationStateManager` | **Dead code** — simple 5-state role-guarded machine (final class), fully implemented but never called from anywhere. `ApplicationController` uses `StateManager` exclusively. |
 | `AuditService` | Structured audit events wrapping ActivityLogger |
-| `BackupRetentionManager` | Prunes Drive backups per `backup_retain_*` settings (NOT `backup_retention_*`) |
 | `CommissionService` | Commission CRUD, state transitions, agent-chain validation |
 | `CronHealth` | Job health tracking; `checkStuckJobs(15)` resets stuck processing rows |
-| `DriveFolderManager` | Drive folder creation + permission management |
-| `DriveService` | Resumable chunked uploads to Google Drive (MediaFileUpload) |
 | `EncryptionService` | XSalsa20-Poly1305 `encrypt()`/`decrypt()` + SHA-256 `hash()` for lookup columns |
 | `FileUploadService` | MIME validation, 50MB free-space check, SHA-256, versioning, storage path |
+| `HtmlSanitizer` | Strips notice rich-text HTML down to an allow-listed tag set; sanitizes link targets |
+| `ImageProcessor` | Avatar/logo resize + URL resolution (preset vs. uploaded, thumb vs. full) |
 | `JWTService` | Custom HS256 JWT — no firebase/php-jwt. `jti` claim, access + refresh + reset tokens |
 | `MailService` | PHPMailer wrapper — `sendNow()` (OTP, synchronous) + `sendQueued()` (batch); `MAIL_FALLBACK_HOST` |
 | `NotificationService` | `fire(eventKey, vars, userIds)` — resolves template, queues notifications; `resolveAgentChain()` |
@@ -291,31 +301,34 @@ Actual table count: ~41+ (original "40 tables" spec predates Phase 9 additions).
 | `OTPService` | OTP generation (hashed), verification, rate limit check BEFORE any DB write |
 | `PasswordValidator` | Password strength enforcement |
 | `PendingRegistrationService` | Multi-step registration state in DB; `invalidateByEmail()` cleans orphans on OTP failure |
-| `PhpMysqlDump` | Pure-PHP DB export fallback when `exec()` is blocked on shared hosting |
-| `ReminderEngine` | Resolves reminder type → due date + recipient. Type key: `application_payment` (not `payment`) |
-| `ReminderService` | Processes reminder queue via NotificationService |
 | `SecurityEventLogger` | Logs to `security_events` (failed logins, blocked requests) |
 | `SLAService` | `startEvent()`, `resolveEvent()` (targets `IN ('active','breached')`), `cancelEvent()` |
 | `StateManager` | **Extended** 20-state transactional machine. `FOR UPDATE`. Fires notifications + SLA events. |
 | `SystemSettings` | Dual-layer cache: PHP static array (intra-request) + `storage/cache/settings.json` |
 
+`BackupRetentionManager`, `DriveFolderManager`, `DriveService`, `PhpMysqlDump`, `ReminderEngine`,
+`ReminderService` **no longer exist** — deleted 2026-07-10 along with the Google Drive backup sync
+and the never-functional payment-reminder engine. Don't look for them.
+
 ---
 
 ## Backend Controllers Map
 
-`crm-api/Controllers/` — 32 files:
+`crm-api/Controllers/` — 35 files:
 
 | Controller | Responsible For |
 |------------|----------------|
 | `ActivityFeedController` | Activity feed (admin audit view) |
 | `ActivityLogController` | Activity log API endpoints |
-| `AdminAgentController` | Admin-side agent approve / reject / suspend |
-| `AdminController` | General admin operations |
+| `AdminAgentController` | Admin-side agent approve / reject / suspend / direct creation (`create()`, skips documents+review) |
+| `AdminController` | General admin operations (own-profile get/update — `create()`/`update()` are disabled legacy stubs, see RegistrationController/RoleController note below) |
 | `AdminDashboardController` | Dashboard stats (reads `report_snapshots`) |
 | `AdminReportsController` | Report endpoints (funnel, agents, financial, countries) |
+| `AdminStudentController` | Admin-side student directory, detail, readiness review — distinct from `StudentController` (that one is the student's own self-service actions) |
 | `AgentController` | Agent portal: dashboard, student list, sub-agents |
 | `ApplicationController` | Application CRUD + state transitions (uses StateManager) |
 | `AuthController` | Login, logout, refresh, 2FA verify/toggle |
+| `AvatarController` | Preset + custom-upload avatar management, all 3 portals |
 | `CommissionController` | Commission create / confirm / paid |
 | `CourseController` | Course catalog CRUD |
 | `DocumentController` | Application document list/upload |
@@ -330,21 +343,28 @@ Actual table count: ~41+ (original "40 tables" spec predates Phase 9 additions).
 | `NotificationController` | In-app fetch, mark-read, clear |
 | `PaymentTrackingController` | Payment request + status per application |
 | `ReassignmentController` | Agent reassignment request + approval workflow |
-| `RegistrationController` | Student / agent / admin registration flow |
-| `RoleController` | RBAC role/permission management |
+| `RegistrationController` | Student / agent / admin registration flow — this is where admin accounts actually get created (`registerAdmin()`), not `AdminController` |
 | `SearchController` | Global search — UNION ALL across 5 entities, min 3 chars |
+| `SecurityEventController` | Admin-facing plain-English security event log (reads what `SecurityEventLogger` writes) |
 | `StudentAcademicController` | Student academic profile + test scores |
-| `StudentController` | Student profile, list, detail |
+| `StudentController` | Student's own portal: profile, applications |
+| `StudentCustomFieldController` | Admin-defined custom form fields for student profiles |
 | `SubAgentController` | Sub-agent creation and hierarchy management |
 | `SystemSettingsController` | System settings read/write (admin only) |
 | `TimelineController` | Application timeline items (admin↔student comms) |
 | `UniversityController` | University catalog CRUD |
 
+`RoleController` **no longer exists** — the standalone RBAC-role-management UI it backed was removed
+2026-07-03 (dead parallel system, never had a create UI); role/permission checks now run entirely
+through page-access grants (`AdminPageAccessService`) instead.
+
 ---
 
 ## Cron Schedule
 
-**cPanel entry (one line):** `* * * * * /usr/local/bin/php /home/username/public_html/cron/scheduler.php`
+**cPanel entry (one line):** `* * * * * /usr/local/bin/ea-php83 /home/lidglcmy/public_html/cron/scheduler.php`
+(the actual production PHP binary — see §Tech Stack; `/usr/local/bin/php` is a generic placeholder,
+not what's really configured)
 
 `scheduler.php` uses `flock()` + `scheduler_state.json` to enforce per-job frequencies. These are the
 actual values from the code — they differ from some phase doc descriptions:
@@ -397,6 +417,7 @@ All event keys must have a matching row in `notification_templates`.
 | `agent.rejected` | email, in_app | Rejection to agent |
 | `agent.suspended` | email | Suspension notice |
 | `subagent.created` | email, in_app | New sub-agent pending under parent |
+| `agent.created_by_admin` | email, in_app | Admin-created agent's welcome email — includes temp password + referral code (see §Agent Portal above) |
 
 **Reassignment:**
 | Event Key | Channels | Recipient |

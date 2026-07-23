@@ -3,7 +3,7 @@
 **Prepared for:** The Global Avenues (TGA)
 **Covers:** The full CRM platform at `apply.theglobalavenues.com` — Student Portal, Agent Portal, and Admin Portal
 **Status of the system described:** Live, production build, as verified directly against the current source code
-**Document version:** 1.1 — **Last updated:** 2026-07-14
+**Document version:** 1.2 — **Last updated:** 2026-07-26
 
 **Revision history:**
 
@@ -11,6 +11,7 @@
 |---|---|---|
 | 1.0 | 2026-07-09 | Initial complete edition — all three portals, all cross-cutting systems. |
 | 1.1 | 2026-07-14 | Re-verified against a system-wide deployment-readiness audit and the fixes it produced: the university/course/intake catalog now has an explicit campus-selection step everywhere it's needed (Sections 5.2, 5.3, 5.4, 7.5); application review moved from a side panel to a dedicated full page (Section 5.8); a document can no longer be replaced once approved (Sections 5.8, 7.4); several access-control boundaries were confirmed and, in a couple of cases, tightened (Sections 4.3, 4.7, 5.12, 8); notice content filtering and background-job reliability were strengthened (Sections 4.2, 4.5, 4.9, 5.11); several smaller UI corrections (Sections 5.6, 5.9, 6.3, 6.6, 7.3, 7.6). |
+| 1.2 | 2026-07-26 | New feature: admins can create a fully-approved agent account directly, skipping self-registration and document review — documented in Sections 5.7 and 6.1, including the temp-password welcome email and the forced password-change screen shown on that agent's first login. Also corrected several stale infrastructure facts in Sections 1 and 2 that had drifted from reality over time: production MySQL is 5.7 (not 8.4), production PHP is 8.3 (not just 8.2), and the controller/service/job counts have been re-verified against the actual codebase. |
 
 ---
 
@@ -69,9 +70,9 @@ The system is live and has been in continuous development and hardening since Ju
 ### Technical detail
 
 - **Frontend:** React 18 + TypeScript, built with Vite, styled with Tailwind CSS v4. One single-page application serves all three portals plus TGA's public marketing website, with role-based routing deciding what each logged-in user sees.
-- **Backend:** PHP 8.2, written without a framework (a deliberate choice — see Section 2), talking to a MySQL 8.4 database.
+- **Backend:** PHP, written without a framework (a deliberate choice — see Section 2). Production runs PHP 8.3; local development runs 8.2. Talking to a MySQL 5.7 database in production (local development uses MariaDB 10.4, which is more permissive — see the technical note in Section 2).
 - **Hosting:** Both the frontend and backend run on one shared hosting account (Bluehost, India) under the address `apply.theglobalavenues.com`. There is no separate server for the frontend — everything lives in one place.
-- **Scale of the codebase, as of this document:** 32 backend controllers, 24 backend services, roughly 40+ database tables, and around 60 distinct frontend pages spread across the three portals plus the public site.
+- **Scale of the codebase, as of this document:** 35 backend controllers, 22 backend services, roughly 41+ database tables, and around 60 distinct frontend pages spread across the three portals plus the public site.
 
 ### Why it was built this way
 
@@ -91,13 +92,13 @@ Picture one filing cabinet (the database) in one office (the server). Three diff
 2. Every action they take — viewing a page, clicking a button, submitting a form — turns into a request to the backend. Requests are shaped as `/?route=<resource>&action=<action>`, e.g. `/?route=applications&action=get/<id>`, rather than a more conventional web-address style. (Why, below.)
 3. The PHP backend checks who's asking (are they logged in? are they allowed to do this specific thing?), does the work (usually a database read or write), and sends back a plain JSON answer.
 4. The frontend updates the screen with that answer — no full page reload.
-5. In the background, entirely separately from any user sitting at a screen, a scheduled job runs every single minute, checking whether it's time to send queued emails, check for overdue documents, back up the database, or any of eight other routine jobs (Section 4.5).
+5. In the background, entirely separately from any user sitting at a screen, a scheduled job runs every single minute, checking whether it's time to send queued emails, check for SLA breaches, pre-compute the next report snapshot, or check disk usage — four routine jobs in total (Section 4.5).
 
 ### Technical detail
 
 - **Frontend stack:** React 18.3, React Router v7, Vite 6, Tailwind CSS v4 (design tokens defined in `src/styles/theme.css`, not a `tailwind.config.ts` file — that's a v4 change, not an oversight), TanStack Query v5 for data-fetching/caching, Zustand for local UI state, Radix UI for accessible interactive components (dialogs, dropdowns), `@dnd-kit` for all drag-and-drop, `motion` (the package formerly/also known as Framer Motion) for animation, TipTap for the rich-text notice editor, Recharts for report charts.
 - **Backend stack:** PHP 8.2, **deliberately built without a framework** (no Laravel, Symfony, etc.). Namespace root `TGA\CRM\`. A small number of Composer libraries are used for specific jobs that would be unreasonable to hand-roll: `openspout/openspout` for streaming Excel exports, `dompdf/dompdf` for PDF exports, PHPMailer for email.
-- **Database:** MySQL 8.4, targeted at InnoDB throughout, with a "public ID" pattern explained below.
+- **Database:** MySQL 5.7 in production (confirmed directly against the live account; local development runs the more permissive MariaDB 10.4 via XAMPP, so every migration has to be hand-verified for 5.7 compatibility rather than trusted from a clean local run), InnoDB throughout, with a "public ID" pattern explained below.
 - **API style:** Not a conventional REST API. All requests go through one PHP entry point (`crm-api/index.php`), which reads a `route` and `action` query parameter and dispatches to the matching controller method. This is sometimes called a "front controller" pattern.
 - **Hosting reality:** One Bluehost India shared-hosting account, cPanel username `lidglcmy`, serving both the built React app (as static files) and the PHP backend (`crm-api/`) from the same document root under `apply.theglobalavenues.com`. There is a genuine cPanel "Cron Jobs" scheduling feature available (used for the one-line entry that drives Section 4.5's whole background-job system) — the account does not have full Terminal/SSH access, but that is a separate permission from cPanel's cron feature, and does not limit anything described in this document.
 
@@ -570,10 +571,33 @@ The Admin portal (`/portal/admin/...`) is TGA's internal operations center. Ever
 5. **Suspend** (only available on an already-approved agent) requires a typed reason, and immediately signs that agent out of every device they were logged into anywhere — a real-time, no-delay lockout, not something that only takes effect the next time they'd try to log in.
 6. The **Hierarchy** tab lets an admin pick any top-level (Tier 1) agent and see their entire downstream network as an expandable tree — each node showing tier, agency, country, contact email, referral code, and status.
 
+**Adding an agent directly (no self-registration needed):**
+An "Add Agent" button on this page opens a form for an admin to create a fully-approved agent
+account on the spot — for the common real-world case where the partnership is already agreed
+offline and there's no need to make the partner go through the public sign-up form and document
+upload themselves.
+1. The admin fills in the agent's name, agency name, email, mobile number, and full address —
+   everything required is clearly starred; nothing else is needed, no documents are collected or
+   requested.
+2. On submit, the account is created **already approved** — it shows up immediately in "All
+   Agents" with a referral code, with no separate approval step and no document-review queue entry
+   ever created for it.
+3. The new agent is emailed their login email and a temporary password, and is required to set
+   their own new password the very first time they log in — they're taken straight to that screen
+   and can't reach any other part of their portal until it's done.
+4. Every agent created this way is permanently and visibly marked **"Added by Admin: [admin's
+   name]"**, both in the agent list and on that agent's detail view — so it's always obvious, at a
+   glance and forever, which partners came through this shortcut versus the normal self-service
+   application route.
+
 **Technical & business notes:**
-- Approving an agent generates a short, human-typeable referral code (format like `TGA-XXX999`), automatically checked for uniqueness.
+- Approving an agent (either via the normal Submitted-queue review, or automatically as part of
+  admin-direct creation) generates a short, human-typeable referral code (format like
+  `TGA-XXX999`), automatically checked for uniqueness.
 - Once approved, an agent cannot simply be rejected again if something's wrong later — Suspend is the correct tool for an already-approved agent; Reject is only for a still-pending application.
 - The hierarchy tree is built with a recursive database query that can efficiently walk an arbitrarily deep tree in one request, with parent/root internal identifiers stripped out of what's actually sent to the browser (a small extra privacy step, since those internal linking IDs aren't meaningful or safe information for a browser to hold).
+- An admin-created agent is always a top-level (Tier 1) partner — this shortcut doesn't currently support placing the new account as someone's sub-agent; that still has to be done the normal way if needed.
+- The temporary password is genuinely random and shown in the invitation email only once — TGA staff never see or choose it, and it isn't stored anywhere in readable form, matching how every other password in the system is handled.
 
 ---
 
@@ -710,6 +734,15 @@ Covered in step-by-step detail in **Section 4.1**. To recap the parts specific t
 - While waiting for a decision, the agent sees a clear "your application is under review" screen instead of the normal portal.
 - If rejected, the agent sees the admin's stated reason (if one was given) and can edit their submission and resubmit — rejection is not permanent.
 - If suspended after having been approved, the agent is immediately signed out everywhere and, on their next login attempt, sees the same "action needed" screen with the suspension reason.
+
+**The other way in — created directly by an admin:** some agents never go through any of the
+above at all. When an admin adds an agent directly from the Agents Management page (Section 5.7),
+the account is already approved from the very first login — no onboarding form, no documents, no
+"under review" screen. The only extra step for this agent is that their very first login uses a
+temporary password from their welcome email, and the portal takes them straight to their Profile
+page with a clear notice that they need to set their own new password before they can go anywhere
+else — once that's done, they land on the normal dashboard like any other approved agent, and
+never see that notice again.
 
 ### 6.2 Agent Dashboard
 

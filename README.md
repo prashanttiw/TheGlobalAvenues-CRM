@@ -10,7 +10,7 @@
 [![Vite](https://img.shields.io/badge/Vite-6.x-646CFF?logo=vite&logoColor=white)](https://vitejs.dev)
 [![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
 [![PHP](https://img.shields.io/badge/PHP-8.2-777BB4?logo=php&logoColor=white)](https://php.net)
-[![MySQL](https://img.shields.io/badge/MySQL-8.4-4479A1?logo=mysql&logoColor=white)](https://mysql.com)
+[![MySQL](https://img.shields.io/badge/MySQL-5.7-4479A1?logo=mysql&logoColor=white)](https://mysql.com)
 [![Status](https://img.shields.io/badge/status-production-brightgreen)]()
 
 ---
@@ -82,12 +82,12 @@ flowchart LR
         Index --> MW["Middleware\nAuth · RBAC · RateLimit · CSRF · Maintenance"]
         MW --> Ctrl["35 Controllers"]
         Ctrl --> Svc["22 Services"]
-        Svc --> DB[(MySQL 8.4\n~41 tables)]
+        Svc --> DB[(MySQL 5.7\n~41 tables)]
         Cron["cron/scheduler.php\ncPanel Cron, every minute"] --> Svc
     end
 ```
 
-One Bluehost India shared-hosting account (Apache, PHP 8.2, cPanel user `lidglcmy`) serves **both**
+One Bluehost India shared-hosting account (Apache, PHP 8.3 via `ea-php83`, cPanel user `lidglcmy`) serves **both**
 the built React app and the PHP backend from the same document root under
 `apply.theglobalavenues.com`. There is no separate frontend host and no Node runtime in production —
 the SPA is a static build.
@@ -156,10 +156,10 @@ logged reason) and trigger global JWT revocation via the `jwt_min_iat` system se
 
 | Item | Detail |
 |---|---|
-| PHP | ^8.1 required; production runs 8.2.12 |
+| PHP | ^8.1 required; **production runs 8.3** (`ea-php83`, confirmed via cPanel MultiPHP Manager); local dev runs 8.2.12 via XAMPP |
 | Framework | **None** (deliberate — see [§2](#2-system-architecture)) |
 | Composer deps | `openspout/openspout` 4.0 (streaming XLSX), `dompdf/dompdf` ^3.1 (PDF), `phpmailer/phpmailer` ^6.9 |
-| Database | MySQL 8.4 LTS, InnoDB |
+| Database | **Production runs MySQL 5.7.23** (confirmed via `SELECT VERSION()` on the live account); local dev uses MariaDB 10.4 via XAMPP, which is far more permissive and won't catch MySQL-8-only syntax — see [§9](#9-database) |
 | Email | PHPMailer via `MailService` wrapper |
 
 ### Hosting
@@ -216,7 +216,7 @@ D:\TheGlobalAvenues-CRM\
 │   └── Helpers/Response.php         # Response::success(), Response::error()
 │
 ├── crm-api/Database/
-│   ├── migrations/                  # 001–086 SQL files (★ 048–052 only exist in combined SQL, see §9)
+│   ├── migrations/                  # 001–087 SQL files (★ 048–052 only exist in combined SQL, see §9)
 │   ├── all_migrations_combined.sql  # Covers 038–059
 │   ├── migrations_060_069.sql / migrations_070_080.sql
 │   ├── real_catalog_seed.sql        # Real universities/courses/intakes/campuses data-only export
@@ -225,7 +225,7 @@ D:\TheGlobalAvenues-CRM\
 │   ├── run_all_migrations.php       # Patches an existing DB with 060–089 — NOT a fresh-install tool
 │   └── setup_database.php           # ★ USE THIS for fresh setup — full schema + RBAC/config + super admin + real catalog
 │
-├── cron/                            # 7 job scripts + master scheduler
+├── cron/                            # 5 job scripts (1 unscheduled, see §12) + master scheduler
 │   └── scheduler.php                # cPanel entry — every minute, via flock()
 │
 ├── storage/
@@ -257,7 +257,7 @@ is not `src/shared/components/layout/` (CRM portal shell — auth/role/page guar
 | Node.js | v22.13.1 (or any modern LTS) |
 | npm | 10.9.x |
 | PHP | 8.2.x with the `gd` extension enabled |
-| MySQL | via XAMPP, or import the combined SQL into any local MySQL 8.x |
+| MySQL | via XAMPP (ships MariaDB 10.4), or any local MySQL — production is 5.7.23, so prefer 5.7 locally too if you want migrations to fail the same way they would in production (see [§9](#9-database)) |
 
 ### Setup (Windows + XAMPP — the maintained local workflow)
 
@@ -382,6 +382,16 @@ individually-numbered files 081+. `run_all_migrations.php` only patches an exist
 it is not a fresh-install tool. Migrations **048–052** exist only inside the combined SQL, not as
 individual files in `migrations/`.
 
+> **Write every migration for MySQL 5.7, not whatever passes locally.** Production is MySQL 5.7.23;
+> local dev's MariaDB 10.4 (via XAMPP) is far more permissive and will silently accept syntax that
+> breaks in production. Known things 5.7 lacks that have already bitten this project: no `DEFAULT`
+> value (literal or expression) on `JSON`/`TEXT`/`BLOB` columns, no `DROP COLUMN IF EXISTS` / `ADD
+> COLUMN IF NOT EXISTS` (needs 8.0.29+), no CTEs (`WITH`), no window functions, no `CREATE ROLE`, no
+> functional/expression indexes. When a migration needs to be conditional, use an
+> `INFORMATION_SCHEMA`-driven check (stored procedure + dynamic SQL) instead of a version-gated DDL
+> modifier. `reconcile.php` is safe against MySQL 5.7 for this reason — always prefer it over hand
+> rolling a new patch script.
+
 ~41 tables, grouped by domain:
 
 | Domain | Tables |
@@ -483,7 +493,7 @@ states: `inquiry`, `draft`, `submitted`, `under_review`, `profile_review`, `docu
 
 | Entity | Flow |
 |---|---|
-| Agent status | `pending` → `approved` → `suspended` (admin only) |
+| Agent status | `pending` → `approved` → `suspended` (admin only). Admin-direct creation (`AdminAgentController::create()`) skips straight to `approved`, no `pending`/documents/review step — see §17. |
 | Document request | `requested` → `submitted` → `approved`; rejection loops `submitted` → `requested`; app withdrawal → `cancelled` |
 | Payment | `pending` → `student_marked_paid` → `confirmed`; `confirmed` ⇄ `disputed`; app withdrawal → `cancelled` |
 | Commission | `pending` → `confirmed` → `paid` — **immutable once paid** (PHP guard + DB trigger) |
@@ -496,8 +506,8 @@ states: `inquiry`, `draft`, `submitted`, `under_review`, `profile_review`, `docu
 
 `NotificationService::fire(eventKey, vars, userIds)` resolves an event key against
 `notification_templates` and queues it — a missing template silently no-ops rather than crashing.
-There are **35 notification types** across auth, agent lifecycle, reassignment, commission, and lead
-pipeline events (28 by email, 7 in-app only). As of 2026-07-14, every automatic email is plain-text
+There are **36 notification types** across auth, agent lifecycle, reassignment, commission, and lead
+pipeline events (29 by email, 7 in-app only). As of 2026-07-14, every automatic email is branded HTML
 with no links or buttons — a link audit found several pointing at stale/wrong destinations, so rather
 than keep maintaining links against a marketing site that keeps changing, all clickable elements were
 removed from every transactional email system-wide. Full content review:
@@ -514,7 +524,11 @@ dispatches everything else via `flock()` + `scheduler_state.json`:
 | `check-sla-breaches.php` | Every 15 min | SLA breach detection |
 | `generate-snapshots.php` | Every 24 hr | Pre-compute report metrics → `report_snapshots` |
 | `monitor-disk.php` | Every 12 hr | Disk usage alerts at 80%/95% |
-| `archive-old-logs.php` | Every 7 days | Move `activity_logs` rows > 2yr → archive table |
+
+**`archive-old-logs.php` exists in `cron/` but is deliberately *not* in `scheduler.php`'s job
+list** — `activity_logs` must never be deleted (product decision 2026-07-08), and its only other
+job (pruning `security_events`) wasn't judged worth running alone. It's dead weight in the
+directory, not a scheduled job; don't re-add it without a product decision to revisit log retention.
 
 Google Drive backup sync and the payment-reminder engine were deliberately removed from the codebase
 (2026-07-10) — they were never load-bearing in production. `FOR UPDATE SKIP LOCKED` rows must be
@@ -612,6 +626,10 @@ in scope — they're the auth entry points into the CRM portals, not marketing c
   2026-07-10** (11 files) — neither was ever load-bearing in production. Don't look for a reminder
   engine or Drive integration; they no longer exist.
 - **`npm run preview`** isn't defined — use `npx vite preview`.
+- **Admin-direct agent creation** (`AdminAgentController::create()`, 2026-07-26) always creates a
+  Tier-1 (root) agent — it doesn't currently support placing the new account as someone's
+  sub-agent. The new agent gets a temp password by email and must change it on first login
+  (`users.must_change_password`, enforced in `RoleGuard.tsx`).
 
 See `Implementation_development _docs/PROJECT_HISTORY.md` and `CLIENT_SYSTEM_DOCUMENTATION.md` §9 for
 the full, current list with technical detail.
@@ -645,7 +663,7 @@ Production is a single Bluehost India shared-hosting account:
   root, no separate host.
 - **Cron:** one cPanel Cron Jobs entry, `* * * * *`, pointed at `cron/scheduler.php` with the
   server's PHP CLI binary (`ea-php83` on this account).
-- **Database:** run `crm-api/Database/setup_database.php` once against a fresh MySQL 8.4 database, or
+- **Database:** run `crm-api/Database/setup_database.php` once against a fresh MySQL 5.7 database, or
   `reconcile.php --dry-run` / `--apply` to bring an existing database up to date safely. Bluehost has no
   SSH/Terminal, so this CLI script has to run via a one-shot cPanel Cron Jobs entry — see
   `Implementation_development _docs/PRODUCTION_SETUP_RUNBOOK.md` for the exact steps.

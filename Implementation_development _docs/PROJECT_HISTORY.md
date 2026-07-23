@@ -1334,3 +1334,125 @@ job passed. PR #11 merged as a fast-forward, scratch branch deleted (local + rem
   look abandoned
 - README's pre-existing MySQL badge still says "8.4" (already flagged as stale in `CLAUDE.md`; unrelated
   to this change, only noticed while editing the adjacent badge row)
+
+---
+
+## Admin-Created Agent Accounts (2026-07-26)
+
+**Trigger:** Until now the only way to become an agent partner was self-registration (signup →
+onboarding form → 3 documents → admin review/approve). Client wanted a second path: an admin who
+already has an offline/agreed partnership can create the agent account directly from the Agents
+admin page — no documents, no review step — with the new agent emailed a temporary password and
+forced to change it on first login, and every such record clearly marked in the admin UI as
+"created by admin" for audit history.
+
+### What was built
+- **Migration `087_agent_admin_created.sql`**: `agents.created_by_admin_id` (FK → `admins.id`,
+  `ON DELETE SET NULL` — its mere presence is the admin-created marker, no separate status/enum
+  column) and `users.must_change_password` (`TINYINT(1) DEFAULT 0`). New `agent.created_by_admin`
+  notification template (HTML, no-link house style per migration 086) showing email + temp
+  password + referral code. Wired into `setup_database.php`'s explicit apply-list alongside 081-086;
+  `reconcile.php` picks it up automatically via its `migrations/*.sql` glob.
+- **`AdminAgentController::create()`**: validates required fields (first/last name, agency name,
+  email, mobile, country, address/city/state — everything a fully-onboarded agent has minus
+  documents), generates a 12-char temp password guaranteed to satisfy `PasswordValidator` (no
+  retry loop needed), creates the `users`+`agents` rows directly with `status='approved'`,
+  `tier=1`, `approved_by`/`approved_at` = the acting admin, `created_by_admin_id` set,
+  `must_change_password=1`. Extracted the referral-code generator (previously inlined in
+  `approve()`) into a shared `generateReferralCode()` private method used by both. Fires
+  `agent.created_by_admin` (queued welcome email) and `ActivityLogger::log()`.
+- **Audit trail surfaced**: `listAll()` and `getDetail()` now `LEFT JOIN admins` on
+  `created_by_admin_id` and return `created_by_admin_name`; `AdminAgentsPage.tsx` shows an "Added
+  by Admin: {name}" badge in both the table row and the review-modal detail view.
+- **Forced password change on first login** (agent role only): `AuthController::buildUserResponse()`
+  now returns `must_change_password`; `AuthController::changePassword()` clears it in the same
+  `UPDATE users` statement. `RoleGuard.tsx` redirects to `/portal/agent/profile` whenever the flag
+  is set (mirrors its existing `agentStatus`-based redirect branches). `AgentProfilePage.tsx`
+  forces its existing inline password form open, shows a non-dismissable banner, hides the Cancel
+  button while mandatory, and on success calls a new `useAuth().updateMustChangePassword(false)`
+  store action (mirrors the existing `updateAgentStatus` action) so the guard releases immediately
+  without a re-login.
+- **Admin UI**: `CreateAgentPanel` in `AdminAgentsPage.tsx`, modeled directly on `AdminUsers.tsx`'s
+  `CreateAdminPanel` (`SlideOver` + form + `useMutation`), gated on the pre-existing
+  `('agents','create')` RBAC permission (no new permission needed — already seeded, already has a
+  page-grant write toggle). Required fields marked with the same red-asterisk convention used
+  elsewhere in the codebase.
+
+### Design decision — password delivery
+Discussed with the client: every other "account created for someone else" flow in this codebase
+(`admin.created`, sub-agent invite, `student.created_by_agent`) deliberately never emails a raw
+password. Client explicitly wanted a literal temporary-password email here (real-world agents
+often need it read over phone/WhatsApp, not just clicked), so went with temp-password-in-email +
+forced-change-on-first-login — the safer of the two options offered, reusing the existing
+change-password endpoint/UI rather than building anything new.
+
+### Local MySQL was down all session — root-caused and fixed
+Before any live testing, local MySQL (MariaDB 10.4.32 via XAMPP, port 3307) failed to start on
+every attempt with `[ERROR] Adding new entry '' to master_info failed` → `[ERROR] Aborting`, even
+from a fully clean state with every replication file deleted. Root cause: a stray
+`multi-master.info` file (a multi-source-replication channel registry, leftover from some past
+crash/experiment — cause unknown, predates this session) plus `xampp-control.exe` racing to
+respawn `mysqld.exe` on its own. Fix: killed `xampp-control.exe`, deleted `multi-master.info`
+along with all `master.info`/`relay-log.info`/`*-relay-bin.*` files, started `mysqld.exe` directly.
+Came up clean and has been stable since. Also kept a genuinely separate, confirmed-real fix from
+earlier in the session: `skip-name-resolve` added to `C:\xampp\mysql\bin\my.ini` (without it,
+every client connection hung forever on a reverse-DNS lookup during handshake in this sandboxed
+network). Neither issue was caused by this feature's changes — both predate this session.
+
+### Verification — full live pass, all green
+- `php -l` clean on all 4 touched PHP files; `npm run build` clean.
+- `php crm-api/Database/reconcile.php --apply` applied migration 087 cleanly; confirmed
+  `agents.created_by_admin_id`, `users.must_change_password`, and the `agent.created_by_admin`
+  template all exist as expected.
+- Created a test agent via direct API call: `agents` row landed with `status='approved'`,
+  `tier=1`, `root_agent_id=id`, `created_by_admin_id` set; `users` row landed with `status='active'`,
+  `must_change_password=1`.
+- Queued welcome email inspected directly from `notifications.body`: shows email + temp password +
+  referral code in the expected styled box, zero `<a href>` anywhere in the HTML. Ran
+  `cron/send-notifications.php` — email genuinely sent (`cron_health` logged `Sent:6 Failed:0`,
+  row status flipped to `sent`).
+- Logged in as the new agent with the temp password via API: response correctly carries
+  `must_change_password: true` and `account_status: "approved"` (full access, no document/review
+  gate). Called `change-password` with the temp password as current — succeeded; next login shows
+  `must_change_password: false`.
+- **Full browser UI pass** (second test agent, so the forced flow could be observed fresh): logged
+  in with the temp password → landed on `/portal/agent/profile` with the mandatory amber banner,
+  password form force-opened, no Cancel button. Directly navigated to `/portal/agent/students` →
+  bounced straight back to the profile page (guard holds under direct navigation, not just on
+  login). Completed the password change through the actual form → banner disappeared, Cancel
+  button reappeared, guard released with no re-login required; `/portal/agent/students` then loaded
+  normally.
+- **Admin UI pass**: "Add Agent" button + `CreateAgentPanel` render exactly as designed (red
+  asterisks on required fields, no password field). Submitted a third test agent through the real
+  form (not the API) — succeeded, appeared instantly at the top of "All Agents" with an "Added by
+  Admin: Prashant Tiwari" badge. Detail modal shows the same badge plus all 3 documents correctly
+  as "Not uploaded" (proves the document requirement is genuinely skipped, not silently expected).
+  Pre-existing self-registered agents (`QA Agent Test`, etc.) show no badge — zero cross-
+  contamination between the two creation paths.
+- **Regression check**: approved a genuine pre-existing self-registered "Submitted" agent through
+  the unchanged review flow (which now calls the extracted `generateReferralCode()` helper) —
+  worked exactly as before, agent moved out of the queue with a real referral code. No console
+  errors observed at any point.
+- Three test fixtures left in the local dev DB from this pass (`Full UI Flow Test Consultants` /
+  `UI Test Overseas Consultants` / `Test Global Education Consultants`, all admin-created) —
+  harmless, consistent with the pre-existing `QA Agent Test`-style fixtures already in that DB;
+  not cleaned up, can be soft-deleted on request.
+
+### Files touched
+- `crm-api/Database/migrations/087_agent_admin_created.sql` (new)
+- `crm-api/Database/setup_database.php`
+- `crm-api/Controllers/AdminAgentController.php`
+- `crm-api/Controllers/AuthController.php`
+- `crm-api/Routes/AdminRoutes.php`
+- `src/lib/api.ts`
+- `src/shared/hooks/useAuth.ts`
+- `src/shared/components/layout/RoleGuard.tsx`
+- `src/pages/agent/AgentProfilePage.tsx`
+- `src/pages/admin/AdminAgentsPage.tsx`
+- `C:\xampp\mysql\bin\my.ini` (local machine only, not in this repo — `skip-name-resolve` added;
+  the `multi-master.info` deletion needed no config change, just removing the stray file)
+
+### Not yet done
+Production deployment (Bluehost) — this was a local-only build+verify session. Next step when
+ready to ship: apply migration 087 to production via the usual manual runbook, deploy the updated
+`crm-api/` + frontend `dist/` build, no further code changes needed.
